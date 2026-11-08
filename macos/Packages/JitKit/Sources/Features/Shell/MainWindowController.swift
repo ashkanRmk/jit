@@ -91,6 +91,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         case .tabs:
             let open = Set(model.tabs.map(\.id))
             for id in controllers.keys where !open.contains(id) {
+                controllers[id].map(container.remove)
                 controllers[id] = nil
             }
         case .activeTab:
@@ -99,6 +100,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             updateTitle()
         case .suspended(let ids):
             for id in ids where id != model.activeTabID {
+                controllers[id].map(container.remove)
                 controllers[id] = nil
             }
         }
@@ -470,6 +472,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         }
     }
 
+    #if DEBUG
+        public func showDropOverlayForScreenshot() { (container.view as? DropTargetView)?.showOverlayForScreenshot() }
+    #endif
+
     public func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
         if item.itemIdentifier == .toggleSidebar || item.itemIdentifier == .toggleInspector {
             return container.current is WorkbenchController
@@ -500,16 +506,27 @@ final class ContentContainerViewController: NSViewController {
         guard controller !== current else { return }
         let previous = current
         current = controller
-        addChild(controller)
-        let child = controller.view
-        child.frame = view.bounds
-        child.autoresizingMask = [.width, .height]
-        (view as? DropTargetView)?.setContent(child)
-        if let previous {
-            previous.view.removeFromSuperview()
-            previous.removeFromParent()
+        // Loaded tabs keep their views in the hierarchy and are only hidden, so switching back doesn't
+        // re-insert (and re-lay out) a whole SwiftUI/split-view tree.
+        if controller.parent !== self {
+            addChild(controller)
+            let child = controller.view
+            child.frame = view.bounds
+            child.autoresizingMask = [.width, .height]
+            (view as? DropTargetView)?.setContent(child)
         }
-        view.window?.makeFirstResponder(child)
+        (controller as? WorkbenchController)?.willBecomeVisible()
+        controller.view.isHidden = false
+        previous?.view.isHidden = true
+        view.window?.makeFirstResponder(controller.view)
+    }
+
+    /// Removes a closed or suspended tab's controller.
+    func remove(_ controller: NSViewController) {
+        guard controller.parent === self else { return }
+        controller.view.removeFromSuperview()
+        controller.removeFromParent()
+        if current === controller { current = nil }
     }
 }
 
@@ -549,6 +566,11 @@ final class DropTargetView: NSView {
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
         }
     }
+
+    #if DEBUG
+        /// Screenshots of the drop state (`-JitShowDropOverlay YES`); a real drag can't be captured reliably.
+        func showOverlayForScreenshot() { overlay.isHidden = false }
+    #endif
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         guard folder(in: sender) != nil else { return [] }
@@ -592,7 +614,7 @@ struct DropOverlay: View {
                     .foregroundStyle(.token(.textPrimary))
             }
         }
-        .ignoresSafeArea()
+        // Content only: the glass toolbar stays visible above it.
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

@@ -18,11 +18,13 @@ public final class SettingsWindowController: NSWindowController {
         tabs.tabStyle = .toolbar
         let general = NSHostingController(rootView: GeneralSettingsView(preferences: preferences))
         general.sizingOptions = .preferredContentSize
+        general.title = "General"  // the selected pane's title becomes the window title
         let generalItem = NSTabViewItem(viewController: general)
         generalItem.label = "General"
         generalItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "General")
         let profilesHost = NSHostingController(rootView: ProfilesSettingsView(store: profiles, engine: engine))
         profilesHost.sizingOptions = .preferredContentSize
+        profilesHost.title = "Profiles"
         let profilesItem = NSTabViewItem(viewController: profilesHost)
         profilesItem.label = "Profiles"
         profilesItem.image = NSImage(systemSymbolName: "person.2", accessibilityDescription: "Profiles")

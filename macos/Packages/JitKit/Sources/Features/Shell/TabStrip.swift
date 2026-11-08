@@ -146,7 +146,10 @@ struct TabItemView: View {
         .padding(.trailing, Space.s3)
         .frame(width: width, height: TabMetrics.height)
         .contentShape(Capsule())
-        .glassTab(isSelected: isSelected, isHovered: isHovered, id: tab.id, in: namespace)
+        // Glass identity is the tab's position, not its UUID: SwiftUI keeps per-ID glass state for every ID it
+        // has seen, so UUIDs would grow it with every tab ever opened. Positions are bounded by the tab count
+        // and selection still morphs between positions.
+        .glassTab(isSelected: isSelected, isHovered: isHovered, id: index, in: namespace)
         .onHover { isHovered = $0 }
         .help(tab.tooltip)
         .overlay(MiddleClickCatcher(action: close))

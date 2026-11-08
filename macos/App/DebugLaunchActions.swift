@@ -6,6 +6,7 @@
     /// Debug-only launch arguments used for repeatable manual checks and design screenshots:
     /// - `-JitAppearance light|dark` (AppDelegate) forces the appearance. (`-JitOpen <path>` works in all builds.)
     /// - `-JitShowGallery YES`: open the Design System gallery (`-JitGallerySection <name>` picks a section).
+    /// - `-JitShowDropOverlay YES`: show the folder drop overlay.
     /// - `-JitShowSettings general|profiles`, `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`: open those
     ///   surfaces for screenshots.
     /// - `-JitSnapshot <file.png>` (+ optional `-JitSnapshotWindow <title or id>`): after the UI settles, render
@@ -16,7 +17,7 @@
     enum DebugLaunchActions {
         private static var galleryWindow: NSWindow?
 
-        static func run(model: AppModel) {
+        static func run(model: AppModel, controller: MainWindowController?) {
             let defaults = UserDefaults.standard
             NSApp.mainMenu?.addItem(debugMenu())
             if defaults.bool(forKey: "JitShowGallery") { showGallery() }
@@ -30,11 +31,13 @@
                     NSApp.sendAction(#selector(MainWindowController.showProfileSwitcher(_:)), to: nil, from: nil)
                 }
             }
-            if defaults.bool(forKey: "JitShowProfileEditor"), let window = NSApp.mainWindow {
+            if defaults.bool(forKey: "JitShowProfileEditor") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    (window.windowController as? MainWindowController)?
-                        .presentProfileEditor(nil, prefillFromGitConfig: false)
+                    controller?.presentProfileEditor(nil, prefillFromGitConfig: false)
                 }
+            }
+            if defaults.bool(forKey: "JitShowDropOverlay") {
+                controller?.showDropOverlayForScreenshot()
             }
             if let output = defaults.string(forKey: "JitSnapshot") {
                 let delay = defaults.double(forKey: "JitSnapshotDelay")

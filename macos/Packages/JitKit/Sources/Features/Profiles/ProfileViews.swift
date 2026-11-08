@@ -194,7 +194,7 @@ struct ProfileEditorView: View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
                 Section {
-                    TextField("Profile name", text: $displayName, prompt: Text("Work"))
+                    TextField("Profile name", text: $displayName, prompt: Text(verbatim: "Work"))
                     issueText(.displayName)
                     LabeledContent("Color") {
                         HStack(spacing: Space.s3) {
@@ -219,9 +219,9 @@ struct ProfileEditorView: View {
                     }
                 }
                 Section {
-                    TextField("Author name", text: $authorName, prompt: Text("Ada Lovelace"))
+                    TextField("Author name", text: $authorName, prompt: Text(verbatim: "Ada Lovelace"))
                     issueText(.authorName)
-                    TextField("Author email", text: $authorEmail, prompt: Text("ada@example.com"))
+                    TextField("Author email", text: $authorEmail, prompt: Text(verbatim: "ada@example.com"))
                     issueText(.authorEmail)
                     HStack {
                         Button(isFilling ? "Reading Git config…" : "Fill from Git config", action: fillFromGitConfig)

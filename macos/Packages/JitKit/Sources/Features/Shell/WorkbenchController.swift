@@ -24,7 +24,6 @@ final class WorkbenchController: NSSplitViewController {
     private var inspectorItem: NSSplitViewItem?
     private var needsWidthRestore = true
     private var isApplyingWidths = false
-    private var collapseObservations: [NSKeyValueObservation] = []
 
     init(tab: TabModel, session: RepositorySession, model: AppModel, actions: WorkbenchActions) {
         self.tab = tab
@@ -70,17 +69,6 @@ final class WorkbenchController: NSSplitViewController {
         addSplitViewItem(inspector)
         sidebarItem = sidebar
         inspectorItem = inspector
-
-        collapseObservations = [
-            sidebar.observe(\.isCollapsed, options: [.new]) { [weak self] _, change in
-                let collapsed = change.newValue ?? false
-                MainActor.assumeIsolated { self?.collapseChanged(sidebar: collapsed) }
-            },
-            inspector.observe(\.isCollapsed, options: [.new]) { [weak self] _, change in
-                let collapsed = change.newValue ?? false
-                MainActor.assumeIsolated { self?.collapseChanged(inspector: collapsed) }
-            },
-        ]
     }
 
     private static func host<V: View>(_ view: V) -> NSViewController {
@@ -92,6 +80,21 @@ final class WorkbenchController: NSSplitViewController {
     override func viewWillAppear() {
         super.viewWillAppear()
         needsWidthRestore = true
+    }
+
+    /// Called when the tab is shown again (its view stays in the hierarchy while hidden); widths are shared
+    /// with other tabs and may have changed.
+    func willBecomeVisible() {
+        let sidebarStale =
+            sidebarItem.map {
+                !$0.isCollapsed && abs($0.viewController.view.frame.width - model.layout.sidebarWidth) > 0.5
+            }
+            ?? false
+        let inspectorStale =
+            inspectorItem.map {
+                !$0.isCollapsed && abs($0.viewController.view.frame.width - model.layout.inspectorWidth) > 0.5
+            } ?? false
+        if sidebarStale || inspectorStale { applyWidths() }
     }
 
     override func viewDidLayout() {
@@ -118,6 +121,13 @@ final class WorkbenchController: NSSplitViewController {
     override func splitViewDidResizeSubviews(_ notification: Notification) {
         super.splitViewDidResizeSubviews(notification)
         onSidebarGeometryChange?()
+        // Collapse/expand also resizes the subviews; record per-tab flags here (no KVO needed).
+        if let sidebarItem, sidebarItem.isCollapsed != tab.sidebarCollapsed {
+            collapseChanged(sidebar: sidebarItem.isCollapsed)
+        }
+        if let inspectorItem, inspectorItem.isCollapsed != tab.inspectorCollapsed {
+            collapseChanged(inspector: inspectorItem.isCollapsed)
+        }
         // Only user drags of a divider change the stored widths (not window resizes or restores).
         guard !isApplyingWidths, !needsWidthRestore, notification.userInfo?["NSSplitViewDividerIndex"] != nil
         else { return }

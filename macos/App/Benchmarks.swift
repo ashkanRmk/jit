@@ -61,13 +61,15 @@ enum Benchmarks {
         NSApp.terminate(nil)
     }
 
-    /// `JIT_STRESS_OPEN_CLOSE=<repo>`: opens and closes a repository tab 50 times and reports the
-    /// physical footprint before, after 10 cycles, and after 50 cycles.
+    /// `JIT_STRESS_OPEN_CLOSE=<repo>` (+ optional `JIT_STRESS_CYCLES`, default 50): opens and closes a
+    /// repository tab repeatedly and reports the physical footprint at launch, after 10 cycles, every 25
+    /// cycles, and 2 s after the last one.
     static func openCloseStress(model: AppModel, path: String) async {
         try? await Task.sleep(for: .seconds(1))
         let url = URL(fileURLWithPath: path)
+        let cycles = Int(ProcessInfo.processInfo.environment["JIT_STRESS_CYCLES"] ?? "") ?? 50
         var samples: [(Int, Double)] = [(0, footprintMB())]
-        for cycle in 1...50 {
+        for cycle in 1...max(1, cycles) {
             model.open(url)
             await model.settleOpen()
             guard let tab = model.activeTab, tab.isRepository else {
@@ -81,14 +83,15 @@ enum Benchmarks {
             try? await Task.sleep(for: .milliseconds(50))
             model.closeTab(tab.id)
             try? await Task.sleep(for: .milliseconds(50))
-            if cycle == 10 || cycle == 25 || cycle == 50 { samples.append((cycle, footprintMB())) }
+            if cycle == 10 || cycle % 25 == 0 { samples.append((cycle, footprintMB())) }
         }
         try? await Task.sleep(for: .seconds(2))
         samples.append((-1, footprintMB()))
         report(
             samples.map { $0.0 < 0 ? String(format: "settled=%.1f", $0.1) : String(format: "cycle%d=%.1f", $0.0, $0.1) }
                 .joined(separator: " ") + " (MB phys_footprint)\n")
-        NSApp.terminate(nil)
+        // `JIT_STRESS_HOLD=1` keeps the app running for heap inspection (`heap`, `vmmap`).
+        if ProcessInfo.processInfo.environment["JIT_STRESS_HOLD"] == nil { NSApp.terminate(nil) }
     }
 
     static func footprintMB() -> Double {

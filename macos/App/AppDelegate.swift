@@ -172,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             Task { await Benchmarks.openCloseStress(model: model, path: repository) }
         }
         #if DEBUG
-            DebugLaunchActions.run(model: model)
+            DebugLaunchActions.run(model: model, controller: windowController)
         #endif
     }
 }
