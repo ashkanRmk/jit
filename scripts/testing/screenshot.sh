@@ -10,7 +10,7 @@ if [[ $# -gt 0 && "$1" != "--" ]]; then TITLE="$1"; shift; fi
 [[ "${1:-}" == "--" ]] && shift
 APP="${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Debug/Jit.app/Contents/MacOS/Jit"
 [[ -x "$APP" ]] || { echo "error: build the app first (scripts/build/build-app.sh debug)" >&2; exit 1; }
-STYLE=(); [[ "$APPEARANCE" == "dark" ]] && STYLE=(-AppleInterfaceStyle Dark) || STYLE=(-AppleInterfaceStyle Light)
+STYLE=(-JitAppearance "$APPEARANCE")
 "$APP" "${STYLE[@]}" "$@" >/dev/null 2>&1 &
 PID=$!
 trap 'kill $PID 2>/dev/null || true' EXIT

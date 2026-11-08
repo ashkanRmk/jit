@@ -69,10 +69,13 @@ public final class RepositorySession {
 
     private static let log = Logger(subsystem: "jit.app", category: "session")
 
-    public init(path: String, engine: GitEngine, watchesFileSystem: Bool = true) {
+    /// - Parameter handle: an already opened handle (the open flow discovers once, not twice).
+    public init(path: String, engine: GitEngine, handle: RepositoryHandle? = nil, watchesFileSystem: Bool = true) {
         self.path = path
         self.engine = engine
         self.watchesFileSystem = watchesFileSystem
+        self.handle = handle
+        self.info = handle?.info
     }
 
     public var isWatching: Bool { watcher?.isRunning ?? false }
