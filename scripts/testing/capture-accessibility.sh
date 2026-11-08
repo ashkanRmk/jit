@@ -9,6 +9,19 @@
 set -euo pipefail
 SUFFIX="${1:?usage: capture-accessibility.sh <suffix>}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Refuse to produce mislabelled captures: the matching system setting must be on right now.
+case "$SUFFIX" in
+    reducetransparency) FLAG=accessibilityDisplayShouldReduceTransparency ;;
+    increasecontrast) FLAG=accessibilityDisplayShouldIncreaseContrast ;;
+    *) FLAG="" ;;
+esac
+if [[ -n "$FLAG" ]]; then
+    STATE="$(swift -e "import AppKit; print(NSWorkspace.shared.$FLAG)" 2>/dev/null || echo unknown)"
+    if [[ "$STATE" != "true" ]]; then
+        echo "error: macOS reports $FLAG = $STATE. Turn the setting on in System Settings ▸ Accessibility ▸ Display first." >&2
+        exit 1
+    fi
+fi
 OUT="$ROOT/docs/phases/01-shell-and-tabs/screenshots"
 WORK="$(mktemp -d -t jit-a11y)"
 trap 'rm -rf "$WORK"' EXIT
