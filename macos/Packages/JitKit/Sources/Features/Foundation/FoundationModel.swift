@@ -18,6 +18,7 @@ public final class FoundationModel {
 
     private let engine: GitEngine
     private var discovery: Task<Void, Never>?
+    private var indicator: Task<Void, Never>?
 
     public init(engine: GitEngine) {
         self.engine = engine
@@ -30,14 +31,15 @@ public final class FoundationModel {
     /// Discovers the repository at `url`, cancelling any discovery still running.
     public func open(_ url: URL) {
         discovery?.cancel()
+        indicator?.cancel()
         state = .loading(url, showsIndicator: false)
+        indicator = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, case .loading(url, false) = self.state else { return }
+            self.state = .loading(url, showsIndicator: true)
+        }
         discovery = Task { [engine] in
-            let indicator = Task {
-                try? await Task.sleep(for: .milliseconds(150))
-                guard !Task.isCancelled, case .loading(url, false) = self.state else { return }
-                self.state = .loading(url, showsIndicator: true)
-            }
-            defer { indicator.cancel() }
+            defer { if !Task.isCancelled { self.indicator?.cancel() } }
             do throws(GitCoreError) {
                 let git = try await engine.gitInfo()
                 let info = try await engine.discoverRepository(at: url)
@@ -56,6 +58,8 @@ public final class FoundationModel {
     public func cancel() {
         discovery?.cancel()
         discovery = nil
+        indicator?.cancel()
+        indicator = nil
         if case .loading = state { state = .empty }
     }
 

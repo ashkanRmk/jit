@@ -164,9 +164,14 @@ private final class ChildProcess: @unchecked Sendable {
             close(outPipe[1])
             return complete(.failure(.launchFailed(errno: code)))
         }
+        // Close-on-exec on all four ends, so a concurrent spawn elsewhere in the process (one that does
+        // not use CLOEXEC_DEFAULT) cannot inherit a write end and delay EOF. `adddup2` clears the flag
+        // on the child's stdout/stderr.
+        for fd in [outPipe[0], outPipe[1], errPipe[0], errPipe[1]] {
+            _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+        }
         for fd in [outPipe[0], errPipe[0]] {
             _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
-            _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         }
 
         var actions: posix_spawn_file_actions_t?
@@ -217,7 +222,7 @@ private final class ChildProcess: @unchecked Sendable {
 
         if let timeout = spec.timeout {
             schedule(after: timeout) { [self] in
-                terminate(because: .timedOut(seconds: Int(timeout.components.seconds)))
+                terminate(because: .timedOut(seconds: ChildProcessMath.roundedUp(timeout)))
             }
         }
     }
@@ -244,8 +249,10 @@ private final class ChildProcess: @unchecked Sendable {
         return source
     }
 
+    /// Reads at most 16 × 64 KiB per event so cancellation and timeouts queued behind a chatty child
+    /// still run promptly; the source fires again while data remains.
     private func drain(fd: Int32, isStdout: Bool) {
-        while true {
+        for _ in 0..<16 {
             let count = read(fd, scratch.baseAddress, scratch.count)
             if count > 0 {
                 append(UnsafeRawBufferPointer(rebasing: scratch[0..<count]), isStdout: isStdout)
@@ -283,6 +290,8 @@ private final class ChildProcess: @unchecked Sendable {
             stderrSource?.cancel()
             stderrSource = nil
         }
+        // Backstop: if both pipes are closed but no exit event was seen, check the child directly.
+        if stdoutSource == nil, stderrSource == nil, waitStatus == nil { reap() }
         finishIfDone()
     }
 
@@ -314,7 +323,7 @@ private final class ChildProcess: @unchecked Sendable {
             // Something else in the group still holds the pipes. Give it the grace period, then
             // kill the group and stop reading.
             schedule(after: grace) { [self] in
-                killpg(pid, SIGKILL)
+                signalGroup(SIGKILL)
                 stdoutSource?.cancel()
                 stdoutSource = nil
                 stderrSource?.cancel()
@@ -328,19 +337,30 @@ private final class ChildProcess: @unchecked Sendable {
     private func terminate(because reason: GitCoreError) {
         guard !finished, pid > 0 else { return }
         if failure == nil { failure = reason }
-        killpg(pid, SIGTERM)
+        signalGroup(SIGTERM)
         guard !killScheduled else { return }
         killScheduled = true
         schedule(after: grace) { [self] in
             guard !finished else { return }
-            killpg(pid, SIGKILL)
+            signalGroup(SIGKILL)
+            // Backstop: never depend on the exit event alone to finish.
+            reap(afterExitEvent: true)
         }
+    }
+
+    /// Signals the child's process group. Before the leader is reaped its pid (= pgid) cannot be
+    /// reused. After reaping, the pgid stays reserved only while members remain, so it is signalled
+    /// only if the group still has members — never a recycled group.
+    private func signalGroup(_ signal: Int32) {
+        guard pid > 0 else { return }
+        if waitStatus == nil || processGroupHasMembers(pid) { killpg(pid, signal) }
     }
 
     private func schedule(after delay: Duration, _ handler: @escaping () -> Void) {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         let (seconds, attoseconds) = delay.components
-        let nanoseconds = Int(seconds) * 1_000_000_000 + Int(attoseconds / 1_000_000_000)
+        let cappedSeconds = Int(min(max(seconds, 0), 86_400 * 365))  // avoid overflow for absurd values
+        let nanoseconds = cappedSeconds * 1_000_000_000 + Int(attoseconds / 1_000_000_000)
         timer.schedule(deadline: .now() + .nanoseconds(nanoseconds), leeway: .milliseconds(10))
         timer.setEventHandler(handler: handler)
         timers.append(timer)
@@ -401,9 +421,26 @@ final class LiveProcessGroups: Sendable {
     func insert(_ group: pid_t) { _ = groups.withLock { $0.insert(group) } }
     func remove(_ group: pid_t) { _ = groups.withLock { $0.remove(group) } }
 
-    func killAll() {
-        for group in groups.withLock({ $0 }) { killpg(group, SIGKILL) }
+    /// Sends SIGTERM to every live group (Git cleans up its lock files on SIGTERM). Phase 0 runs only
+    /// read commands; write operations (Phase 3+) must instead delay termination until they finish.
+    func killAll(signal: Int32 = SIGTERM) {
+        for group in groups.withLock({ $0 }) where processGroupHasMembers(group) { killpg(group, signal) }
     }
+}
+
+enum ChildProcessMath {
+    /// Whole seconds for user-facing timeout messages: 400 ms → 1, 15 s → 15.
+    static func roundedUp(_ duration: Duration) -> Int {
+        let (seconds, attoseconds) = duration.components
+        return max(1, Int(seconds) + (attoseconds > 0 ? 1 : 0))
+    }
+}
+
+/// Whether any process is still in process group `pgid`.
+func processGroupHasMembers(_ pgid: pid_t) -> Bool {
+    var members = [pid_t](repeating: 0, count: 4)
+    let bytes = members.withUnsafeMutableBytes { proc_listpgrppids(pgid, $0.baseAddress, Int32($0.count)) }
+    return bytes > 0
 }
 
 /// A NUL-terminated `char *[]` that owns its strings for the duration of a `posix_spawn` call.

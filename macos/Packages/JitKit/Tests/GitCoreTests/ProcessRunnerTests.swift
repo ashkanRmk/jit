@@ -86,7 +86,7 @@ import Testing
     @Test func timeoutKillsProcessGroup() async throws {
         let pidFile = temporaryFile()
         let started = ContinuousClock.now
-        await #expect(throws: GitCoreError.timedOut(seconds: 0)) {
+        await #expect(throws: GitCoreError.timedOut(seconds: 1)) {
             try await runner.run(
                 spec("/bin/sh", ["-c", "sleep 30 & echo $! > '\(pidFile)'; wait"], timeout: .milliseconds(400)))
         }
@@ -97,7 +97,7 @@ import Testing
 
     @Test func ignoredSigtermEscalatesToSigkill() async throws {
         let started = ContinuousClock.now
-        await #expect(throws: GitCoreError.timedOut(seconds: 0)) {
+        await #expect(throws: GitCoreError.timedOut(seconds: 1)) {
             try await runner.run(
                 spec("/bin/sh", ["-c", "trap '' TERM; sleep 30 & wait; wait"], timeout: .milliseconds(200)))
         }
@@ -156,6 +156,23 @@ import Testing
         groups.killAll()
         await #expect(throws: GitCoreError.self) { try await task.value }
         #expect(await waitUntilGone(grandchild))
+    }
+
+    @Test func leftoverPipeHolderIsKilledAfterGrace() async throws {
+        // The leader exits at once; a background child keeps stdout open. The runner must still finish
+        // (after the grace period) and kill the leftover member of the group.
+        let pidFile = temporaryFile()
+        let started = ContinuousClock.now
+        let output = try await runner.run(spec("/bin/sh", ["-c", "sleep 30 & echo $! > '\(pidFile)'; printf done"]))
+        #expect(output.stdoutText == "done")
+        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(await waitUntilGone(try await readPID(pidFile)))
+    }
+
+    @Test func timeoutReportsWholeSecondsRoundedUp() {
+        #expect(ChildProcessMath.roundedUp(.milliseconds(400)) == 1)
+        #expect(ChildProcessMath.roundedUp(.seconds(15)) == 15)
+        #expect(ChildProcessMath.roundedUp(.milliseconds(15_001)) == 16)
     }
 
     @Test func noThreadBlockedWhileWaiting() async throws {

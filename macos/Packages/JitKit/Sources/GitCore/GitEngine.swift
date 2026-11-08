@@ -74,6 +74,8 @@ public actor GitEngine {
     public nonisolated let configuration: Configuration
     private let runner: ProcessRunner
     private var executable: GitExecutable?
+    /// One shared probe for concurrent first callers (actor reentrancy would otherwise start several).
+    private var probe: Task<Result<GitExecutable, GitCoreError>, Never>?
 
     public init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
@@ -83,12 +85,35 @@ public actor GitEngine {
     /// Locates Git and checks its version against `GitVersion.minimum`.
     public func gitInfo() async throws(GitCoreError) -> GitExecutable {
         if let executable { return executable }
+        if Task.isCancelled { throw .cancelled }
+        let task = probe ?? Task { [configuration, runner] in await Self.locateAndProbe(configuration, runner) }
+        probe = task
+        let result = await task.value
+        probe = nil
+        let found = try result.get()
+        executable = found
+        return found
+    }
+
+    private static func locateAndProbe(
+        _ configuration: Configuration, _ runner: ProcessRunner
+    ) async -> Result<GitExecutable, GitCoreError> {
+        do throws(GitCoreError) {
+            return .success(try await probeGit(configuration, runner))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private static func probeGit(
+        _ configuration: Configuration, _ runner: ProcessRunner
+    ) async throws(GitCoreError) -> GitExecutable {
         let location = try GitLocator(configuration: configuration.locator, probe: configuration.probe).locate()
         let spec = ProcessSpec(
             executable: location.path,
             arguments: ["--version"],
             workingDirectory: "/",
-            environment: environment(for: location.path, kind: .read),
+            environment: environment(for: location.path, kind: .read, configuration: configuration),
             timeout: .seconds(10),
             stdoutLimit: 4096
         )
@@ -99,19 +124,27 @@ public actor GitEngine {
         guard version >= GitVersion.minimum else {
             throw .gitTooOld(found: version, required: GitVersion.minimum)
         }
-        let found = GitExecutable(path: location.path, version: version, source: location.source)
-        executable = found
-        return found
+        return GitExecutable(path: location.path, version: version, source: location.source)
     }
 
     /// Runs one Git command with the located executable.
     public func run(_ command: GitCommand) async throws(GitCoreError) -> ProcessOutput {
+        do {
+            return try await runOnce(command)
+        } catch .launchFailed(let code) where code == ENOENT || code == EACCES {
+            // The cached Git vanished (e.g. `brew uninstall git`): locate again once and retry.
+            executable = nil
+            return try await runOnce(command)
+        }
+    }
+
+    private func runOnce(_ command: GitCommand) async throws(GitCoreError) -> ProcessOutput {
         let git = try await gitInfo()
         let spec = ProcessSpec(
             executable: git.path,
             arguments: GitCommand.globalOptions + command.arguments,
             workingDirectory: command.workingDirectory,
-            environment: environment(for: git.path, kind: command.kind),
+            environment: Self.environment(for: git.path, kind: command.kind, configuration: configuration),
             timeout: command.timeout,
             stdoutLimit: command.stdoutLimit,
             acceptedExitCodes: command.acceptedExitCodes
@@ -124,7 +157,9 @@ public actor GitEngine {
         try await RepositoryDiscovery(engine: self, timeout: configuration.discoveryTimeout).discover(at: url.path)
     }
 
-    private func environment(for gitPath: String, kind: CommandKind) -> [String: String] {
+    private static func environment(
+        for gitPath: String, kind: CommandKind, configuration: Configuration
+    ) -> [String: String] {
         ProcessEnvironment.make(
             executableDirectory: (gitPath as NSString).deletingLastPathComponent,
             kind: kind,

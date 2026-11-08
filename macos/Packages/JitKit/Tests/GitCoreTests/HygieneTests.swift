@@ -44,4 +44,19 @@ import Testing
         #expect(!redacted.contains("abc"))
         #expect(redacted.contains("https://***@github.com/x/y.git/"))
     }
+
+    @Test func redactsAuthHeadersAndBareTokens() {
+        let raw = """
+            > Authorization: Basic YWxpY2U6c2VjcmV0
+            > Proxy-Authorization: Bearer abc.def.ghi
+            remote: token ghp_abcdefghijklmnopqrstuvwxyz0123 and glpat-ABCDEFGHIJKLMNOPQRST12
+            """
+        let redacted = Redaction.redact(raw)
+        for secret in [
+            "YWxpY2U6c2VjcmV0", "abc.def.ghi", "ghp_abcdefghijklmnopqrstuvwxyz0123", "glpat-ABCDEFGHIJKLMNOPQRST12",
+        ] {
+            #expect(!redacted.contains(secret), "leaked \(secret)")
+        }
+        #expect(redacted.contains("Authorization: Basic ***"))
+    }
 }

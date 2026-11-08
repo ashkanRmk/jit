@@ -27,7 +27,8 @@ public enum GitSource: String, Sendable {
     case userOverride = "User setting"
     case homebrew = "Homebrew"
     case usrLocal = "/usr/local"
-    case system = "Command Line Tools"
+    /// Apple's Git inside the selected Xcode or the Command Line Tools.
+    case system = "Apple developer tools"
 }
 
 public struct GitLocation: Sendable, Equatable {
@@ -89,22 +90,28 @@ public struct GitLocator: Sendable {
         if probe.isExecutableFile("/usr/local/bin/git") {
             return GitLocation(path: "/usr/local/bin/git", source: .usrLocal)
         }
-        if developerToolsProvideGit(), probe.isExecutableFile("/usr/bin/git") {
-            return GitLocation(path: "/usr/bin/git", source: .system)
+        if let path = developerToolsGit() {
+            return GitLocation(path: path, source: .system)
         }
         throw .gitNotFound
     }
 
-    /// `/usr/bin/git` is only a shim. It is safe to run only if the developer directory it forwards
-    /// to actually contains Git.
-    func developerToolsProvideGit() -> Bool {
-        if probe.isExecutableFile(Self.commandLineToolsGit) { return true }
+    /// Apple's real Git binary — never the `/usr/bin/git` shim, which would consult `xcode-select`
+    /// (and could pop the install dialog) at run time. Prefers the developer directory the shim would
+    /// use (`DEVELOPER_DIR`, else the `xcode-select` link), then the Command Line Tools.
+    func developerToolsGit() -> String? {
         let developerDirectory =
             configuration.environment["DEVELOPER_DIR"]
             ?? probe.symbolicLinkDestination(Self.xcodeSelectLink)
-        guard let developerDirectory, !developerDirectory.isEmpty else { return false }
-        // DEVELOPER_DIR may name either `…/Contents/Developer` or the `Xcode.app` bundle itself.
-        return probe.isExecutableFile(developerDirectory + "/usr/bin/git")
-            || probe.isExecutableFile(developerDirectory + "/Contents/Developer/usr/bin/git")
+        if let developerDirectory, !developerDirectory.isEmpty {
+            // DEVELOPER_DIR may name either `…/Contents/Developer` or the `Xcode.app` bundle itself.
+            for candidate in [
+                developerDirectory + "/usr/bin/git", developerDirectory + "/Contents/Developer/usr/bin/git",
+            ]
+            where probe.isExecutableFile(candidate) {
+                return candidate
+            }
+        }
+        return probe.isExecutableFile(Self.commandLineToolsGit) ? Self.commandLineToolsGit : nil
     }
 }

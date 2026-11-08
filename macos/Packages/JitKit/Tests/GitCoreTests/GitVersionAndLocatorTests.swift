@@ -86,17 +86,28 @@ final class FakeProbe: FileProbe {
         #expect(try locate(probe) == GitLocation(path: "/opt/homebrew/bin/git", source: .homebrew))
     }
 
-    @Test func usesUsrBinWhenCLTPresent() throws {
+    @Test func usesCommandLineToolsGitDirectly() throws {
         let probe = FakeProbe(executables: ["/usr/bin/git", GitLocator.commandLineToolsGit])
-        #expect(try locate(probe) == GitLocation(path: "/usr/bin/git", source: .system))
+        #expect(try locate(probe) == GitLocation(path: GitLocator.commandLineToolsGit, source: .system))
     }
 
-    @Test func usesUsrBinWhenSelectedXcodeHasGit() throws {
+    @Test func usesSelectedXcodeGitDirectly() throws {
         let developer = "/Applications/Xcode.app/Contents/Developer"
         let probe = FakeProbe(
-            executables: ["/usr/bin/git", developer + "/usr/bin/git"],
+            executables: ["/usr/bin/git", developer + "/usr/bin/git", GitLocator.commandLineToolsGit],
             links: [GitLocator.xcodeSelectLink: developer])
-        #expect(try locate(probe).source == .system)
+        #expect(try locate(probe) == GitLocation(path: developer + "/usr/bin/git", source: .system))
+    }
+
+    @Test func honorsDeveloperDirPointingAtAppBundle() throws {
+        let probe = FakeProbe(executables: ["/Apps/Xcode-beta.app/Contents/Developer/usr/bin/git"])
+        let location = try locate(probe, environment: ["DEVELOPER_DIR": "/Apps/Xcode-beta.app"])
+        #expect(location.path == "/Apps/Xcode-beta.app/Contents/Developer/usr/bin/git")
+    }
+
+    @Test func neverReturnsTheShim() {
+        let probe = FakeProbe(executables: ["/usr/bin/git"], links: [GitLocator.xcodeSelectLink: "/Removed/Xcode"])
+        #expect(throws: GitCoreError.gitNotFound) { try locate(probe) }
     }
 
     @Test func skipsUsrBinGitWhenCLTMissing() {

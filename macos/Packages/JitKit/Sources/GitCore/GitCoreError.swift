@@ -65,6 +65,15 @@ enum Redaction {
         result.replace(/(?i)(?<key>token|password|passwd|secret)=[^\s&]+/) { match in
             "\(match.output.key)=***"
         }
+        // HTTP auth headers (visible with GIT_TRACE_CURL / GIT_CURL_VERBOSE).
+        result.replace(/(?i)(?<header>(?:proxy-)?authorization:\s*\w+)\s+\S+/) { match in
+            "\(match.output.header) ***"
+        }
+        // Well-known token shapes (GitHub, GitLab) appearing bare.
+        result.replace(/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_\-]{20,})\b/) {
+            _ in
+            "***"
+        }
         return result
     }
 }
