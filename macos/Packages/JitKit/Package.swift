@@ -2,7 +2,7 @@
 import PackageDescription
 
 let strict: [SwiftSetting] = [
-    .enableUpcomingFeature("ExistentialAny"),
+    .enableUpcomingFeature("ExistentialAny")
 ]
 
 let package = Package(
@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "GitCore", targets: ["GitCore"]),
         .library(name: "GitTestKit", targets: ["GitTestKit"]),
         .library(name: "DesignSystem", targets: ["DesignSystem"]),
+        .library(name: "Services", targets: ["Services"]),
         .library(name: "Features", targets: ["Features"]),
         .executable(name: "JitBench", targets: ["JitBench"]),
     ],
@@ -20,9 +21,12 @@ let package = Package(
         .target(name: "GitCore", swiftSettings: strict),
         .target(name: "GitTestKit", dependencies: ["GitCore"], swiftSettings: strict),
         .target(name: "DesignSystem", swiftSettings: strict),
-        .target(name: "Features", dependencies: ["GitCore", "DesignSystem"], swiftSettings: strict),
+        // App state, persistence, sessions, file watching. Imports GitCore directly (no bridge layer); no UI.
+        .target(name: "Services", dependencies: ["GitCore"], swiftSettings: strict),
+        .target(name: "Features", dependencies: ["GitCore", "Services", "DesignSystem"], swiftSettings: strict),
         .executableTarget(name: "JitBench", dependencies: ["GitCore", "GitTestKit"], swiftSettings: strict),
         .testTarget(name: "GitCoreTests", dependencies: ["GitCore", "GitTestKit"], swiftSettings: strict),
+        .testTarget(name: "ServicesTests", dependencies: ["Services", "GitCore", "GitTestKit"], swiftSettings: strict),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"], swiftSettings: strict),
     ],
     swiftLanguageModes: [.v6]
