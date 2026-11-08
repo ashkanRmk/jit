@@ -68,7 +68,8 @@ struct TabStripView: View {
                 .id(tab.id)
                 .offset(x: offset(for: index, tab: tab, layout: layout))
                 .zIndex(drag?.id == tab.id ? 1 : 0)
-                .highPriorityGesture(dragGesture(for: tab, index: index, count: tabs.count, layout: layout))
+                // A plain (not high-priority) gesture so the close button inside keeps its clicks.
+                .gesture(dragGesture(for: tab, index: index, count: tabs.count, layout: layout))
             }
         }
         .animation(reduceMotion ? nil : MotionToken.select.animation, value: drag?.destination)

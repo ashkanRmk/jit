@@ -2,7 +2,7 @@
 # Idle benchmark for the release app: launch, settle 30 s, then sample 60 s with top(1) (CPU %,
 # energy impact, threads, idle wakeups) and read the physical footprint with footprint(1).
 # top's IDLEW column is a cumulative per-process counter; the report gives the increase during sampling.
-# usage: [JIT_OPEN=/path/to/repo] scripts/benchmarks/idle.sh [label] [-- extra app arguments]
+# usage: [JIT_OPEN=/path/to/repo] [JIT_APP_SUPPORT=<state dir>] scripts/benchmarks/idle.sh [label] [-- extra app arguments]
 # Window state: the app usually stays inactive (launched from a background process) unless JIT_ACTIVATE=1, which
 # brings it to the front (key window) with `open -a` before the settle period.
 # GPU power needs root and is not sampled here; run separately:
@@ -18,6 +18,8 @@ OUT_DIR="$(cd "$(dirname "$0")" && pwd)/out"; mkdir -p "$OUT_DIR"
 # Launched through LaunchServices (as a user launch is); the new instance's pid is looked up afterwards.
 BEFORE="$(pgrep -f "$BUNDLE/Contents/MacOS/Jit" || true)"
 ENV_ARGS=(); [[ -n "${JIT_OPEN:-}" ]] && ENV_ARGS=(--env "JIT_OPEN=$JIT_OPEN")
+# JIT_APP_SUPPORT=<dir>: state directory (e.g. a session.json with restored tabs) instead of the user's own.
+[[ -n "${JIT_APP_SUPPORT:-}" ]] && ENV_ARGS+=(--env "JIT_APP_SUPPORT=$JIT_APP_SUPPORT")
 open -n "${ENV_ARGS[@]}" -a "$BUNDLE" --args "$@"
 PID=""
 for _ in $(seq 1 50); do

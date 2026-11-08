@@ -199,6 +199,7 @@ public final class RepositorySession {
         let invalidation = pendingInvalidation
         pendingInvalidation = []
         refreshTask = Task {
+            let started = ContinuousClock.now
             await handle.invalidate(invalidation)
             do throws(GitCoreError) {
                 let status = try await handle.status()
@@ -208,6 +209,13 @@ public final class RepositorySession {
                 if !Task.isCancelled { self.fail(error) }
             }
             guard !Task.isCancelled else { return }
+            if self.refreshQueued {
+                // Churn (e.g. a build writing thousands of files): before the queued refresh, rest as long as
+                // the last one took (≤ 1 s), so Git runs at most about half the time. One-shot and cancellable.
+                let rest = min(ContinuousClock.now - started, .seconds(1))
+                try? await Task.sleep(for: rest)
+                guard !Task.isCancelled else { return }
+            }
             self.refreshTask = nil
             if self.refreshQueued {
                 self.refreshQueued = false
@@ -224,6 +232,8 @@ public final class RepositorySession {
 
     private func apply(_ newStatus: RepositoryStatus) {
         refreshCount += 1
+        Self.log.debug(
+            "status refresh #\(self.refreshCount, privacy: .public) revision \(newStatus.revision, privacy: .public)")
         if error != nil { error = nil }
         if newStatus != status { status = newStatus }
         onChange?(self)

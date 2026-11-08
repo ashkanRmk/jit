@@ -12,14 +12,12 @@ public struct StoreLocation: Sendable {
         self.directory = directory
     }
 
-    /// The real location. Debug builds honor `JIT_APP_SUPPORT=<dir>` so UI tests, screenshots and
-    /// benchmarks never touch the developer's own state.
+    /// The real location. `JIT_APP_SUPPORT=<dir>` (set by tests, screenshot and benchmark scripts)
+    /// points it elsewhere so they never touch the user's own state; release benchmarks need it too.
     public static func applicationSupport() -> StoreLocation {
-        #if DEBUG
-            if let override = ProcessInfo.processInfo.environment["JIT_APP_SUPPORT"], !override.isEmpty {
-                return StoreLocation(directory: URL(fileURLWithPath: override, isDirectory: true))
-            }
-        #endif
+        if let override = ProcessInfo.processInfo.environment["JIT_APP_SUPPORT"], !override.isEmpty {
+            return StoreLocation(directory: URL(fileURLWithPath: override, isDirectory: true))
+        }
         let base =
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support", isDirectory: true)

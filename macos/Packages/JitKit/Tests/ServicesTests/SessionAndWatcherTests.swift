@@ -212,6 +212,26 @@ import Testing
         #expect(!session.isWatching)
     }
 
+    @Test func testChurnIsCoalescedAndEndsCorrect() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await repository(sandbox)
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine)
+        session.activate()
+        #expect(try await waitUntil { session.lifecycle == .active && session.status != nil && session.isWatching })
+        try await Task.sleep(for: .milliseconds(300))
+        let before = session.refreshCount
+        // ~1.5 s of continuous writes: 30 bursts of 100 files.
+        for burst in 0..<30 {
+            for index in 0..<100 { try repo.write("churn/\(burst)/f\(index).txt", "\(index)") }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(try await waitUntil(.seconds(5)) { session.status?.summary?.untracked == 1 })  // `churn/` collapses to one entry
+        try await Task.sleep(for: .milliseconds(800))
+        let refreshes = session.refreshCount - before
+        // 3,000 file writes in 30 bursts: at most a refresh or two per burst, never one per file.
+        #expect(refreshes >= 1 && refreshes <= 45, "refreshes during churn: \(refreshes)")
+    }
+
     @Test func testIndexWritesByStatusDoNotLoop() async throws {
         // Status must not rewrite `.git/index` (which would fire FSEvents → status → …).
         let sandbox = try GitSandbox()

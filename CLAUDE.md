@@ -45,7 +45,14 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
 - Core tests (`swift test`): `scripts/build/test-core.sh`
 - App/UI tests: `scripts/build/test-app.sh`
 - Lint (swift format + architecture rules): `scripts/build/lint.sh`
-- Benchmarks: `scripts/benchmarks/launch.sh [runs]`, `[JIT_OPEN=<repo>] scripts/benchmarks/idle.sh [label]`,
-  `swift run -c release --package-path macos/Packages/JitKit JitBench [spawn-latency|discovery|all]`
-- Debug launch args: `-JitOpen <path>` (all builds), `-JitAppearance light|dark`, `-JitShowGallery YES`,
-  `-JitGallerySection <name>`, `-JitSnapshot <png>` (debug only; renders the window to PNG)
+- Benchmarks: `[JIT_APP_SUPPORT=<state dir>] scripts/benchmarks/launch.sh [--key] [runs]`,
+  `[JIT_OPEN=<repo>] [JIT_APP_SUPPORT=<dir>] scripts/benchmarks/idle.sh [label]`,
+  `swift run -c release --package-path macos/Packages/JitKit JitBench [spawn-latency|discovery|status-parse|all]`;
+  env-gated app modes `JIT_BENCHMARK_TAB_SWITCH=1`, `JIT_STRESS_OPEN_CLOSE=<repo>` (all builds)
+- State: `JIT_APP_SUPPORT=<dir>` replaces `~/Library/Application Support/Jit` (tests, screenshots, benchmarks —
+  never run experiments against the real one)
+- Screenshots (real captures; needs Screen Recording): `scripts/testing/screenshot.sh <light|dark> <out.png>`
+- Debug launch args: `-JitOpen <path>` / env `JIT_OPEN` (all builds), `-JitAppearance light|dark`,
+  `-JitShowGallery YES`, `-JitGallerySection <name>`, `-JitShowSettings general|profiles`,
+  `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`, `-JitUITestOpenRepository <path>`,
+  `-JitSnapshot <png>` (debug only; renders the window to PNG, glass approximated)
