@@ -2,7 +2,8 @@
 
 Status: **complete with carry-overs** (listed below)
 Branch / PR: `phase/01-shell-and-tabs` (cut from the tip of `phase/00-foundation` — Phase 0's PR #1 was not merged
-yet and the owner asked to start Phase 1), PR "Phase 01 — Native shell & repository tabs"
+yet and the owner asked to start Phase 1), https://github.com/ashkanRmk/jit/pull/2 (base `phase/00-foundation`;
+retarget to `main` after PR #1 merges)
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro, 24 GB), macOS 27.2 (26B123), Xcode 27.2 (27B52), Swift 6.4.2,
 Git 2.54.0 (Homebrew), XcodeGen 2.46.0
 
