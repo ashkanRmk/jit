@@ -83,7 +83,7 @@ public final class RepositorySession {
 
     public var statusDot: StatusDot {
         if error != nil { return .danger }
-        guard let status else { return info == nil ? .notLoaded : .clean }
+        guard let status else { return .notLoaded }
         if let summary = status.summary, summary.conflicted > 0 { return .danger }
         if status.operation != .none { return .operation }
         if let summary = status.summary, !summary.isClean { return .changes }
@@ -171,16 +171,19 @@ public final class RepositorySession {
                 self.handle = handle
                 self.info = handle.info
                 self.onChange?(self)
+                // Watch before the first status so nothing changed during it is missed (events arriving
+                // meanwhile queue a refresh that coalesces with this one).
+                self.startWatching()
                 let status = try await handle.status()
                 guard !Task.isCancelled else { return }
                 self.apply(status)
                 self.lifecycle = .active
                 self.loadTask = nil
-                self.startWatching()
             } catch .cancelled {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
+                self.stopWatching()
                 self.fail(error)
                 self.lifecycle = .active
                 self.loadTask = nil
@@ -248,7 +251,7 @@ public final class RepositorySession {
     // MARK: - Watching
 
     private func startWatching() {
-        guard watchesFileSystem, lifecycle == .active, watcher == nil, let info else { return }
+        guard watchesFileSystem, lifecycle == .active || lifecycle == .loading, watcher == nil, let info else { return }
         let watcher = RepositoryWatcher(layout: RepositoryLayout(info)) { [weak self] batch in
             Task { @MainActor in self?.handle(batch) }
         }
@@ -261,7 +264,7 @@ public final class RepositorySession {
     }
 
     private func handle(_ batch: RepositoryWatcher.Batch) {
-        guard lifecycle == .active, watcher != nil else { return }
+        guard lifecycle == .active || lifecycle == .loading, watcher != nil else { return }
         if batch.rootChanged, !FileManager.default.fileExists(atPath: path) {
             stopWatching()
             cancelRefresh()

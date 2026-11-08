@@ -133,6 +133,15 @@ import Testing
         #expect(session.lifecycle == .closed)
     }
 
+    @Test func testDotIsNotLoadedUntilFirstStatus() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await repository(sandbox)
+        let handle = try await sandbox.engine.openRepository(at: URL(fileURLWithPath: repo.path))
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine, handle: handle)
+        #expect(session.info != nil && session.status == nil)
+        #expect(session.statusDot == .notLoaded)  // never "No local changes" before Git was asked
+    }
+
     @Test func testDeactivateCancelsInFlightWork() async throws {
         let sandbox = try GitSandbox()
         let repo = try await repository(sandbox)

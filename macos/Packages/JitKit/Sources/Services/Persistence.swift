@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import Synchronization
 import os
 
 let persistenceLog = Logger(subsystem: "jit.app", category: "persistence")
@@ -120,13 +121,33 @@ public enum JSONFile {
     }
 }
 
+/// Serializes one file's writes and orders them by generation, so a slower, older write can never land
+/// over a newer one, and `flush()` waits for a write already in progress.
+final class WriteGate: Sendable {
+    private let lastWritten = Mutex<UInt64>(0)
+
+    func write(_ data: Data, to url: URL, generation: UInt64) {
+        lastWritten.withLock { last in
+            guard generation > last else { return }
+            do {
+                try JSONFile.write(data, to: url)
+                last = generation
+            } catch {
+                persistenceLog.error("Failed to write \(url.lastPathComponent, privacy: .public)")
+            }
+        }
+    }
+}
+
 /// Coalesces bursts of changes into one write, 500 ms after the last change, using a single cancellable
 /// one-shot task (never a repeating timer). Encoding happens on the main actor (small values); the
-/// file write happens off it. `flush()` writes synchronously (app termination).
+/// file write happens off it. `flush()` writes synchronously (app termination) after any write in progress.
 @MainActor
 public final class DebouncedWriter {
     public let url: URL
     private let delay: Duration
+    private let gate = WriteGate()
+    private var generation: UInt64 = 0
     private var pending: Task<Void, Never>?
     private var makeData: (@MainActor () -> Data?)?
 
@@ -146,28 +167,27 @@ public final class DebouncedWriter {
             let data = self.makeData?()
             self.makeData = nil
             self.pending = nil
-            if let data { await Self.write(data, to: self.url) }
+            self.generation += 1
+            if let data { await Self.write(data, to: self.url, gate: self.gate, generation: self.generation) }
         }
     }
 
     public func flush() {
         pending?.cancel()
         pending = nil
-        guard let data = makeData?() else { return }
+        generation += 1
+        // Even with nothing new to write, taking the gate waits for an in-flight write to finish.
+        let data = makeData?() ?? Data()
         makeData = nil
-        do {
-            try JSONFile.write(data, to: url)
-        } catch {
-            persistenceLog.error("Failed to write \(self.url.lastPathComponent, privacy: .public)")
+        if data.isEmpty {
+            gate.write(Data(), to: url, generation: 0)
+        } else {
+            gate.write(data, to: url, generation: generation)
         }
     }
 
     @concurrent
-    private static func write(_ data: Data, to url: URL) async {
-        do {
-            try JSONFile.write(data, to: url)
-        } catch {
-            persistenceLog.error("Failed to write \(url.lastPathComponent, privacy: .public)")
-        }
+    private static func write(_ data: Data, to url: URL, gate: WriteGate, generation: UInt64) async {
+        gate.write(data, to: url, generation: generation)
     }
 }

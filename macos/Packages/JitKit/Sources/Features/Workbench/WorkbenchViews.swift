@@ -37,7 +37,7 @@ struct WorkbenchMainView: View {
                 }
                 .scrollEdgeEffectStyle(.soft, for: .top)
             } else {
-                DelayedLoadingPlaceholder(title: tab.title)
+                DelayedLoadingPlaceholder(title: tab.title, isLoading: session.lifecycle == .loading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -221,14 +221,17 @@ private struct BareRepositoryNote: View {
 }
 
 /// A static, faint placeholder that appears only if loading takes longer than 150 ms (no shimmer).
+/// Only while a load is actually running does it show a (system) progress indicator; a tab waiting for the
+/// window to come to the front shows static text, so nothing animates while Jit is idle.
 struct DelayedLoadingPlaceholder: View {
     let title: String
+    let isLoading: Bool
     @State private var isVisible = false
 
     var body: some View {
         VStack(spacing: Space.s4) {
-            ProgressView().controlSize(.small)
-            Text("Reading \(title)…")
+            if isLoading { ProgressView().controlSize(.small) }
+            Text(isLoading ? "Reading \(title)…" : "\(title) loads when Jit is in front.")
                 .typeStyle(.callout)
                 .foregroundStyle(.token(.textTertiary))
         }

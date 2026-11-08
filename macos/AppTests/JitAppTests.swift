@@ -69,6 +69,30 @@ final class Harness {
         #expect(harness.model.recents.entries.map(\.name) == ["beta", "alpha"])
     }
 
+    @Test func testConcurrentOpensAllComplete() async throws {
+        let harness = try Harness()
+        let repos = [
+            try await harness.repository("a"), try await harness.repository("b"), try await harness.repository("c"),
+        ]
+        // e.g. three folders dropped on the Dock icon at once
+        for repo in repos { harness.model.open(URL(fileURLWithPath: repo.path)) }
+        await harness.model.settleOpen()
+        #expect(Set(harness.model.tabs.map(\.title)) == ["a", "b", "c"])
+    }
+
+    @Test func testLocateKeepsRecentWhenNewFolderFails() async throws {
+        let harness = try Harness()
+        let tab = try await harness.open(try await harness.repository("a"))
+        let plain = try harness.sandbox.makeDirectory("plain")
+        var failures = 0
+        harness.model.onOpenFailure = { _, _ in failures += 1 }
+        // The chosen folder doesn't exist, so the open fails and the old entry must survive.
+        harness.model.relocate(tab.id, to: URL(fileURLWithPath: plain + "/does-not-exist"))
+        await harness.model.settleOpen()
+        #expect(failures == 1)
+        #expect(harness.model.recents.entries.map(\.name) == ["a"])
+    }
+
     @Test func testOpeningSameRepoFocusesExistingTab() async throws {
         let harness = try Harness()
         let a = try await harness.repository("alpha")

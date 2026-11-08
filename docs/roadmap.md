@@ -1,7 +1,9 @@
 # Jit — Implementation Roadmap
 
 > Status: **Phase 0 implemented** (branch `phase/00-foundation`, see
-> [`phases/00-foundation/progress.md`](phases/00-foundation/progress.md)); Phases 1–8 are plans. Each phase folder under
+> [`phases/00-foundation/progress.md`](phases/00-foundation/progress.md)); **Phase 1 implemented** (branch
+> `phase/01-shell-and-tabs`, see [`phases/01-shell-and-tabs/progress.md`](phases/01-shell-and-tabs/progress.md));
+> Phases 2–8 are plans. Each phase folder under
 > [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
 > such as **§7.4** point into that file.
@@ -174,8 +176,8 @@ Assigned across the phase designs; check here before adding one (Phase 6 audits 
 | 0004 | Thin app target + one local Swift package with targets `GitCore`, `GitTestKit`, `DesignSystem`, `Services`, `Features` (+ helper/dev executables). | P0 |
 | 0005 | Concurrency, process & memory model: `GitCore` exposes `async` APIs; child processes via `posix_spawn` in their own process group, pipes and exit observed with Dispatch sources (no thread blocked, no idle threads); Swift task cancellation → `killpg`; progress via a bounded `AsyncStream`; one `actor` per repository serializes mutations, reads run concurrently on snapshots; memory: value types, struct-of-arrays stores, byte-level parsing of `-z` output, no class per commit/line, strings only for visible rows. Conventions: errors as `throws(GitError)` (plain `throws` if typed throws proves awkward); `GitCore` may import `os` for signposts; `ProcessRunner` can keep exactly one chosen FD inherited across `posix_spawn` (for the Phase 5 credential broker) while closing all others; the per-repo actor keeps a strict FIFO write gate across suspension points. | P0 |
 | 0006 | **Accepted.** macOS 26+ and native Liquid Glass (glass chrome, opaque content). Phase 0 adds: minimum Git version (proposal 2.39 — covers `merge-tree --write-tree` and `zdiff3`) checked on first Git use; App Sandbox off, Hardened Runtime on; bundle ID placeholder `com.example.jit`. | planning + P0 |
-| 0007 | State: Swift Observation, small observable models per concern; persistence = `UserDefaults` for preferences + one JSON session file in Application Support; no database. | P1 |
-| 0008 | File watching: one FSEvents stream per *open and visible* repository, coalesced (≈150–300 ms), translated to targeted `GitCore` cache invalidations. | P1 |
+| 0007 | **Accepted.** State: Swift Observation, small observable models per concern; persistence = `UserDefaults` for preferences + versioned atomic JSON files (session, recents, profiles) in Application Support; no database; one main window. | P1 |
+| 0008 | **Accepted.** File watching: one directory-level FSEvents stream per *visible* repository of a foreground window (latency 0.2 s), pure classifier → `RepositoryHandle` invalidations, coalesced refreshes, `--no-optional-locks`. | P1 |
 | 0009 | Graph rendering: view-based `NSTableView` (or `NSCollectionView`) with a custom-drawn Core Graphics graph column; lane geometry computed in `GitCore`. Opaque content layer under glass chrome. | P2 |
 | 0010 | History loading: streamed `git log --topo-order` pages with top-down incremental lane assignment so earlier rows never re-layout. | P2 |
 | 0011 | Diff renderer: spike TextKit 2 vs a custom virtualized Core Text line renderer; pick by measured performance and selection semantics. | P3 |

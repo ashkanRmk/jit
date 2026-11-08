@@ -42,7 +42,9 @@ public final class AppModel {
     @ObservationIgnored public var presentOpenPanel: (() -> Void)?
     @ObservationIgnored private let sessionStore: SessionStore?
     @ObservationIgnored private let watchesFileSystem: Bool
-    @ObservationIgnored private var openTask: Task<Void, Never>?
+    /// Opens in progress, keyed by the tab they replace (or the folder): concurrent opens of different folders
+    /// all complete; a newer open for the same target supersedes the older one.
+    @ObservationIgnored private var openTasks: [String: Task<Void, Never>] = [:]
 
     static let reopenCapacity = 10
     private static let signposter = OSSignposter(subsystem: "jit.performance", category: .pointsOfInterest)
@@ -240,13 +242,19 @@ public final class AppModel {
     // MARK: - Opening repositories
 
     /// Opens the repository at (or enclosing) `url`: focuses an existing tab for the same repository,
-    /// replaces the active new-tab page, or adds a tab after the active one.
-    public func open(_ url: URL, replacing tabID: UUID? = nil) {
-        openTask?.cancel()
-        openTask = Task { [engine] in
+    /// replaces the active new-tab page, or adds a tab after the active one. `forgettingRecent` is removed from
+    /// recents only once the new folder opened successfully (Locate…).
+    public func open(_ url: URL, replacing tabID: UUID? = nil, forgettingRecent: String? = nil) {
+        let key = tabID?.uuidString ?? Self.standardized(url.path)
+        openTasks[key]?.cancel()
+        openTasks[key] = Task { [engine] in
+            defer { if !Task.isCancelled { self.openTasks[key] = nil } }
             do throws(GitCoreError) {
                 let handle = try await engine.openRepository(at: url)
                 guard !Task.isCancelled else { return }
+                if let forgettingRecent, Self.standardized(forgettingRecent) != Self.standardized(handle.path) {
+                    self.recents.remove(path: forgettingRecent)
+                }
                 self.adopt(handle, replacing: tabID)
             } catch .cancelled {
                 return
@@ -254,12 +262,14 @@ public final class AppModel {
                 guard !Task.isCancelled else { return }
                 self.onOpenFailure?(url, error)
             }
-            self.openTask = nil
         }
     }
 
-    /// Waits for a pending `open` (tests, launch hooks).
-    public func settleOpen() async { await openTask?.value }
+    /// Waits for pending opens (tests, launch hooks).
+    public func settleOpen() async {
+        // A finished open removes itself; a superseded one is replaced by its successor.
+        while let task = openTasks.values.first { await task.value }
+    }
 
     private func adopt(_ handle: RepositoryHandle, replacing tabID: UUID?) {
         let path = Self.standardized(handle.path)
@@ -294,10 +304,7 @@ public final class AppModel {
 
     /// Locate…: points a missing repository tab at a new folder.
     public func relocate(_ tabID: UUID, to url: URL) {
-        if let old = tab(tabID)?.path {
-            recents.remove(path: old)
-        }
-        open(url, replacing: tabID)
+        open(url, replacing: tabID, forgettingRecent: tab(tabID)?.path)
     }
 
     private func makeSession(path: String, handle: RepositoryHandle?) -> RepositorySession {

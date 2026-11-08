@@ -387,10 +387,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             open: { [weak self] in self?.chooseRepository() },
             openPath: { [weak self] path in self?.model.open(URL(fileURLWithPath: path)) },
             locate: { [weak self] path in
-                self?.chooseRepository { url in
-                    self?.model.recents.remove(path: path)
-                    self?.model.open(url)
-                }
+                self?.chooseRepository { url in self?.model.open(url, forgettingRecent: path) }
             },
             reveal: { path in RepositoryActions.revealInFinder(path) })
     }

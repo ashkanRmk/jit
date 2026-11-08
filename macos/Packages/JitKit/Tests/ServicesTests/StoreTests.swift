@@ -65,6 +65,19 @@ final class TempLocation: Sendable {
         #expect(store.load().value?.activeTabID != nil)
     }
 
+    @Test func testFlushAfterInFlightWriteKeepsNewestState() async throws {
+        let temp = TempLocation()
+        let store = SessionStore(location: temp.location)
+        let old = SessionState(activeTabID: UUID())
+        let new = SessionState(activeTabID: UUID())
+        store.save { old }
+        try await Task.sleep(for: .milliseconds(520))  // the debounced write is now starting off the main actor
+        store.save { new }
+        store.flush()  // quit: waits for the in-flight write, then writes the newest state
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(store.load().value == new)
+    }
+
     @Test func testUnknownVersionBacksUpAndResets() throws {
         let temp = TempLocation()
         let store = SessionStore(location: temp.location)

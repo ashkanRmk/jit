@@ -314,8 +314,12 @@ struct ProfileEditorView: View {
             defer { isFilling = false }
             do throws(GitCoreError) {
                 let identity = try await engine.readGlobalIdentity()
-                if let name = identity.name { authorName = name }
-                if let email = identity.email { authorEmail = email }
+                if let name = identity.name, authorName.trimmingCharacters(in: .whitespaces).isEmpty {
+                    authorName = name
+                }
+                if let email = identity.email, authorEmail.trimmingCharacters(in: .whitespaces).isEmpty {
+                    authorEmail = email
+                }
                 if displayName.isEmpty, identity.name != nil { displayName = "Personal" }
                 fillMessage =
                     identity.name == nil && identity.email == nil
