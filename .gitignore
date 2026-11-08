@@ -5,7 +5,7 @@ DerivedData/
 xcuserdata/
 .build/
 .swiftpm/
-build/
+/build/
 # Benchmarks
 scripts/benchmarks/out/
 # macOS

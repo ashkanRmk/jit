@@ -1,0 +1,68 @@
+# XcodeGen spec — the source of truth for macos/Jit.xcodeproj (generated, git-ignored; ADR-0003).
+# Regenerate with scripts/build/gen-xcodeproj.sh.
+name: Jit
+options:
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+configs:
+  Debug: debug
+  Release: release
+configFiles:
+  Debug: App/Config/Debug.xcconfig
+  Release: App/Config/Release.xcconfig
+packages:
+  JitKit:
+    path: Packages/JitKit
+targets:
+  Jit:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes: ["Config/**"]
+    dependencies:
+      - package: JitKit
+        product: GitCore
+      - package: JitKit
+        product: DesignSystem
+      - package: JitKit
+        product: Features
+    settings:
+      base:
+        PRODUCT_NAME: Jit
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Jit
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+  JitAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [AppTests]
+    dependencies:
+      - package: JitKit
+        product: Features
+      - package: JitKit
+        product: GitCore
+      - package: JitKit
+        product: GitTestKit
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.jit.tests
+schemes:
+  Jit:
+    build:
+      targets:
+        Jit: all
+        JitAppTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets: [JitAppTests]
+    profile:
+      config: Release
+    archive:
+      config: Release
