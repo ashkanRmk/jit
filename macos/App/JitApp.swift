@@ -14,6 +14,9 @@ struct JitApp: App {
             FoundationView(model: model)
                 .frame(minWidth: PanelMetrics.windowMinWidth, minHeight: PanelMetrics.windowMinHeight)
                 .onDisappear { model.cancel() }
+                #if DEBUG
+                    .modifier(DebugLaunchActions(open: model.open))
+                #endif
         }
         .defaultSize(width: 1100, height: 720)
         .windowToolbarStyle(.unified)

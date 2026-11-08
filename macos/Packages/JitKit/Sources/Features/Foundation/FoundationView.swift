@@ -292,8 +292,8 @@ private struct ErrorStateView: View {
 private struct DropHighlight: View {
     var body: some View {
         RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-            .strokeBorder(ColorToken.accentBase.color, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-            .background(ColorToken.accentMuted.color, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+            .strokeBorder(Selection.edge, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            .background(Selection.fill, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
             .padding(Space.s5)
             .allowsHitTesting(false)
             .accessibilityHidden(true)

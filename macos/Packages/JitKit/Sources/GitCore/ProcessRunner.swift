@@ -1,6 +1,7 @@
 import Darwin
 import Dispatch
 import Foundation
+import Synchronization
 
 /// Everything needed to launch one child process. There is deliberately no way to pass a shell
 /// command string: `executable` is an absolute path and `arguments` become `argv[1...]` verbatim.
@@ -55,9 +56,21 @@ public struct ProcessRunner: Sendable {
     public static let stderrLimit = 64 * 1024
 
     public var terminationGrace: Duration
+    let liveGroups: LiveProcessGroups
 
     public init(terminationGrace: Duration = .seconds(2)) {
+        self.init(terminationGrace: terminationGrace, liveGroups: .shared)
+    }
+
+    init(terminationGrace: Duration, liveGroups: LiveProcessGroups) {
         self.terminationGrace = terminationGrace
+        self.liveGroups = liveGroups
+    }
+
+    /// Kills every process group started by any `ProcessRunner` that is still running. Called when the
+    /// app terminates so no Git child outlives Jit.
+    public static func terminateAllRunning() {
+        LiveProcessGroups.shared.killAll()
     }
 
     @concurrent
@@ -66,7 +79,7 @@ public struct ProcessRunner: Sendable {
             dispatchPrecondition(condition: .notOnQueue(.main))
         #endif
         if Task.isCancelled { throw .cancelled }
-        let child = ChildProcess(spec: spec, grace: terminationGrace)
+        let child = ChildProcess(spec: spec, grace: terminationGrace, liveGroups: liveGroups)
         let result = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 child.start(continuation)
@@ -104,9 +117,12 @@ private final class ChildProcess: @unchecked Sendable {
     private var finished = false
     private let scratch = UnsafeMutableRawBufferPointer.allocate(byteCount: 64 * 1024, alignment: 16)
 
-    init(spec: ProcessSpec, grace: Duration) {
+    private let liveGroups: LiveProcessGroups
+
+    init(spec: ProcessSpec, grace: Duration, liveGroups: LiveProcessGroups) {
         self.spec = spec
         self.grace = grace
+        self.liveGroups = liveGroups
     }
 
     deinit { scratch.deallocate() }
@@ -187,6 +203,7 @@ private final class ChildProcess: @unchecked Sendable {
             return complete(.failure(classifySpawnFailure(status)))
         }
         pid = childPID
+        liveGroups.insert(childPID)
 
         stdoutSource = makeReader(fd: outPipe[0], isStdout: true)
         stderrSource = makeReader(fd: errPipe[0], isStdout: false)
@@ -362,6 +379,7 @@ private final class ChildProcess: @unchecked Sendable {
     private func complete(_ result: Result<ProcessOutput, GitCoreError>) {
         guard !finished else { return }
         finished = true
+        if pid > 0 { liveGroups.remove(pid) }
         for timer in timers { timer.cancel() }
         timers.removeAll()
         exitSource?.cancel()
@@ -372,6 +390,19 @@ private final class ChildProcess: @unchecked Sendable {
         stderrSource = nil
         continuation?.resume(returning: result)
         continuation = nil
+    }
+}
+
+/// Process groups of children that have not finished yet.
+final class LiveProcessGroups: Sendable {
+    static let shared = LiveProcessGroups()
+    private let groups = Mutex<Set<pid_t>>([])
+
+    func insert(_ group: pid_t) { _ = groups.withLock { $0.insert(group) } }
+    func remove(_ group: pid_t) { _ = groups.withLock { $0.remove(group) } }
+
+    func killAll() {
+        for group in groups.withLock({ $0 }) { killpg(group, SIGKILL) }
     }
 }
 

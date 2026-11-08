@@ -145,6 +145,19 @@ import Testing
         }
     }
 
+    @Test func terminateAllRunningKillsLiveGroups() async throws {
+        let pidFile = temporaryFile()
+        let processSpec = spec("/bin/sh", ["-c", "sleep 30 & echo $! > '\(pidFile)'; wait"])
+        // A private registry, so parallel suites' processes are untouched.
+        let groups = LiveProcessGroups()
+        let isolated = ProcessRunner(terminationGrace: .milliseconds(300), liveGroups: groups)
+        let task = Task { try await isolated.run(processSpec) }
+        let grandchild = try await readPID(pidFile)
+        groups.killAll()
+        await #expect(throws: GitCoreError.self) { try await task.value }
+        #expect(await waitUntilGone(grandchild))
+    }
+
     @Test func noThreadBlockedWhileWaiting() async throws {
         func threadCount() -> Int {
             var threads: thread_act_array_t?

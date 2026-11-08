@@ -1,4 +1,5 @@
 import AppKit
+import GitCore
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -8,6 +9,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.arguments.contains("-JitBenchmarkLaunch") {
             launchProbe = LaunchProbe()
         }
+        #if DEBUG
+            // `-JitAppearance light|dark` forces the app appearance for screenshots.
+            switch UserDefaults.standard.string(forKey: "JitAppearance") {
+            case "light": NSApp.appearance = NSAppearance(named: .aqua)
+            case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+            default: break
+            }
+        #endif
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // No Git child may outlive Jit.
+        ProcessRunner.terminateAllRunning()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

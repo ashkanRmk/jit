@@ -36,7 +36,22 @@ public enum RowState: String, CaseIterable, Sendable {
     case rest, hover, pressed, selected, disabled
 }
 
-/// Content-row background for each state. Selection uses `accent.muted` with an `accent.base` edge.
+/// Selection and focus follow the user's system accent color (native feel; decided in P0.6 from
+/// gallery renders — Tidewater at 12 % read as grey). Tidewater stays the tint of primary glass actions.
+public enum Selection {
+    /// System accent at 16 % (light) / 24 % (dark) — resolved per appearance by `NSColor`.
+    public static var fill: Color {
+        Color(
+            nsColor: NSColor(name: "jit.selection.fill") { appearance in
+                let isDark = Variant.resolve(appearance).isDark
+                return NSColor.controlAccentColor.withAlphaComponent(isDark ? 0.24 : 0.16)
+            })
+    }
+
+    public static var edge: Color { Color(nsColor: .controlAccentColor) }
+}
+
+/// Content-row background for each state. Selection uses the system accent (`Selection`).
 public struct RowBackground: View {
     let state: RowState
 
@@ -49,9 +64,9 @@ public struct RowBackground: View {
         case .hover: shape.fill(ColorToken.stateHover.color)
         case .pressed: shape.fill(ColorToken.statePressed.color)
         case .selected:
-            shape.fill(ColorToken.accentMuted.color)
+            shape.fill(Selection.fill)
                 .overlay(alignment: .leading) {
-                    Capsule().fill(ColorToken.accentBase.color).frame(width: 2).padding(.vertical, Space.s2)
+                    Capsule().fill(Selection.edge).frame(width: 2).padding(.vertical, Space.s2)
                 }
         }
     }

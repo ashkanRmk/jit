@@ -46,7 +46,10 @@
             }
         }
 
-        @State private var selection: Section? = .surfaces
+        @State private var selection: Section? =
+            UserDefaults.standard.string(forKey: "JitGallerySection").flatMap { name in
+                Section.allCases.first { "\($0)" == name }
+            } ?? .surfaces
         @State private var appearance: AppearanceChoice = .system
         @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
         @Environment(\.colorSchemeContrast) private var contrast
@@ -220,11 +223,11 @@
             ) {
                 HStack(alignment: .top, spacing: Space.s8) {
                     SelectionSample(
-                        title: "Tidewater (accent.muted)", fill: ColorToken.accentMuted.color,
+                        title: "Tidewater 12 % — rejected", fill: ColorToken.accentMuted.color,
                         edge: ColorToken.accentBase.color)
                     SelectionSample(
-                        title: "System accent", fill: Color.accentColor.opacity(0.16),
-                        edge: Color.accentColor)
+                        title: "System accent (Selection) — chosen", fill: Selection.fill,
+                        edge: Selection.edge)
                 }
                 HStack(spacing: Space.s6) {
                     Button("Tidewater primary") {}.primaryGlassButton().controlSize(.large)
@@ -242,11 +245,11 @@
                             (.statusInfo, "info.circle.fill", "Info"),
                         ], id: \.0
                     ) { token, symbol, name in
-                        Label(name, systemImage: symbol)
-                            .typeStyle(.body)
-                            .foregroundStyle(.token(.textPrimary))
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(token.color, ColorToken.textPrimary.color)
+                        Label {
+                            Text(name).typeStyle(.body).foregroundStyle(.token(.textPrimary))
+                        } icon: {
+                            Image(systemName: symbol).foregroundStyle(token.color)
+                        }
                     }
                 }
             }
