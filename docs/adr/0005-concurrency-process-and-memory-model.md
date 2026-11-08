@@ -46,8 +46,12 @@ The package is good, but its monitor thread stays alive for the process lifetime
   found by stress-testing). All state for one command is confined to one serial queue; the awaiting
   task suspends on a checked continuation and holds no thread.
 - Cancellation is Swift task cancellation only: `withTaskCancellationHandler` → `SIGTERM` to the group,
-  `SIGKILL` after a 2 s grace. Timeouts use the same path. After the leader exits, pipes held open by
-  leftover group members are given the grace period, then the group is killed.
+  `SIGKILL` after a 2 s grace (which also re-checks the exit status as a backstop). Timeouts use the same
+  path. After the leader exits, pipes held open by leftover group members are given the grace period,
+  then the group is killed — but a reaped leader's group is signalled only while `proc_listpgrppids`
+  still reports members, so a recycled pgid is never hit. All four pipe ends are close-on-exec.
+- On app quit, every live group gets `SIGTERM`. Write operations (Phase 3+) must make the app delay
+  termination until they finish instead.
 - Output is bytes (`[UInt8]`), stdout capped per command (`outputTooLarge` kills the group), stderr
   keeps the last 64 KiB. User-facing text comes from our own mapping; raw stderr (C locale) is only a
   redacted `detail`.

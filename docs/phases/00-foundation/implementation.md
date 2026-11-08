@@ -194,3 +194,10 @@ ADR-0006 addendum, this phase's `progress.md`. Amend `design.md`/`implementation
 - [ ] Main thread never waits on Git (debug precondition in place); no thread blocks on a child process.
 - [ ] Docs match reality; CLAUDE.md commands accurate.
 - [ ] Roadmap §9 gate items satisfied; `progress.md` complete; PR opened.
+
+## 7. Phase 0 outcome (2026-11-09)
+
+Status of every milestone, with evidence, is in [`progress.md`](progress.md). Differences from this plan:
+P0.4 test-app uses DerivedData outside the repository (TCC); P0.5 screenshots are in-app renders; P0.6
+Reduce Transparency / Increase Contrast captures and P0.7 cold-launch and GPU power numbers are
+carried over (they need user-granted permissions or root).
