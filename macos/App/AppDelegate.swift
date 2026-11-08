@@ -3,12 +3,7 @@ import GitCore
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var launchProbe: LaunchProbe?
-
     func applicationWillFinishLaunching(_ notification: Notification) {
-        if ProcessInfo.processInfo.arguments.contains("-JitBenchmarkLaunch") {
-            launchProbe = LaunchProbe()
-        }
         #if DEBUG
             // `-JitAppearance light|dark` forces the app appearance for screenshots.
             switch UserDefaults.standard.string(forKey: "JitAppearance") {
@@ -27,34 +22,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
-/// Benchmark mode (`-JitBenchmarkLaunch`): measures process start → first key window, prints
-/// `first_window_ms=<value>` to stdout, then quits. Also emits an os_signpost interval ("Launch",
+/// Benchmark mode (`-JitBenchmarkLaunch`, optional env `JIT_BENCHMARK_OUTPUT=<file>`): measures process start (kernel
+/// start time) → first window key, prints `first_window_ms=<value> trigger=<key|content>` to stdout
+/// (and the file), then quits. Also emits an os_signpost interval ("Launch",
 /// subsystem `jit.performance`) for Instruments. Inactive in normal launches.
 @MainActor
 final class LaunchProbe {
     private static let signposter = OSSignposter(subsystem: "jit.performance", category: .pointsOfInterest)
     private let interval: OSSignpostIntervalState
-    private var observer: (any NSObjectProtocol)?
+    private var observers: [any NSObjectProtocol] = []
 
     init() {
         interval = Self.signposter.beginInterval("Launch")
-        observer = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.finish() }
-        }
+        Self.current = self
+        // Ends when the first window becomes key, or — when launched in the background, where it never
+        // becomes key — when the root view first appears (`firstContentAppeared`).
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.finish(trigger: "key") } })
     }
 
-    private func finish() {
-        guard let observer else { return }
-        NotificationCenter.default.removeObserver(observer)
-        self.observer = nil
+    /// The active probe, if launched with `-JitBenchmarkLaunch`.
+    static var current: LaunchProbe?
+
+    /// Called from `JitApp.init()`, before any scene or app-delegate callback, so the root view can
+    /// never appear before the probe exists.
+    static func startIfRequested() {
+        guard current == nil, ProcessInfo.processInfo.arguments.contains("-JitBenchmarkLaunch") else { return }
+        _ = LaunchProbe()
+    }
+
+    static func firstContentAppeared() {
+        // `-JitBenchmarkTrigger key` (used by launch.sh) waits for the key window only.
+        guard UserDefaults.standard.string(forKey: "JitBenchmarkTrigger") != "key" else { return }
+        current?.finish(trigger: "content")
+    }
+
+    private var isFinished = false
+
+    /// `trigger`: "key" (first window became key — the launch.sh method, via LaunchServices) or
+    /// "content" (root view appeared; used when the app is launched in the background and never
+    /// becomes active). Only "key" measurements are comparable baselines.
+    private func finish(trigger: String) {
+        guard !isFinished else { return }
+        isFinished = true
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.removeAll()
         // Let the window commit its first frame before stopping the clock.
         DispatchQueue.main.async { [self] in
             Self.signposter.endInterval("Launch", interval)
             let milliseconds = Self.millisecondsSinceProcessStart()
-            print(String(format: "first_window_ms=%.1f", milliseconds))
+            let line = String(format: "first_window_ms=%.1f trigger=%@\n", milliseconds, trigger)
+            print(line, terminator: "")
             fflush(stdout)
+            // A path-valued launch argument would be taken by AppKit as a file to open, so the output
+            // file comes from the environment (`open --env JIT_BENCHMARK_OUTPUT=…`).
+            if let path = ProcessInfo.processInfo.environment["JIT_BENCHMARK_OUTPUT"] {
+                try? line.write(toFile: path, atomically: true, encoding: .utf8)
+            }
             NSApp.terminate(nil)
         }
     }

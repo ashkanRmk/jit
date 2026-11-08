@@ -3,7 +3,7 @@
     import SwiftUI
 
     /// Debug-only launch arguments used for repeatable manual checks and design screenshots:
-    /// - `-JitOpen <path>`: discover a folder at launch. `-JitAppearance light|dark` (AppDelegate) forces appearance.
+    /// - `-JitAppearance light|dark` (AppDelegate) forces the appearance. (`-JitOpen <path>` works in all builds.)
     /// - `-JitShowGallery YES`: open the Design System gallery (`-JitGallerySection <name>` picks a section).
     /// - `-JitSnapshot <file.png>` (+ optional `-JitSnapshotWindow <title or scene id>`): after the UI settles, render
     ///   the window's view hierarchy (including its frame view) to a PNG and quit. This draws the opaque
@@ -11,12 +11,10 @@
     ///   glass review needs real screen captures.
     struct DebugLaunchActions: ViewModifier {
         @Environment(\.openWindow) private var openWindow
-        let open: (URL) -> Void
 
         func body(content: Content) -> some View {
             content.task {
                 let defaults = UserDefaults.standard
-                if let path = defaults.string(forKey: "JitOpen") { open(URL(fileURLWithPath: path)) }
                 if defaults.bool(forKey: "JitShowGallery") { openWindow(id: "design-system") }
                 if let output = defaults.string(forKey: "JitSnapshot") {
                     try? await Task.sleep(for: .seconds(defaults.double(forKey: "JitSnapshotDelay").nonZero ?? 2))

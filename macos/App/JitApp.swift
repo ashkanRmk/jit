@@ -9,13 +9,27 @@ struct JitApp: App {
     /// Creating the engine does no I/O; Git is located on first use, off the main actor.
     @State private var model = FoundationModel(engine: GitEngine())
 
+    init() {
+        LaunchProbe.startIfRequested()
+    }
+
     var body: some Scene {
         Window("Jit", id: "main") {
             FoundationView(model: model)
                 .frame(minWidth: PanelMetrics.windowMinWidth, minHeight: PanelMetrics.windowMinHeight)
                 .onDisappear { model.cancel() }
+                .onAppear {
+                    LaunchProbe.firstContentAppeared()
+                    // `-JitOpen <path>` or env `JIT_OPEN=<path>`: open a folder at launch (benchmarks, manual
+                    // checks). Use the env form with `open`, where AppKit treats path arguments as files.
+                    if let path = ProcessInfo.processInfo.environment["JIT_OPEN"]
+                        ?? UserDefaults.standard.string(forKey: "JitOpen")
+                    {
+                        model.open(URL(fileURLWithPath: path))
+                    }
+                }
                 #if DEBUG
-                    .modifier(DebugLaunchActions(open: model.open))
+                    .modifier(DebugLaunchActions())
                 #endif
         }
         .defaultSize(width: 1100, height: 720)
