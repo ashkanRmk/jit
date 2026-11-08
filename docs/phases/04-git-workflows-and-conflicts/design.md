@@ -2,6 +2,8 @@
 
 Requirements: §8 (conflict resolution), §9.1 (V1 operations), §13.5 (process safety), §14 (state and
 races), §16 (risk classes, confirmations, error handling). Roadmap: ADR-0015, invariants §6.
+Amended by ADR-0002 (pure Swift — all Git logic lives in the `GitCore` Swift target; the master prompt's
+"Rust core" reads as `GitCore`) and ADR-0006 (macOS 26+, Liquid Glass on chrome, opaque content).
 
 ## 1. Goal & demo
 
@@ -30,7 +32,8 @@ fails.
 ## 2. Scope
 
 **In scope**
-- `OperationCenter`: lifting the Phase 3 per-repo mutation queue into an app-wide operation framework.
+- `OperationCenter`: lifting the Phase 3 per-repository writer (`actor RepositoryHandle` + `RepoRevision`)
+  into an app-wide operation framework — the same primitive, not a second queue.
 - Operation status UI, recent-operation history, destructive confirmation sheet, error presentation.
 - Fetch, pull, push, ahead/behind refresh, remotes inspector (read-only), clone from URL.
 - Branch create / switch / detach / rename / delete local / delete remote / create tracking / set upstream.
@@ -53,7 +56,11 @@ fails.
 
 ### 3.1 Operation activity (toolbar item + popover)
 
-- **Interaction:** a compact activity item on the right side of the toolbar, next to the profile pill.
+- **Interaction:** a compact activity item on the right side of the window toolbar, next to the profile
+  pill. It is a standard toolbar item, so macOS 26 renders it inside the system's Liquid Glass toolbar
+  capsule — no custom material. While running it widens into a glass progress capsule (SwiftUI
+  `glassEffect` inside the toolbar's `GlassEffectContainer`, morphing via `glassEffectID` on start/finish
+  only — never animating continuously).
   Idle: invisible (no reserved empty chrome) or a quiet clock-arrow glyph if recent history exists.
   Running: small determinate ring when progress is known, indeterminate otherwise, plus a one-line label
   ("Fetching origin — 42%"). Click → popover listing the current and last 20 operations of this
@@ -63,6 +70,8 @@ fails.
   brief checkmark that fades (≈160 ms in, 900 ms hold, 200 ms out — no repeating animation).
 - **States:** empty (popover says "No operations yet in this session"), running, succeeded, failed,
   cancelled, "needs your attention" (stopped with conflicts → links to the banner).
+- **Popover** is a system `NSPopover`/SwiftUI `.popover` (glass by default on macOS 26); its list rows are
+  plain opaque-text rows on the popover's material — no per-row glass.
 - **Keyboard / a11y:** popover reachable via the Repository menu ("Show Activity", ⌥⌘A suggested);
   progress exposed as an accessibility value; failures announced with an accessibility notification.
 - History is in memory per repository session, bounded (20), never persisted.
@@ -71,6 +80,11 @@ fails.
 
 Used by discard (Phase 3 retrofitted), delete branch, force-unmerged delete, delete remote branch,
 force-with-lease push, rebase/cherry-pick skip, abort with recorded resolutions.
+
+Presented as a standard window-modal sheet (SwiftUI `.sheet` / `NSWindow.beginSheet`), which macOS 26
+renders with the system Liquid Glass sheet treatment — no custom background. Buttons are standard
+controls (`.borderedProminent` with the destructive role for the action button), so they pick up
+system glass styling and the correct destructive tint automatically.
 
 Layout (sheet, 440–520 pt wide):
 1. **Title naming the action and object:** "Delete branch `feature/login`?" — never "Are you sure?".
@@ -94,14 +108,21 @@ bisect state, regardless of who started it (Jit or the terminal).
 - "Cherry-picking `abc1234` …" / "Reverting `abc1234` …" — [Continue] [Skip…] [Abort…]
 - am / bisect in progress → informational banner: "A `git am` / `git bisect` session is in progress.
   Finish it in Terminal." [Open in Terminal]. Jit does not drive these in V1.
-- **Continue** is disabled with a tooltip while unmerged paths remain. Banner tint uses the semantic
-  warning surface (subtle, not saturated); appears with a 180 ms height transition (none with Reduce
-  Motion).
+- **Continue** is disabled with a tooltip while unmerged paths remain.
+- **Visual treatment:** a floating Liquid Glass bar pinned under the toolbar, spanning the workbench width,
+  with a subtle warning tint (SwiftUI `.glassEffect(.regular.tint(<warning token>))` or AppKit
+  `NSGlassEffectView` with `tintColor`). Its buttons live in the same `GlassEffectContainer` so they read
+  as one control group. Text on the bar is primary/secondary label color only. The graph/diff content
+  scrolls underneath with the system scroll-edge effect; the bar never overlaps unread content because
+  the content inset is increased while it is shown. Appears with a 180 ms height + glass materialize
+  transition (instant with Reduce Motion). With Reduce Transparency the bar becomes an opaque warning
+  surface from `DesignSystem`.
 
 ### 3.4 Remote operations
 
 - **Toolbar:** Fetch, Pull (split button: Pull — fast-forward only (default) / Pull with merge / Pull with
-  rebase), Push. Ahead/behind badges (↑2 ↓5) next to the branch name in the toolbar and in the navigator.
+  rebase), Push — standard toolbar items grouped into one system glass capsule (macOS 26 toolbar
+  grouping), SF Symbols, no custom chrome. Ahead/behind badges (↑2 ↓5) next to the branch name in the toolbar and in the navigator.
 - **Fetch menu:** Fetch current remote, Fetch all remotes, "Prune deleted remote branches" toggle — its
   initial value mirrors the repository's effective `fetch.prune`; Jit passes `--prune`/`--no-prune`
   explicitly so the UI never lies about what happened.
@@ -121,7 +142,8 @@ bisect state, regardless of who started it (Jit or the terminal).
 
 ### 3.5 Clone from URL (new-tab page entry + File ▸ Clone…, ⇧⌘N suggested)
 
-- Sheet: URL field (validated live: https://, ssh://, scp-style `git@host:path`, local path/file://),
+- Standard sheet (system Liquid Glass sheet treatment); fields are native text fields.
+- URL field (validated live: https://, ssh://, scp-style `git@host:path`, local path/file://),
   destination parent folder (remembered), folder name (derived from URL, editable, conflict-checked).
 - Progress view inside the sheet: phase label (Counting / Compressing / Receiving / Resolving deltas /
   Checking out), determinate bar, transfer rate, Cancel. On success the repo opens in a new tab and the
@@ -175,6 +197,13 @@ from the banner, the conflicted-files group in the working-directory panel, or �
 │ footer: "2 unresolved blocks" · [Show Base] · [Save] · [Mark as Resolved]          │
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
+- **Chrome vs content (ADR-0006):** the header strip and footer action bar are Liquid Glass controls —
+  the block navigator (◀ ▶, "block 2 of 5"), Show Base toggle, Save and Mark as Resolved sit in one
+  `GlassEffectContainer` floating over the panes; Mark as Resolved uses `.glassProminent` when it becomes
+  the primary action. The ours / theirs / base / result text panes are **opaque** content surfaces from
+  `DesignSystem` (no glass, no blur behind code), so code stays crisp and scrolling stays cheap.
+  Per-block inline actions (Take Ours | Take Theirs | Both ▾ | Edit) are plain opaque buttons inside the
+  result pane — never per-block glass.
 - Panes reuse the Phase 3 native text renderer (syntax highlighting, line numbers, search). Ours/theirs
   scroll-sync to the current block. Optional base pane toggles in as a third column above the result.
 - **Block actions:** Take Ours, Take Theirs, Both (Ours then Theirs / Theirs then Ours), Edit Manually
@@ -230,55 +259,54 @@ Shown only when the commit's remote (upstream's remote, else `origin`) maps to a
 | Swift `Services` | `OperationCenter` (app-wide, `@MainActor` facade) | Enqueue requests per repository, capture the profile snapshot at enqueue, hold lifecycle state for UI, route cancellation, keep bounded history. |
 | Swift `Services` | `RepositoryOperationState` observer | Exposes the banner model; refreshed by FSEvents invalidation of `.git` state files and after each operation. |
 | Swift `Features` | `OperationActivity`, `ConfirmationSheet`, `RemoteSync`, `BranchActions`, `CloneSheet`, `IntegrationSheets`, `ConflictResolver` | UI. |
-| Rust `git-core` | `ops::` (`fetch`, `pull`, `push`, `clone`, `branch`, `merge`, `rebase`, `cherry_pick`, `revert`) | Build argv, run through `ProcessRunner`, parse outcomes. |
-| Rust `git-core` | `exec::ExecContext`, `exec::env` | Non-interactive environment, identity env, `-c` overrides, protocol policy, hook point for auth/network. |
-| Rust `git-core` | `progress::` | Parse `--progress` stderr (CR-separated) into typed phases. |
-| Rust `git-core` | `state::` | Detect operation state from `git rev-parse --git-path` resolved files. |
-| Rust `git-core` | `conflict::` | Conflict entries, conflict documents, resolution writes. |
-| Rust `git-core` | `errors::classify` | Map exit status + C-locale stderr to `GitError` variants. |
-| Rust `git-core` | `weblink::` | Remote URL → web URL mapping. |
+| `GitCore` (Swift, Foundation-only) | `Operations/` (`fetch`, `pull`, `push`, `clone`, `branch`, `merge`, `rebase`, `cherryPick`, `revert`) as methods on `actor RepositoryHandle` | Build argv, run through `ProcessRunner`, parse outcomes. |
+| `GitCore` | `ExecContext`, `GitEnvironment` | Non-interactive environment, identity env, `-c` overrides, protocol policy, hook point for auth/network. |
+| `GitCore` | `ProgressParser` | Parse `--progress` stderr (CR-separated bytes) into typed phases. |
+| `GitCore` | `OperationStateDetector` | Detect operation state from `git rev-parse --git-path` resolved files. |
+| `GitCore` | `Conflicts/` | Conflict entries, conflict documents, resolution writes. |
+| `GitCore` | `GitErrorClassifier` | Map exit status + C-locale stderr to `GitError` cases. |
+| `GitCore` | `WebLink` | Remote URL → web URL mapping. |
 
 ### 4.2 OperationCenter and serialization (ADR-0015)
 
-- **Authoritative serialization lives in Rust.** Each `RepoHandle` holds a writer lock; every mutating
-  call takes it; read calls do not. Even a Swift bug cannot run two mutations on one repository
-  concurrently. (If Phase 3 put the queue in Swift, keep the Swift queue for ordering/UI and add the Rust
-  lock; record in ADR-0015.)
-- **Swift ordering:** `OperationCenter` keeps one FIFO per repository for mutating/destructive requests,
-  executed on a background executor; reads bypass the FIFO. A queued request shows as "Waiting for
-  'Fetch origin'…".
+- **One serialization primitive.** Phase 3's `actor RepositoryHandle` (in `GitCore`) is the authoritative
+  writer: every mutating method is actor-isolated and runs one at a time per repository; read methods are
+  `nonisolated` and work on immutable snapshots, so they run concurrently. Actor reentrancy is handled
+  explicitly: a mutating method never `await`s anything other than its own child process while holding
+  the logical writer slot (an internal `isWriting` flag + FIFO of pending continuations inside the actor
+  guarantees strict one-at-a-time even across suspension points). No second lock exists anywhere.
+- **Ordering & UI:** `OperationCenter` (`@MainActor`) does not queue work itself; it submits requests to
+  the repository's handle and mirrors the handle's pending FIFO for display. A queued request shows as
+  "Waiting for 'Fetch origin'…". Reads bypass the FIFO.
 - **Risk classes** (enum carried on every request): `read`, `mutating`, `destructive`. Destructive
   requests can only be constructed from a confirmed `ConfirmationToken` produced by the sheet — a type
   check, not a convention.
-- **Revision tokens:** `RepoRevision { head: Oid|Unborn, head_ref, refs_digest, index_stamp,
-  op_state }` captured when a sheet is prepared; the Rust call re-reads and fails with
-  `GitError::StaleSnapshot` if it changed (e.g. the user committed in Terminal while the delete sheet was
+- **Revision tokens:** `RepoRevision { head: ObjectID? /* nil = unborn */, headRef, refsDigest,
+  indexStamp, opState }` (Phase 3 type, extended) captured when a sheet is prepared; the handle re-reads
+  and throws `GitError.staleSnapshot` if it changed (e.g. the user committed in Terminal while the delete sheet was
   open). `refs_digest` = hash of `for-each-ref` output limited to refs the operation touches.
 - **Lifecycle:** `queued → running(progress?) → succeeded(outcome) | failed(error) | cancelled |
   stopped(conflicts)`. Terminal states release all resources (process handles, buffers) immediately.
 - **Profile snapshot:** captured at enqueue (`ProfileSnapshot` = identity + Phase 5 auth/network plan),
-  immutable, passed into the Rust call. Switching profiles never touches queued or running operations.
+  immutable `Sendable` value, passed into the `GitCore` call. Switching profiles never touches queued or running operations.
 - **Post-operation invalidation:** each outcome lists what changed (`refs`, `head`, `index`,
   `worktree_paths`, `op_state`) → targeted refresh of navigator, graph head pages, status and banner. No
   full reload.
 
 ### 4.3 Execution context and the Phase 5 hook point
 
-```rust
-#[derive(uniffi::Record)]
-pub struct ExecContext {
-    pub identity: Option<IdentitySnapshot>,   // author/committer for commit-creating ops
-    pub auth: AuthPlan,                        // Phase 4: always NonInteractive
-    pub network: NetworkPlan,                  // Phase 4: Default
+```swift
+public struct ExecContext: Sendable {
+    public var identity: IdentitySnapshot?     // author/committer for commit-creating ops
+    public var auth: AuthPlan                  // Phase 4: always .nonInteractive
+    public var network: NetworkPlan            // Phase 4: .systemDefault
 }
 
-#[derive(uniffi::Enum)]
-pub enum AuthPlan { NonInteractive }          // Phase 5 adds Https{..}, Ssh{..}
-#[derive(uniffi::Enum)]
-pub enum NetworkPlan { Default }              // Phase 5 adds scoped CA / proxy
+public enum AuthPlan: Sendable { case nonInteractive }   // Phase 5 adds .https(...), .ssh(...)
+public enum NetworkPlan: Sendable { case systemDefault } // Phase 5 adds scoped CA / proxy
 ```
 
-Every Git invocation that may touch the network goes through `exec::remote_command(ctx, …)`, which
+Every Git invocation that may touch the network goes through `GitEnvironment.remoteCommand(ctx, …)`, which
 applies, in order:
 1. Base env from `ProcessRunner` (Phase 0): sanitized environment, `LC_ALL=C`, `LANGUAGE=` cleared (stable
    stderr for classification; user-facing text is Jit's own), `GIT_TERMINAL_PROMPT=0`,
@@ -292,13 +320,14 @@ applies, in order:
 4. Identity (commit-creating ops: merge, cherry-pick, revert, rebase, pull-with-merge/rebase):
    `GIT_COMMITTER_NAME/EMAIL` from the snapshot; `GIT_AUTHOR_*` only for new commits (merge commits,
    reverts) — cherry-pick and rebase preserve original authors, as Git does. No profile → the request is
-   rejected before running with `GitError::NoActiveProfile`.
+   rejected before running with `GitError.noActiveProfile`.
 
 Phase 5 replaces step 2 per `AuthPlan` and adds `NetworkPlan` handling; no call site changes.
 
-Process groups: each child runs in its own process group; cancellation sends `SIGTERM` to the group,
-then `SIGKILL` after a 2 s grace. Git's own signal handlers clean lockfiles and partial clones on
-`SIGTERM`.
+Process groups: `ProcessRunner` spawns each child with `posix_spawn` + `POSIX_SPAWN_SETPGROUP` in its own
+process group. Cancelling the Swift `Task` (via `withTaskCancellationHandler`) sends `SIGTERM` to the group
+with `killpg`, then `SIGKILL` after a 2 s grace. Git's own signal handlers clean lockfiles and partial
+clones on `SIGTERM`. Pipes and exit are observed with Dispatch sources, so no thread blocks while waiting.
 
 ### 4.4 Cancellation semantics
 
@@ -315,9 +344,11 @@ then `SIGKILL` after a 2 s grace. Git's own signal handlers clean lockfiles and 
 
 Pass `--progress` (stderr is not a TTY). Parser splits stderr on `\r` and `\n`, recognizes
 `<phase>: <pct>% (<n>/<total>)[, <size> | <rate>]` for Counting/Compressing/Receiving/Resolving deltas/
-Updating files/Writing objects, and `remote: ` prefixed lines (kept as messages, sanitized). Emitted to
-Swift via the Phase 0 progress callback, throttled to ≤ 10 updates/s, coalesced on the Swift side into
-one observable property.
+Updating files/Writing objects, and `remote: ` prefixed lines (kept as messages, sanitized). Parsing works
+on raw bytes from the stderr Dispatch source. Updates are yielded into a bounded
+`AsyncStream<OperationProgress>` (`bufferingPolicy: .bufferingNewest(1)`, so a slow consumer only ever
+sees the latest value), throttled to ≤ 10 updates/s, and folded on the main actor into one observable
+property of the operation.
 
 ### 4.6 Remote operations
 
@@ -368,16 +399,15 @@ the source name); `CHERRY_PICK_HEAD` → CherryPick; `REVERT_HEAD` → Revert; `
 above → multi-commit pick/revert between steps; `BISECT_LOG` → Bisect. FSEvents on the git dir
 (already watched in Phase 1) triggers re-detection.
 
-```rust
-#[derive(uniffi::Enum)]
-pub enum RepoOperationState {
-    Clean,
-    Merging { source: String, conflicted: u32 },
-    Rebasing { head_name: String, onto: Oid, step: u32, total: u32, stopped_at: Option<CommitSummary>, conflicted: u32 },
-    CherryPicking { commit: CommitSummary, remaining: u32, conflicted: u32 },
-    Reverting { commit: CommitSummary, remaining: u32, conflicted: u32 },
-    Applying,      // git am — informational only
-    Bisecting,     // informational only
+```swift
+public enum RepoOperationState: Sendable, Equatable {
+    case clean
+    case merging(source: String, conflicted: Int)
+    case rebasing(headName: String, onto: ObjectID, step: Int, total: Int, stoppedAt: CommitSummary?, conflicted: Int)
+    case cherryPicking(commit: CommitSummary, remaining: Int, conflicted: Int)
+    case reverting(commit: CommitSummary, remaining: Int, conflicted: Int)
+    case applying     // git am — informational only
+    case bisecting    // informational only
 }
 ```
 
@@ -396,51 +426,64 @@ pub enum RepoOperationState {
 
   Plus attributes: mode `120000` → symlink, `160000` → submodule, binary (NUL in first 8 KB of any
   stage or `-diff`/`binary` attribute via `git check-attr`), size above limit (default 5 MB).
-- **Conflict document (ADR-0031):** Rust reads stage blobs via `git cat-file --batch`, writes them to a
+- **Conflict document (ADR-0031):** `GitCore` reads stage blobs via `git cat-file --batch`, writes them to a
   0700 temp dir, runs `git merge-file -p --diff3 -L ours -L base -L theirs ours base theirs`, and parses
   the output (labels are Jit-controlled, so parsing is unambiguous) into segments:
-  `Resolved(bytes) | Conflict { ours, base, theirs, ours_range, theirs_range }`. Line endings and
-  encoding are preserved as bytes; non-UTF-8 → fallback.
+  `.resolved(bytes) | .conflict(ours:base:theirs:oursRange:theirsRange:)` held as ranges into one shared
+  byte buffer (`[UInt8]`), not as per-line objects. Line endings and encoding are preserved as bytes;
+  non-UTF-8 → fallback.
 - **Working-tree reconciliation:** the working-tree file (what Git wrote, possibly edited by the user) is
   hashed. If it differs from what the merge produced (user already edited it), the resolver offers
   "Continue from the file on disk" (parse markers in the file; if unparseable, open as plain editable
   result) or "Start from Git's conflict" — never silently discarding either.
-- **Saving:** `save_resolution(path, bytes, expected_hash)` → check the current file hash equals
-  `expected_hash` (else `StaleSnapshot` → UI shows "changed outside Jit"); write to a temp file in the
+- **Saving:** `saveResolution(path, bytes, expectedHash)` → check the current file hash equals
+  `expectedHash` (else `.staleSnapshot` → UI shows "changed outside Jit"); write to a temp file in the
   same directory with the original mode; `rename(2)` atomically; return the new hash.
-- **Marking resolved:** `mark_resolved(path, expected_hash)` → re-verify hash, then `git add -- <path>`.
+- **Marking resolved:** `markResolved(path, expectedHash)` → re-verify hash, then `git add -- <path>`.
   Fallback resolutions use `git checkout --ours|--theirs -- <path>` / `git rm -- <path>` + `git add`.
 - **Release:** conflict documents are dropped when the resolver closes; nothing cached across files.
 
-```rust
-impl RepoHandle {
-    fn operation_state(&self) -> Result<RepoOperationState, GitError>;
-    fn conflicts(&self) -> Result<Vec<ConflictEntry>, GitError>;
-    fn load_conflict(&self, path: RepoPath) -> Result<ConflictDocument, GitError>;
-    fn save_resolution(&self, path: RepoPath, content: Vec<u8>, expected: FileHash) -> Result<FileHash, GitError>;
-    fn mark_resolved(&self, path: RepoPath, expected: FileHash) -> Result<(), GitError>;
-    fn resolve_with_side(&self, path: RepoPath, side: ConflictSide, token: ConfirmationToken) -> Result<(), GitError>;
-    fn continue_operation(&self, ctx: ExecContext) -> Result<IntegrationOutcome, GitError>;
-    fn skip_current(&self, ctx: ExecContext, token: ConfirmationToken) -> Result<IntegrationOutcome, GitError>;
-    fn abort_operation(&self, token: ConfirmationToken) -> Result<(), GitError>;
-    fn fetch(&self, req: FetchRequest, ctx: ExecContext, cancel: Arc<CancelToken>, progress: Box<dyn ProgressSink>) -> Result<FetchOutcome, GitError>;
-    fn pull(&self, req: PullRequest, ctx: ExecContext, cancel: Arc<CancelToken>, progress: Box<dyn ProgressSink>) -> Result<PullOutcome, GitError>;
-    fn push(&self, req: PushRequest, ctx: ExecContext, cancel: Arc<CancelToken>, progress: Box<dyn ProgressSink>) -> Result<PushOutcome, GitError>;
-    fn create_branch(&self, req: CreateBranchRequest, expected: RepoRevision) -> Result<(), GitError>;
-    fn switch(&self, req: SwitchRequest, expected: RepoRevision) -> Result<SwitchOutcome, GitError>; // WouldOverwrite { paths }
-    fn merge(&self, req: MergeRequest, ctx: ExecContext, expected: RepoRevision) -> Result<IntegrationOutcome, GitError>;
-    fn rebase(&self, req: RebaseRequest, ctx: ExecContext, expected: RepoRevision) -> Result<IntegrationOutcome, GitError>;
-    // cherry_pick, revert, rename_branch, delete_branch, delete_remote_branch, set_upstream analogous
+```swift
+// GitCore — reads are nonisolated (snapshot-based, concurrent); mutations are actor-isolated (serialized).
+extension RepositoryHandle {
+    nonisolated func operationState() async throws(GitError) -> RepoOperationState
+    nonisolated func conflicts() async throws(GitError) -> [ConflictEntry]
+    nonisolated func loadConflict(_ path: RepoPath) async throws(GitError) -> ConflictDocument
+
+    func saveResolution(_ path: RepoPath, content: [UInt8], expected: FileHash) async throws(GitError) -> FileHash
+    func markResolved(_ path: RepoPath, expected: FileHash) async throws(GitError)
+    func resolveWithSide(_ path: RepoPath, side: ConflictSide, token: ConfirmationToken) async throws(GitError)
+    func continueOperation(_ ctx: ExecContext) async throws(GitError) -> IntegrationOutcome
+    func skipCurrent(_ ctx: ExecContext, token: ConfirmationToken) async throws(GitError) -> IntegrationOutcome
+    func abortOperation(token: ConfirmationToken) async throws(GitError)
+
+    // Network ops: cancellation = cancelling the calling Task (→ killpg); progress = bounded AsyncStream.
+    func fetch(_ req: FetchRequest, ctx: ExecContext,
+               progress: AsyncStream<OperationProgress>.Continuation?) async throws(GitError) -> FetchOutcome
+    func pull(_ req: PullRequest, ctx: ExecContext,
+              progress: AsyncStream<OperationProgress>.Continuation?) async throws(GitError) -> PullOutcome
+    func push(_ req: PushRequest, ctx: ExecContext,
+              progress: AsyncStream<OperationProgress>.Continuation?) async throws(GitError) -> PushOutcome
+
+    func createBranch(_ req: CreateBranchRequest, expected: RepoRevision) async throws(GitError)
+    func switchTo(_ req: SwitchRequest, expected: RepoRevision) async throws(GitError) -> SwitchOutcome // .wouldOverwrite(paths:)
+    func merge(_ req: MergeRequest, ctx: ExecContext, expected: RepoRevision) async throws(GitError) -> IntegrationOutcome
+    func rebase(_ req: RebaseRequest, ctx: ExecContext, expected: RepoRevision) async throws(GitError) -> IntegrationOutcome
+    // cherryPick, revert, renameBranch, deleteBranch, deleteRemoteBranch, setUpstream analogous
 }
-#[uniffi::export] fn clone_repository(req: CloneRequest, ctx: ExecContext, cancel: Arc<CancelToken>, progress: Box<dyn ProgressSink>) -> Result<RepoLocation, GitError>;
+
+// Clone has no repository yet, so it is a free function on GitCore.
+public func cloneRepository(_ req: CloneRequest, ctx: ExecContext,
+                            progress: AsyncStream<OperationProgress>.Continuation?) async throws(GitError) -> RepoLocation
 ```
 
-Swift wraps each in `async throws` methods on `GitCoreBridge.Repository` that run on a background
-executor and translate `GitError` into `PresentableError` (§4.11).
+`Services` calls these directly (no bridge layer, no copies) and translates `GitError` into
+`PresentableError` (§4.11). Typed throws are used if the Swift 6 toolchain in use supports them cleanly
+for these signatures; otherwise plain `throws` with `GitError` as the documented error type.
 
 ### 4.11 Error taxonomy (§16.4)
 
-`errors::classify(exit, stderr_c_locale, context)` → `GitError`; Swift maps each to a
+`GitErrorClassifier.classify(exit:stderr:context:)` (C-locale stderr bytes) → `GitError`; `Services` maps each to a
 `PresentableError { title, explanation, recoveryActions, technicalDetail (sanitized) }`.
 
 | Case (§16.4) | Detection (examples) | User-facing explanation → recovery actions |
@@ -457,12 +500,12 @@ executor and translate `GitError` into `PresentableError` (§4.11).
 | Remote unreachable | `Could not resolve host`, `Connection timed out`, `Connection refused` | DNS vs timeout vs refused worded separately; VPN hint for private-looking hosts → Retry |
 | Rejected push | porcelain `!` with reason | §3.4 rejection sheet |
 | Merge conflicts | exit 1 + unmerged entries | banner + Resolve |
-| Stale diff / snapshot | `StaleSnapshot` from revision/hash checks | "The repository changed since you prepared this action." → Refresh & Review |
+| Stale diff / snapshot | `.staleSnapshot` from revision/hash checks | "The repository changed since you prepared this action." → Refresh & Review |
 | Locked index | `index.lock': File exists` | "Another Git process is using this repository." shows lock age → Retry; Remove Lock… only via destructive sheet stating the risk |
 | Missing Git executable | `GitLocator` failure | onboarding/settings link |
 | Permission denied | `Permission denied` on paths, EACCES | path shown → Reveal in Finder |
 | Disk full | `No space left on device`, ENOSPC | → retry after freeing space; partial clone cleaned |
-| Operation cancelled | `CancelToken` | neutral, not an error color |
+| Operation cancelled | Swift `CancellationError` / task cancelled | neutral, not an error color |
 | Unknown | anything else | generic title + sanitized last 20 stderr lines in disclosure |
 
 Sanitization (shared with Phase 5): strip `user:pass@` from URLs, redact `Authorization`-like headers,
@@ -481,6 +524,11 @@ Branch names are percent-encoded per path segment.
 
 - No automatic fetch, ever, in V1 unless the user explicitly enables a future setting (none in V1).
 - Progress throttled; activity item stops all drawing when idle; checkmark animation is one-shot.
+- Glass (ADR-0006): only on chrome — toolbar items, the banner, sheets, popovers, the resolver's
+  floating control group. No glass on rows, blocks or inside scrolling content; glass morphs run only on
+  state changes (operation start/finish, banner show/hide) and settle within ~250 ms. Verify with
+  Instruments that an idle window with a visible banner shows no ongoing GPU or CPU work.
+- Conflict documents are byte buffers with range-based segments; no per-line objects (ADR-0005).
 - Banner detection is event-driven (FSEvents), cheap file stats only.
 - Conflict documents load on demand per file; the panes render only visible lines (Phase 3 renderer).
 - Post-op refresh is targeted (ref list delta, graph head pages, status of reported paths).
@@ -522,7 +570,7 @@ Branch names are percent-encoded per path segment.
 
 | ADR | Title |
 |---|---|
-| 0015 | Operation framework: risk classes, Rust writer lock + Swift FIFO, revision tokens, lifecycle |
+| 0015 | Operation framework: risk classes, single `actor RepositoryHandle` writer (lifted from Phase 3) with FIFO + revision tokens, lifecycle, Task-cancellation → `killpg` semantics |
 | 0030 | Pull strategy (explicit fetch + integrate, ff-only default) and force-push policy (lease-only, never plain force) |
 | 0031 | Conflict document model (stage blobs + `git merge-file --diff3`, byte-preserving segments, hash-guarded saves) |
 | 0032 | Non-interactive remote execution environment and protocol policy (the Phase 5 hook point) |

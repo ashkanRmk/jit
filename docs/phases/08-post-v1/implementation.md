@@ -44,15 +44,15 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 ### Epic `stash` — Stash manager
 
 **P8.stash.1 — Core stash operations**
-- Goal: list, inspect, push, apply, pop, drop, clear in `git-core` with revision validation.
+- Goal: list, inspect, push, apply, pop, drop, clear in `GitCore` with revision validation.
 - Tasks:
-  - [ ] `git-core/src/stash.rs`: list parser (`-z` format), `StashEntry`, push/apply/pop/drop/branch.
+  - [ ] `GitCore/Stash/StashOperations.swift`: byte-level list parser (`-z` format), `StashEntry`, push/apply/pop/drop/branch.
   - [ ] OID validation for index-addressed ops; `StaleState` on mismatch.
-  - [ ] Register operation kinds and risk classes; FFI exports.
-- Tests: `stash_list_parses_messages_with_newlines_and_unicode`, `stash_push_include_untracked_roundtrip`,
-  `stash_push_keep_index_preserves_index_bytes`, `stash_push_paths_only_stashes_selected`,
-  `stash_pop_conflict_keeps_stash`, `stash_drop_rejects_shifted_index`, `stash_apply_untracked_collision_errors`.
-- Verify: `cargo test -p git-core stash`.
+  - [ ] Register operation kinds and risk classes on the per-repository actor; Services wrappers.
+- Tests: `stashListParsesMessagesWithNewlinesAndUnicode`, `stashPushIncludeUntrackedRoundtrip`,
+  `stashPushKeepIndexPreservesIndexBytes`, `stashPushPathsOnlyStashesSelected`,
+  `stashPopConflictKeepsStash`, `stashDropRejectsShiftedIndex`, `stashApplyUntrackedCollisionErrors`.
+- Verify: `swift test --filter StashTests` (in `macos/Packages/JitKit`).
 - Done when: all tests pass on real temp repos; unrelated files byte-identical after every op.
 
 **P8.stash.2 — Stash UI**
@@ -72,13 +72,13 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 **P8.reflog.1 — Core reflog + recovery points**
 - Tasks:
-  - [ ] `git-core/src/reflog.rs`: paged reader, action classification from `%gs`.
-  - [ ] On-demand reachability for a page; `find_unreachable` (fsck) with cancel + progress.
+  - [ ] `GitCore/Reflog/ReflogReader.swift`: paged reader, action classification from `%gs`.
+  - [ ] On-demand reachability for a page; `findUnreachable` (fsck) with cancel + progress.
   - [ ] `RecoveryPoint` recorded by every rewrite/destructive op in the session op log (bounded 50).
   - [ ] ADR-0050.
-- Tests: `reflog_page_classifies_actions`, `reflog_marks_unreachable_after_reset`,
-  `find_unreachable_lists_dropped_stash`, `find_unreachable_cancels_and_kills_process`,
-  `recovery_point_recorded_for_amend`.
+- Tests: `reflogPageClassifiesActions`, `reflogMarksUnreachableAfterReset`,
+  `findUnreachableListsDroppedStash`, `findUnreachableCancelsAndKillsProcess`,
+  `recoveryPointRecordedForAmend`.
 - Done when: tests pass; fsck cancellation leaves no child process (`pgrep` check in test).
 
 **P8.reflog.2 — Reflog explorer UI**
@@ -95,11 +95,11 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 **P8.reset.1 — Preview + execution**
 - Tasks:
-  - [ ] `reset_preview` (files lost, unreachable commits count/subjects), `reset` for soft/mixed/keep/hard.
+  - [ ] `resetPreview` (files lost, unreachable commits count/subjects), `reset` for soft/mixed/keep/hard.
   - [ ] "Stash first" chain in one writer job (abort reset if stash fails).
-- Tests: `reset_soft_keeps_index_and_worktree`, `reset_mixed_unstages`, `reset_keep_aborts_on_conflicting_changes`,
-  `reset_hard_preview_lists_lost_files`, `reset_hard_leaves_untracked_files`, `reset_stash_first_chain_atomic`,
-  `reset_rejects_stale_revision`.
+- Tests: `resetSoftKeepsIndexAndWorktree`, `resetMixedUnstages`, `resetKeepAbortsOnConflictingChanges`,
+  `resetHardPreviewListsLostFiles`, `resetHardLeavesUntrackedFiles`, `resetStashFirstChainAtomic`,
+  `resetRejectsStaleRevision`.
 
 **P8.reset.2 — Reset UI**
 - Tasks:
@@ -115,8 +115,8 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
   - [ ] Name validation via `git check-ref-format "refs/tags/<name>"`.
   - [ ] Lightweight + annotated create (message via 0600 temp file, tagger from profile snapshot env).
   - [ ] Push one tag, delete local (record target), delete remote (destructive).
-- Tests: `tag_annotated_uses_profile_identity`, `tag_name_validation_rejects_invalid`,
-  `tag_delete_local_returns_target`, `tag_push_rejected_when_remote_differs` (local bare remote fixture).
+- Tests: `tagAnnotatedUsesProfileIdentity`, `tagNameValidationRejectsInvalid`,
+  `tagDeleteLocalReturnsTarget`, `tagPushRejectedWhenRemoteDiffers` (local bare remote fixture).
 
 **P8.tags.2 — Tag UI**
 - Tasks: create sheet, sidebar tag rows with popover details, actions, palette entries.
@@ -133,15 +133,16 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 **P8.rebase-interactive.2 — Plan, validation, helper**
 - Tasks:
-  - [ ] `git-core/src/rebase_interactive.rs`: `rebase_plan` (merge detection, published flags,
-        unsupported reasons), `rebase_validate`.
-  - [ ] Helper subcommands `sequence-editor` and `message-editor` (amend ADR-0016); temp dir 0700.
+  - [ ] `GitCore/Rebase/InteractiveRebase.swift`: `rebasePlan` (merge detection, published flags,
+        unsupported reasons), `rebaseValidate`.
+  - [ ] `jit-git-helper` subcommands `sequence-editor` and `message-editor` in the `JitGitHelper`
+        Swift target (amend ADR-0016); temp dir 0700.
   - [ ] State-machine additions: interactive rebase, stopped-for-edit, progress from `msgnum`/`end`.
-- Tests: `plan_rejects_range_with_merge`, `validate_rejects_leading_squash`, `reorder_two_independent_commits`,
-  `reword_message_with_quotes_newlines_and_unicode`, `squash_combines_messages`, `fixup_discards_message`,
-  `drop_removes_commit_tree_matches_expected`, `edit_stops_and_continue_after_amend`,
-  `conflict_mid_rebase_then_abort_restores_original_head`, `update_refs_moves_stacked_branch`,
-  `committer_identity_from_profile_snapshot`, `helper_never_receives_user_text_in_argv`.
+- Tests: `planRejectsRangeWithMerge`, `validateRejectsLeadingSquash`, `reorderTwoIndependentCommits`,
+  `rewordMessageWithQuotesNewlinesAndUnicode`, `squashCombinesMessages`, `fixupDiscardsMessage`,
+  `dropRemovesCommitTreeMatchesExpected`, `editStopsAndContinueAfterAmend`,
+  `conflictMidRebaseThenAbortRestoresOriginalHead`, `updateRefsMovesStackedBranch`,
+  `committerIdentityFromProfileSnapshot`, `helperNeverReceivesUserTextInArgv`.
 
 **P8.rebase-interactive.3 — Editor UI**
 - Tasks:
@@ -159,8 +160,8 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 **P8.commit-surgery.1 — Plan generators**
 - Tasks: `reword(oid,msg)`, `drop(oid)`, `move(oid, after)`, `squash(oid, into)` generating validated plans;
   HEAD reword routes to amend.
-- Tests: `surgery_drop_middle_commit`, `surgery_move_up_independent_commit`, `surgery_reword_older_commit`,
-  `surgery_squash_into_parent`, `surgery_refuses_merge_in_range`.
+- Tests: `surgeryDropMiddleCommit`, `surgeryMoveUpIndependentCommit`, `surgeryRewordOlderCommit`,
+  `surgerySquashIntoParent`, `surgeryRefusesMergeInRange`.
 
 **P8.commit-surgery.2 — Graph actions**
 - Tasks: context menu items, in-lane drag to reorder (current branch only), message sheet, destructive drop sheet.
@@ -171,9 +172,9 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 **P8.history-filters.1 — Core filter mapping + ADR-0058**
 - Tasks: `HistoryFilter` → argv mapping; layout cache keyed by filter; streaming pickaxe with cancel.
-- Tests: `filter_author_and_date_range`, `filter_paths_rewrites_parents_connected_graph`,
-  `filter_first_parent_lanes`, `filter_ancestry_path`, `filter_pickaxe_cancel`,
-  `filter_values_never_interpreted_as_options` (values starting with `-`).
+- Tests: `filterAuthorAndDateRange`, `filterPathsRewritesParentsConnectedGraph`,
+  `filterFirstParentLanes`, `filterAncestryPath`, `filterPickaxeCancel`,
+  `filterValuesNeverInterpretedAsOptions` (values starting with `-`).
 
 **P8.history-filters.2 — Filter UI**
 - Tasks: filter tokens, path drop target, per-tab persistence, filtered-mode header, simplified-edge style token.
@@ -184,9 +185,9 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 **P8.worktrees.1 — Core + session model (ADR-0053)**
 - Tasks: porcelain parser; add/remove/lock/unlock/prune; `CommonDirGroup` invalidation; per-common-dir ref-write lock.
-- Tests: `worktree_list_parses_locked_prunable_detached`, `worktree_add_new_branch`,
-  `worktree_remove_dirty_requires_force`, `ref_change_in_one_worktree_invalidates_sibling_session`,
-  `concurrent_ref_writes_across_worktrees_serialized`.
+- Tests: `worktreeListParsesLockedPrunableDetached`, `worktreeAddNewBranch`,
+  `worktreeRemoveDirtyRequiresForce`, `refChangeInOneWorktreeInvalidatesSiblingSession`,
+  `concurrentRefWritesAcrossWorktreesSerialized`.
 
 **P8.worktrees.2 — UI**
 - Tasks: sidebar section, add sheet, open-in-tab, "checked out in ‹path›" badges, destructive remove sheet.
@@ -198,9 +199,9 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 **P8.patches.1 — Create & apply core**
 - Tasks: format-patch, diff export, selection export (P3 builder), apply check report, apply/`am` with
   AM state machine, temp file hygiene; ADR-0054.
-- Tests: `export_commits_then_am_reproduces_trees`, `export_selection_applies_cleanly`,
-  `apply_check_reports_per_file_failure`, `apply_is_atomic_on_failure`, `apply_three_way_fallback_conflict`,
-  `am_conflict_continue_and_abort`, `binary_patch_roundtrip`.
+- Tests: `exportCommitsThenAmReproducesTrees`, `exportSelectionAppliesCleanly`,
+  `applyCheckReportsPerFileFailure`, `applyIsAtomicOnFailure`, `applyThreeWayFallbackConflict`,
+  `amConflictContinueAndAbort`, `binaryPatchRoundtrip`.
 
 **P8.patches.2 — UI + sharing**
 - Tasks: export menus, share picker, drop-to-apply, preview sheet, `PatchSharingProvider` with local providers only.
@@ -211,8 +212,8 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 **P8.remotes.1 — Core**
 - Tasks: config-based remote parser; add/rename/set-url(push)/remove; prune dry-run + run; URL validation and credential stripping.
-- Tests: `remote_add_rejects_embedded_credentials`, `remote_rename_moves_tracking_refs`,
-  `remote_remove_reports_deleted_refs`, `remote_prune_dry_run_matches_run`, `remote_separate_push_url`.
+- Tests: `remoteAddRejectsEmbeddedCredentials`, `remoteRenameMovesTrackingRefs`,
+  `remoteRemoveReportsDeletedRefs`, `remotePruneDryRunMatchesRun`, `remoteSeparatePushUrl`.
 
 **P8.remotes.2 — UI**
 - Tasks: remotes section, edit sheets, destructive remove/prune sheets, "changes repository configuration" note.
@@ -223,8 +224,8 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 **P8.branch-history.1 — Core**
 - Tasks: force-move branch with preview, `rebase --onto`, squash-branch plan, `git cherry` comparison,
   force-with-lease push path (lease SHA from last observed tracking ref, `--force-if-includes` when supported).
-- Tests: `force_move_preview_lists_lost_commits`, `rebase_onto_range`, `squash_branch_single_commit_same_tree`,
-  `cherry_marks_equivalent_patches`, `force_with_lease_rejected_when_remote_moved` (local bare remote).
+- Tests: `forceMovePreviewListsLostCommits`, `rebaseOntoRange`, `squashBranchSingleCommitSameTree`,
+  `cherryMarksEquivalentPatches`, `forceWithLeaseRejectedWhenRemoteMoved` (local bare remote).
 
 **P8.branch-history.2 — Graph drag & drop**
 - Tasks: drag branch label onto commit → popover actions; compare-branches view; force-push sheet.
@@ -236,9 +237,9 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 **P8.signing.1 — Core**
 - Tasks: per-invocation signing config from profile; key discovery (GPG colons output, SSH pubkeys);
   verification on selection; app-managed allowed-signers file; ADR-0055.
-- Tests: `ssh_signed_commit_verifies_with_allowed_signers` (test key generated in fixture),
-  `gpg_missing_reports_actionable_error`, `signing_failure_does_not_create_unsigned_commit`,
-  `global_gitconfig_unchanged_after_signed_commit`. GPG tests skipped only when `gpg` absent, with recorded reason.
+- Tests: `sshSignedCommitVerifiesWithAllowedSigners` (test key generated in fixture),
+  `gpgMissingReportsActionableError`, `signingFailureDoesNotCreateUnsignedCommit`,
+  `globalGitconfigUnchangedAfterSignedCommit`. GPG tests skipped only when `gpg` absent, with recorded reason.
 
 **P8.signing.2 — UI**
 - Tasks: profile signing section, composer indicator, commit-details signature status, tag signing toggle.
@@ -248,8 +249,8 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 **P8.submodules.1 — Core (ADR-0056)**
 - Tasks: porcelain v2 submodule fields; status/update/init/sync/add/deinit; path safety checks; Git version gate.
-- Tests: `status_reports_submodule_new_commits`, `update_init_recursive`, `refuses_path_escape`,
-  `refuses_symlinked_submodule_path`, `clone_does_not_recurse_by_default`, `deinit_dirty_requires_confirmation`.
+- Tests: `statusReportsSubmoduleNewCommits`, `updateInitRecursive`, `refusesPathEscape`,
+  `refusesSymlinkedSubmodulePath`, `cloneDoesNotRecurseByDefault`, `deinitDirtyRequiresConfirmation`.
 
 **P8.submodules.2 — UI**
 - Tasks: WD rows, pointer diff with commit list, sidebar section, open as tab, clone toggle.
@@ -263,8 +264,8 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 **P8.lfs.2 — Core**
 - Tasks: detection; pointer parsing; track/untrack; fetch/pull/prune with progress/cancel; locks via helper credentials;
   safe reads without LFS.
-- Tests: `pointer_file_parsed`, `track_updates_gitattributes_only`, `reads_work_without_lfs_installed`,
-  `fetch_cancel_kills_process` (local LFS test server or skip with reason).
+- Tests: `pointerFileParsed`, `trackUpdatesGitattributesOnly`, `readsWorkWithoutLfsInstalled`,
+  `fetchCancelKillsProcess` (local LFS test server or skip with reason).
 
 **P8.lfs.3 — UI**
 - Tasks: LFS object card in diff, banner when missing, actions menu, locks list.
@@ -274,11 +275,13 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 ## 3. Test plan summary
 
-- Every epic adds Rust integration tests on real temp repositories built with `git-testkit`; remote
+- Every epic adds `GitCore` integration tests (Swift Testing, `swift test`) on real temp repositories
+  built with `GitTestKit`; remote
   scenarios use local bare repositories (and a local HTTP server where auth/LFS is required).
 - Destructive and rewrite tests assert byte-identical unrelated content (files, index entries, refs not
-  targeted) — same helper as P3/P4 (`assert_unrelated_unchanged`).
-- Each epic adds UI tests for its demo flow and snapshot tests for new screens in light and dark.
+  targeted) — same helper as P3/P4 (`assertUnrelatedUnchanged`).
+- Each epic adds UI tests for its demo flow and snapshot tests for new screens in light, dark and
+  Reduce Transparency (where the screen has glass chrome).
 - Relaunch-in-the-middle tests for every new multi-step state (interactive rebase, `am`, sequencer).
 - Tests that need external tools (`gpg`, `git-lfs`) skip only with an explicit recorded reason.
 
@@ -309,6 +312,8 @@ Record numbers in `progress-<epic>.md` with machine, macOS, Git version and meth
 - [ ] Destructive/rewrite operations show the §16.3 sheet and record a `RecoveryPoint`.
 - [ ] No new background activity; idle CPU re-measured.
 - [ ] Actions registered in menus, context menus and command palette; keyboard + VoiceOver checked.
+- [ ] New UI follows the ADR-0006 glass/content split (glass only on sheets/popovers/panels/chrome;
+      lists and editors opaque); checked with Reduce Transparency.
 - [ ] ADRs written; docs updated; nothing unbuilt shown as working.
 - [ ] Roadmap §9 phase exit gate items satisfied for this epic's scope.
 - [ ] `progress-<epic>.md` finalized; PR `Epic — <name>` opened to `main`.

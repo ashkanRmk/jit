@@ -1,6 +1,7 @@
 # Jit
 
-A premium, ultra-lightweight native macOS Git client — SwiftUI + AppKit on top of a Rust Git core.
+A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + AppKit), native Liquid
+Glass design, driving the Git CLI.
 
 **Status: planning.** No application code exists yet. The plan:
 
@@ -22,8 +23,10 @@ A premium, ultra-lightweight native macOS Git client — SwiftUI + AppKit on top
 | 8 — Post-V1 | [`docs/phases/08-post-v1`](docs/phases/08-post-v1/) |
 
 ## Prerequisites (development)
-- macOS 14+ with **full Xcode** installed and selected (`xcode-select -p` must point into `Xcode.app`).
-- Rust via `rustup` (stable).
-- Git 2.39+ (to be confirmed by ADR-0006).
+- macOS 26+ with **full Xcode** installed and selected (`xcode-select -p` must point into `Xcode.app`).
+- XcodeGen (`brew install xcodegen`).
+- Git 2.39+ (minimum confirmed in Phase 0).
+
+No Rust toolchain is needed (ADR-0002).
 
 Build instructions are added in Phase 0.

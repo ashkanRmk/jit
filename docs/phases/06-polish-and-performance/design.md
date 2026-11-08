@@ -21,7 +21,9 @@ VoiceOver.
    no wakeup storm, flat memory; Instruments Energy shows "Low"/idle.
 4. Press ⌘K, jump to a branch, a file and another repo without touching the mouse.
 5. Turn on VoiceOver: navigate graph rows, read a commit, move through diff lines, stage a line.
-6. Run the visual regression suite: all §18.4 screens pass in light and dark.
+6. Run the visual regression suite: all §18.4 screens pass in light, dark and Reduce Transparency.
+7. Scroll the graph and resize the window under Instruments: glass chrome adds no sustained GPU load,
+   and idle GPU/energy returns to ≈0 as soon as interaction stops.
 
 ## 2. Scope / out of scope
 
@@ -30,6 +32,8 @@ VoiceOver.
 - Startup, idle, memory and rendering optimizations driven by measurements.
 - Large-repository and multi-tab hardening.
 - Visual refinement pass across every screen; micro-interaction audit; Reduce Motion.
+- Liquid Glass audit against ADR-0006 (chrome-only glass, legibility, accessibility fallbacks) and
+  measurement of the GPU/energy cost of glass chrome.
 - Command palette (⌘K), keyboard workflow completion, menu completeness (§17).
 - Accessibility pass (§17): VoiceOver, focus order, contrast, Increase Contrast, text size where practical.
 - Visual regression suite (§18.4) and performance regression suite (§18.5).
@@ -49,8 +53,10 @@ VoiceOver.
 ### 3.1 Command palette (⌘K)
 
 **Interaction**
-- ⌘K opens a floating panel centered in the upper third of the active window (a child `NSPanel`,
-  not a sheet; does not steal the app's key-window semantics for other windows).
+- ⌘K opens a native floating glass panel centered in the upper third of the active window (a child
+  `NSPanel` whose content is a SwiftUI view with a system glass background, not a sheet; does not steal
+  the app's key-window semantics for other windows). It reads like Spotlight: one rounded glass
+  container, no extra borders.
 - One search field, results below. Typing filters live; ↑/↓ move, ↩ executes, ⌘↩ executes the
   secondary action (e.g. "checkout" vs "reveal" for a branch), ⎋ closes, ⌘K again closes.
 - Empty query shows: recent commands (max 5), then contextual commands for the current tab.
@@ -73,8 +79,12 @@ the main actor on a snapshot of the source lists; results are capped at 50.
 **Visual hierarchy:** field (body-large, SF Pro) → result rows: SF Symbol / file-type icon, primary
 title with matched characters emphasized by weight (not color alone), secondary line in muted text
 (path, upstream, repo), trailing shortcut glyphs in SF Mono-like keycap style from tokens. Section
-headers only when mixing sources. Surface uses the elevated-surface token with the standard shadow
-token; no blur animation.
+headers only when mixing sources. Surface: the system Liquid Glass panel material via the official API
+(`glassEffect` / `NSGlassEffectView`) — one glass container, never stacked; the result list sits on the
+glass with system vibrant label colors so text stays legible over any window content; the selected row
+uses the system selection treatment tinted with the accent token. No custom blur, no glass per row.
+Reduce Transparency / Increase Contrast: the system renders an opaque elevated surface — verify the
+panel still reads as elevated (token border/shadow from the design system).
 
 **States**
 - Empty query: recents + contextual commands.
@@ -85,8 +95,9 @@ token; no blur animation.
 - Disabled commands are listed with muted style and the reason on the secondary line
   (e.g. "Push — no upstream configured"), never executable.
 
-**Motion:** appear 140 ms ease-out (opacity + 4 pt upward offset), dismiss 100 ms; selection highlight
-moves without animation (instant feedback when arrowing). Reduce Motion: opacity only.
+**Motion:** appear 140 ms ease-out (opacity + 4 pt upward offset, using the system glass appear
+transition where available), dismiss 100 ms; selection highlight moves without animation (instant
+feedback when arrowing). Reduce Motion: opacity only. No glass morphing while typing.
 
 **Accessibility:** field labelled "Command palette search"; results are an accessibility list; the
 selected row is announced with title, kind and shortcut; disabled reason is read.
@@ -122,6 +133,9 @@ confirmation sheets, command palette), review light and dark against `docs/desig
 | Hover/press/selection/focus | Present, token-driven, consistent across lists. |
 | Density | Compact and comfortable modes both correct. |
 | Dark theme | Independently tuned, no glow borders, layered luminance correct. |
+| Glass vs content (ADR-0006) | Glass only on chrome (toolbar, tab bar, sidebar, popovers, sheets, palette, progress capsule); graph, diff, code, resolver panes and file lists opaque. |
+| Glass legibility | Text and icons on glass use system vibrant/label colors; legible over the busiest content that can scroll beneath (dense graph, red/green diff). |
+| Glass grouping & tint | Adjacent glass elements share one container (`GlassEffectContainer` / `NSGlassEffectContainerView`); tint only from the accent token, only on primary actions/selected state. |
 
 Findings are logged per screen in `docs/phases/06-polish-and-performance/visual-review.md` with
 before/after screenshots.
@@ -134,9 +148,27 @@ duration within guideline ranges (hover 80–140 ms, selection 120–180 ms, pan
 from tokens, Reduce Motion alternative, and proof that CPU returns to idle after completion (Instruments
 Time Profiler / Animation Hitches trace shows no frames after the animation's end). Remove any
 perpetual or decorative animation; progress indicators stop and are removed from the hierarchy when
-the operation finishes; no animation on bulk graph updates.
+the operation finishes; no animation on bulk graph updates. Glass morph/merge transitions
+(`glassEffectID`, container morphs) run only in direct response to a user action, finish within the
+panel range, and never loop; scroll-edge effects are system-provided, not custom-animated.
 
-### 3.5 Accessibility
+### 3.5 Liquid Glass audit (ADR-0006)
+
+A dedicated pass over every chrome surface, logged in `visual-review.md`:
+- **Inventory:** list every place glass appears and confirm each is a system component (toolbar,
+  split-view sidebar, menus, popovers, sheets, standard buttons) or an official glass API inside a
+  container. Any `NSVisualEffectView` stacking, `CIFilter` blur, or custom shader is a defect.
+- **Content layer:** confirm no glass on graph rows, diff lines, file rows, labels/badges inside
+  scrolling content, or the conflict resolver panes; content extends under chrome only through system
+  scroll-edge/background-extension behavior.
+- **Legibility:** screenshot each glass surface over worst-case content in both themes; fix with system
+  vibrancy/label colors or the system's clear/regular variant choice, not custom opacity hacks.
+- **Accessibility fallbacks:** Reduce Transparency (glass → opaque), Increase Contrast (stronger
+  separators/borders), Reduce Motion (no morphs) — screenshot each.
+- **Cost:** GPU and energy measured per §4.1 "Glass cost" — idle ≈0; scroll and live-resize show no
+  hitches attributable to chrome.
+
+### 3.6 Accessibility
 
 - **Graph:** each row exposes an accessibility element: "Commit <short SHA>, <summary>, by <author>,
   <relative date>, refs: <list>, merge of N parents". Custom rotors: "Branches/refs", "Merge commits",
@@ -147,8 +179,9 @@ the operation finishes; no animation on bulk graph updates.
   VoiceOver (select line, extend with ⇧↓, action via the actions menu: Stage selected lines).
 - **Lists/trees:** sidebar and working directory expose outline semantics with expanded state.
 - **Contrast & settings:** honor Increase Contrast (`accessibilityDisplayShouldIncreaseContrast`) with
-  higher-contrast token variants; Reduce Transparency removes any vibrancy; Differentiate Without Color
-  adds glyphs to status/diff indicators.
+  higher-contrast token variants; Reduce Transparency turns every glass surface opaque (system
+  components do this automatically; any custom glass must too — verified by screenshot); Differentiate
+  Without Color adds glyphs to status/diff indicators.
 - **Text size:** respect the macOS sidebar size setting; offer an app-level text-size step (S/M/L) for
   code and diff views; SwiftUI views use relative type styles where practical.
 - Audit with Accessibility Inspector and a full VoiceOver walkthrough; results logged.
@@ -173,9 +206,10 @@ the operation finishes; no animation on bulk graph updates.
   - `graph.firstPage`, `graph.page` — request → rows on screen.
   - `diff.switch` — file selection → first diff frame drawn.
   - `tab.switch` — tab click → cached content visible.
-  - Rust side: matching spans via `os_signpost` from Rust (thin FFI or the `signpost` crate if vetted)
-    or emitted as Swift intervals around bridge calls — decide in P6.1 spec; keep zero cost when not
-    tracing.
+  - `GitCore` spans (category `core`): history page read, lane layout, status parse, diff parse,
+    patch build, and each Git subprocess (spawn → exit, with the subcommand name only, never args that
+    could contain paths of private repos in exported traces). `OSSignposter` is zero cost when not
+    tracing; `GitCore` uses it directly (it imports `os`, still no AppKit/SwiftUI).
 - **Instruments templates** (saved as `.tracetemplate` under `scripts/benchmarks/instruments/` if
   templates are portable, otherwise documented recipes):
   Time Profiler, Allocations (+ VM Tracker), Leaks, Hangs, Animation Hitches, Energy Log / Power
@@ -191,6 +225,10 @@ the operation finishes; no animation on bulk graph updates.
   shows); RSS is recorded but not the headline.
 - **Network idle check:** `nettop -p <pid> -L 1` (or Little Snitch-free alternative `lsof -i -p`)
   over the idle window must show zero connections/bytes.
+- **Glass cost:** with the app idle, then during graph scroll and window live-resize, record GPU time
+  (Instruments Metal System Trace / GPU counters where available, otherwise Power Profiler GPU column)
+  and energy impact; compare against a build with glass chrome replaced by opaque surfaces (debug flag
+  `-JitOpaqueChrome`, inert unless set) to attribute cost. Idle must show no GPU frames.
 
 ### 4.2 Benchmark harness (`scripts/benchmarks/`)
 
@@ -233,10 +271,10 @@ Launch" template), then apply only what the trace justifies:
 - Tab restoration renders tab chrome from the session file; repository loading for the active tab
   starts after first frame; inactive tabs load on first activation.
 - Provider clients, Keychain reads, OAuth, proxy/CA configuration, credential helper: lazy, on first use.
-- Rust library: no global initializers doing I/O; `GitLocator` version probe deferred until the first
-  Git operation (cached for the session).
-- Minimize static initializers and dynamic frameworks; prefer static linking of the Rust lib (already
-  XCFramework static) and of the local Swift package.
+- `GitCore`: no global/static initializers doing I/O (Swift lazy globals only); `GitLocator` version
+  probe deferred until the first Git operation (cached for the session).
+- Minimize static initializers and dynamic frameworks; link the local Swift package targets
+  statically into the app; check `swift_once`/protocol-conformance lookup cost in the launch trace.
 - Asset catalog/fonts: system fonts only; avoid loading large images at launch.
 
 ### 4.4 Idle optimization
@@ -262,9 +300,23 @@ no animations, no network.
 
 - Explicit, documented limits for every cache (graph pages, commit details, diff buffers, highlight
   spans, avatar placeholders, file index, provider repo lists). Expressed as counts/bytes in one place
-  (`CacheLimits` in Rust and Swift), with eviction LRU.
-- Graph: keep visible window ± overscan pages in Swift; Rust keeps compact commit records
-  (interned author strings, OIDs as 20/32-byte arrays) and lane state; evict far pages, re-fetchable.
+  (`CacheLimits` in `GitCore`, read by Services), with eviction LRU.
+- Graph: the view keeps visible window ± overscan rows materialized; `GitCore`'s commit store stays
+  struct-of-arrays (OIDs as inline 20/32-byte value types, interned author table, message bytes in a
+  shared arena with ranges) plus lane state; evict far pages, re-fetchable.
+- **Swift-specific audit** (Allocations + Time Profiler):
+  - ARC traffic in hot loops (parsers, lane layout, row drawing): look for `swift_retain`/`release`
+    hotspots; fix with value types, `borrowing`/`consuming`, unsafe buffer or `Span` access, and
+    avoiding existential/class boxing.
+  - `String` creation and bridging: no `String`/`NSString` per commit or diff line outside the
+    visible window; byte-level parsing of `-z` output; no repeated `String` ↔ `NSString` bridging in
+    drawing code (cache `NSAttributedString`/`CTLine` per visible row, drop on scroll-out).
+  - Retain cycles: closures capturing `self` in view models, observation callbacks, Dispatch sources,
+    `NotificationCenter` tokens; weak-reference deallocation tests for sessions, tabs, panels.
+  - Autorelease pools: wrap per-row AppKit drawing/batch work in `autoreleasepool` where Allocations
+    shows transient growth during scroll.
+  - Copy-on-write surprises: large arrays mutated while shared (store snapshots) — check with
+    Allocations' "Created & Persistent" around page appends.
 - Diff: release buffers for files not selected; large files rendered from line index + lazily
   materialized lines; highlight only visible range.
 - Tabs: closed tab → session object deallocated (verified with a weak-reference test and Leaks).
@@ -275,11 +327,15 @@ no animations, no network.
 ### 4.6 Visual regression (§18.4)
 
 Recommended approach (confirm in ADR-0040): in-process snapshot tests in the Swift test target that
-build each screen with real data from `git-testkit`-generated temp repos (fixed dates, authors, SHAs
+build each screen with real data from `GitTestKit`-generated temp repos (fixed dates, authors, SHAs
 via deterministic commit env), host it in an offscreen `NSWindow` at a fixed size and backing scale 2,
 force `NSAppearance` aqua/darkAqua, render with `cacheDisplay(in:to:)` / `bitmapImageRepForCachingDisplay`,
 and compare to reference PNGs with a per-pixel tolerance + perceptual threshold (e.g. max ΔE and
 % differing pixels). References live in `macos/Tests/Snapshots/__References__/<screen>-<state>-<theme>.png`.
+- Variants per screen: light, dark, and Reduce Transparency (light + dark) for every screen with glass
+  chrome; Increase Contrast for a representative subset. Glass renders differently offscreen than in a
+  live window — if offscreen capture can't render glass faithfully, snapshot chrome via an XCUITest
+  window screenshot instead and record which path each screen uses (ADR-0040).
 - Relative dates are frozen via an injected clock; avatars are initials; fonts are system fonts (note:
   references are tied to a macOS major version — record it; re-baseline deliberately on OS upgrade).
 - Failure output: actual, reference and diff images attached to the test result.
@@ -288,12 +344,14 @@ and compare to reference PNGs with a per-pixel tolerance + perceptual threshold 
 
 ### 4.7 Performance regression in CI
 
-- GitHub Actions macOS arm64 runner job: build Release, run Rust micro-benchmarks (lane layout, status
-  parse, diff parse, patch build) and the non-UI scenarios with generous thresholds; upload results JSON
-  as an artifact. Variance on shared runners is high — CI flags only large regressions (e.g. > 25 %);
-  the reference Mac run is required before the phase PR and before each release.
-- Rust micro-benchmarks: `criterion` (dev-dependency only) or a minimal custom harness if criterion's
-  dependency tree is judged too heavy — decide in P6.2.
+- GitHub Actions macOS arm64 runner job: build Release, run the `JitBench` micro-benchmarks (lane
+  layout, status parse, diff parse, patch build) and the non-UI scenarios with generous thresholds;
+  upload results JSON as an artifact. Variance on shared runners is high — CI flags only large
+  regressions (e.g. > 25 %); the reference Mac run is required before the phase PR and before each release.
+- Micro-benchmarks live in the `JitBench` executable target (dev-only, Release-built with `-O`): a
+  minimal harness using `ContinuousClock`, warm-up + N iterations, median/p90, and allocation counts via
+  `malloc` statistics; no third-party benchmark dependency unless the custom harness proves inadequate
+  (decide in P6.2).
 
 ### 4.8 Security notes
 
@@ -322,21 +380,23 @@ results files must not contain secrets or real repository content; result files 
 ## 6. ADRs to write
 
 - **ADR-0040** Visual regression approach (custom NSView bitmap snapshots vs library; tolerance policy;
-  OS-version pinning).
+  OS-version pinning; how glass chrome and Reduce Transparency variants are captured).
 - **ADR-0041** Performance measurement & regression policy (reference machine as authority, thresholds,
   CI advisory role, results schema).
 - **ADR-0042** Tab suspension and occlusion policy (what is released, when, how state reconciles).
 - **ADR-0043** Cache limits and memory-pressure behavior.
 - **ADR-0044** Command palette architecture (single command registry shared with menus; ranking).
 - Update ADR-0008 (file watching) if the visible-tab-only/inactive-app latency policy changes it.
+- Amend ADR-0006 only if the glass audit finds a usage rule that needs refining (record measurements).
 
 ## 7. Open questions / spikes
 
 | Question | Spike | Decision criteria |
 |---|---|---|
-| Rust signposts: native `os_signpost` from Rust vs Swift-side intervals around bridge calls? | Implement both for one call; inspect in Instruments. | Zero cost when disabled; visible in Points of Interest; minimal deps. |
+| Can glass chrome be captured faithfully in offscreen snapshots? | Snapshot toolbar/tab bar/palette offscreen vs XCUITest window screenshot. | Deterministic across runs and visually matches the live window → offscreen; otherwise XCUITest path for chrome. |
 | Can xctrace export reliably produce signpost intervals headlessly? | Record + export one launch trace. | Works on current Xcode without manual steps → automate; else document manual. |
 | Relative-date refresh: timer while visible vs on-activation only? | Measure wakeups both ways. | Choose the one with ≈0 idle wakeups and acceptable staleness (≤ 1 min while user is active). |
 | Snapshot library vs custom? | Snapshot 3 screens with each. | Determinism across runs, AppKit support, dependency weight. |
-| Is `criterion` acceptable as dev-dep? | `cargo tree` size, build time. | Dev-only, reasonable compile time; otherwise custom harness. |
+| Is the custom `JitBench` harness precise enough? | Compare run-to-run variance of 3 micro-benchmarks. | ≤ 3 % variance on the reference Mac → keep; otherwise evaluate a benchmark package (dev-only). |
+| What does glass chrome cost during scroll/resize? | `-JitOpaqueChrome` A/B under Instruments. | No measurable hitch or idle GPU attributable to glass; otherwise reduce glass surfaces per ADR-0006. |
 | Increase Contrast token variants: separate set or computed? | Prototype on 3 screens. | Visual quality and maintainability in design-system.md. |

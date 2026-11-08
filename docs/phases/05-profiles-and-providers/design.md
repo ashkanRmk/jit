@@ -2,6 +2,8 @@
 
 Requirements: §10 (profiles), §11 (GitHub/GitLab), §12 (enterprise networking), §13.5 (process safety),
 §19 (security), §24 scenarios E and F. Roadmap: ADR-0016, 0017, 0018; invariants §6.
+Amended by ADR-0002 (pure Swift — Git logic in `GitCore`, helpers are Swift executable targets; no Rust,
+no FFI) and ADR-0006 (macOS 26+, Liquid Glass on chrome, opaque content).
 
 ## 1. Goal & demo
 
@@ -36,9 +38,9 @@ leaking a secret, or silently using the wrong account.
 - PAT and OAuth for GitHub and GitLab (incl. self-managed), refresh, logout.
 - Provider API clients, remote repository browser, credentialed clone (reusing the Phase 4 clone flow).
 - Self-managed server configuration, connectivity diagnostics, custom CA, proxies, offline/VPN handling.
-- Web links for self-managed GitLab (extends Phase 4 `weblink`).
+- Web links for self-managed GitLab (extends Phase 4 `WebLink`).
 - Opt-in provider avatars (off by default).
-- Local enterprise test rig.
+- Local enterprise test rig (`TestRig` dev-only Swift executable target + `scripts/testing/enterprise-rig/`).
 
 **Out of scope (and where it lives)**
 - Pull/merge request, review, CI, pipeline features — **excluded** (§9.3), never.
@@ -50,18 +52,28 @@ leaking a secret, or silently using the wrong account.
 
 ## 3. User experience
 
-### 3.1 Global profile switcher (toolbar pill → menu)
+### 3.1 Global profile switcher (toolbar pill → glass popover)
 
-- **Pill:** profile color dot + display name; secondary line on hover/tooltip with author email. A small
-  status glyph overlays the dot when the account needs attention (expired, disconnected, rejected).
-- **Menu (NSMenu, custom row views for richness):**
-  - Header: "Active profile" with name, `Author Name <email>`, provider icon + `@login on host`, auth method.
-  - List of profiles: check mark on active, provider glyph, display name, email (secondary, SF Mono not
-    needed), status dot (green-muted ok / amber expired / grey not checked / red rejected).
+- **Pill:** a standard toolbar item (rendered by macOS 26 inside the system Liquid Glass toolbar — no
+  custom material): profile avatar (circle in the profile's color with initials or chosen SF Symbol;
+  provider avatar only if the user opted in) + display name; author email in the tooltip. A small status
+  glyph overlays the avatar when the account needs attention (expired, disconnected, rejected).
+- **Popover (system popover — Liquid Glass by default; SwiftUI `.popover` / `NSPopover`):**
+  - Header: "Active profile" with larger avatar, name, `Author Name <email>`, provider icon +
+    `@login on host`, auth method.
+  - List of profiles: avatar in profile color, provider glyph, display name, email (secondary), status dot
+    (green-muted ok / amber expired / grey not checked / red rejected), check mark on active. Rows are plain
+    text on the popover's material using system selection highlight — no per-row glass, no custom blur.
   - Search field appears automatically when there are > 7 profiles.
-  - Footer: "Add Profile…", "Edit Active Profile…", "Manage Profiles…".
-- **Switching:** one click; menu closes; pill crossfades (120 ms; none with Reduce Motion); a short toast
-  in the activity area: "Switched to Work GitLab — new operations commit as ada@corp.example".
+  - Footer actions ("Add Profile…", "Edit Active Profile…", "Manage Profiles…") as standard buttons in one
+    small `GlassEffectContainer` row.
+  - The same profiles are also listed in the menu bar (Repository ▸ Profile ▸ …, native `NSMenu`, glass by
+    default) so switching works from the keyboard and VoiceOver without the popover.
+- **Switching:** one click; popover closes; pill avatar/name crossfade (120 ms; the toolbar capsule may
+  resize with the system glass morph; instant with Reduce Motion); a short toast in the activity capsule:
+  "Switched to Work GitLab — new operations commit as ada@corp.example".
+- **Reduce Transparency / Increase Contrast:** system popover and toolbar adapt automatically; avatar
+  colors come from `DesignSystem` profile palette tokens with contrast-checked foregrounds.
 - **No profile selected:** pill shows "Choose Profile" in accent color; commit and commit-creating
   operations are blocked with a "Choose Profile…" action (unchanged from Phase 1).
 - **Accessibility:** menu rows expose "Profile Work GitLab, ada@corp.example, GitLab, authenticated,
@@ -69,7 +81,10 @@ leaking a secret, or silently using the wrong account.
 
 ### 3.2 Profile manager (Settings ▸ Profiles / Accounts / Servers & Network)
 
-Settings window with three panes (sidebar list + detail form), designed as one cohesive form system.
+Settings window styled like macOS System Settings: a SwiftUI `Settings` scene with a
+`NavigationSplitView` whose sidebar uses the system sidebar (Liquid Glass) material, and detail panes
+built from `Form` with `.formStyle(.grouped)` and standard controls — no custom chrome. Three panes
+(Profiles, Accounts, Servers & Network), designed as one cohesive form system.
 
 **Profiles pane** — list of profiles; detail:
 - *Identity* group: display name, color/icon, author name, author email, optional committer
@@ -100,8 +115,9 @@ field, with fix action).
 
 ### 3.3 Connecting an account
 
-Sheet "Connect Account": provider segmented control (GitHub · GitLab.com · Self-managed GitLab ▾), then
-method cards:
+Sheet "Connect Account" (standard system sheet — glass treatment by default): provider segmented control
+(GitHub · GitLab.com · Self-managed GitLab ▾), then method cards (opaque grouped-form sections, not glass
+tiles):
 - **Sign in with browser** (OAuth) — visible only when a client ID is configured for that provider/instance;
   otherwise the card reads "Browser sign-in isn't configured for this build/instance" with a Learn More.
 - **Personal access token** — secure text field, link to the provider's token page with the exact scopes
@@ -129,6 +145,7 @@ Jit never retries automatically with another profile or with ambient credentials
 
 ### 3.5 SSH passphrase and host-key verification
 
+- Both sheets are standard system sheets attached to the main window (glass by default).
 - **Passphrase sheet** (triggered by the askpass path): key file name + fingerprint, secure field,
   "Remember in Keychain" checkbox (off by default), Cancel → operation fails with "Cancelled".
 - **Unknown host key sheet:** host, port, key type, SHA-256 fingerprint (SF Mono, large), and for
@@ -139,6 +156,10 @@ Jit never retries automatically with another profile or with ambient credentials
 
 ### 3.6 Remote repository browser (new-tab page + File ▸ Browse Remote Repositories…)
 
+- **Chrome vs content (ADR-0006):** the account list is a system sidebar (glass material); the search
+  field and filter controls sit in the toolbar (system glass, SwiftUI `.searchable` placement); the
+  repository list and detail are **opaque** content surfaces from `DesignSystem` that scroll under the
+  toolbar with the system scroll-edge effect. No glass on list rows.
 - **Layout:** left: account list (grouped by provider/instance; defaults to the active profile's account);
   top: search field (debounced 250 ms, server-side for GitLab, see §4.10 for GitHub); center: virtualized
   list rows — owner/namespace (secondary) / name (primary), visibility badge (Private/Internal/Public),
@@ -155,7 +176,9 @@ Jit never retries automatically with another profile or with ambient credentials
 
 ### 3.7 Connectivity diagnostics panel
 
-Vertical step list with status icons and plain-language results:
+An **opaque** vertical step list (content, not chrome — it is read carefully and copied) with status
+icons and plain-language results; only the "Test Connection" / "Copy Report" buttons are standard
+(glass-styled) controls:
 1. Network path (NWPathMonitor: satisfied / constrained / unsatisfied; VPN interface present if detectable)
 2. DNS resolution (addresses)
 3. Proxy in use (System/PAC result, Manual, Direct) and proxy reachability
@@ -236,18 +259,18 @@ if the host doesn't match the instance's SSH host, a mismatch hint is attached b
 profile's (never another profile's). The snapshot is immutable for the operation's lifetime;
 `ProfileStore` changes never affect it. Secrets are not in the snapshot — only Keychain references.
 
-The snapshot maps onto Phase 4's Rust `ExecContext`:
+The snapshot maps onto Phase 4's `GitCore` `ExecContext` (the enums gain cases; no call site changes):
 
-```rust
-pub enum AuthPlan {
-    NonInteractive,
-    Https { broker: BrokerHandle, expected_host: String, expected_port: u16 },
-    Ssh { key_path: Option<String>, agent: bool, known_hosts: Vec<String>, strict_config: bool,
-          proxy_command: Option<ProxyCommand>, broker: BrokerHandle },
+```swift
+public enum AuthPlan: Sendable {
+    case nonInteractive
+    case https(broker: BrokerEndpoint, expectedHost: String, expectedPort: Int)
+    case ssh(keyPath: String?, agent: Bool, knownHosts: [String], strictConfig: Bool,
+             proxyCommand: ProxyCommand?, broker: BrokerEndpoint)
 }
-pub enum NetworkPlan {
-    Default,
-    Scoped { url_prefix: String, ca_info: Option<String>, proxy: Option<String> }, // proxy without credentials
+public enum NetworkPlan: Sendable {
+    case systemDefault
+    case scoped(urlPrefix: String, caInfo: String?, proxy: String?) // proxy URL never contains credentials
 }
 ```
 
@@ -259,16 +282,22 @@ pub enum NetworkPlan {
   data-protection keychain (`kSecUseDataProtectionKeychain`) when the build is signed with a team ID; fall
   back to the file-based login keychain for unsigned dev builds (record in ADR-0035, verify in Phase 7).
 - Values: PAT → token bytes; OAuth → JSON `{access, refresh, expiresAt, tokenType}`; passphrase; proxy
-  password. Swift reads into `Data`, hands to Rust as a zeroizing buffer, and zeroes its copy after use.
+  password. Read into a `SecretBytes` value (a non-copyable `~Copyable` struct, or a final class if
+  non-copyable types prove awkward, owning a manually allocated buffer that is wiped with `memset_s` on
+  deinit; `description`/`debugDescription` print `<redacted>`). Secrets never become `String` and are
+  written straight from that buffer to the broker socket.
 - API: `store(_:for:)`, `read(_:)`, `delete(_:)`, `exists(_:)`. All calls off the main actor. Errors
   mapped (`errSecItemNotFound`, `errSecAuthFailed`, `errSecInteractionNotAllowed`).
 - Removing an account or profile deletes its Keychain items (after the destructive sheet).
 
 ### 4.4 Credential delivery to Git (ADR-0016)
 
-**Helper binary:** new crate `rust/crates/credential-helper` builds `jit-git-helper`, bundled at
-`Contents/Helpers/jit-git-helper` (dev: from the build directory). Modes by first argument:
-`credential <get|store|erase>`, `askpass <prompt>`, `ssh <ssh args…>` (§4.6).
+**Helper binary:** new Swift executable target `JitGitHelper` in the `JitKit` package builds
+`jit-git-helper`, bundled at `Contents/Helpers/jit-git-helper` (dev: from the build products directory).
+It depends only on Foundation/Darwin (not on `GitCore`, AppKit or the Keychain — it holds no secrets at
+rest), starts fast, and exits as soon as its single request is answered. Modes by first argument:
+`credential <get|store|erase>`, `askpass <prompt>`, `ssh <ssh args…>` (§4.6). Post-V1 (Phase 8) the same
+binary gains editor subcommands.
 
 **Per-invocation Git config (HTTPS):**
 ```
@@ -291,24 +320,28 @@ Recommended design (spike in P5.4 decides between the two):
   `JIT_BROKER_SOCKET`, plus a single-use 256-bit nonce in `JIT_BROKER_NONCE`. The broker verifies the peer
   with `LOCAL_PEERTOKEN` (audit token → `SecCode` check that the peer is Jit's bundled helper, signed by the
   same team in release builds), accepts each nonce once, and exists only for the operation's duration.
-In both cases the broker (Rust, `git-core::broker`, a thread spawned per remote operation and joined at
-the end — no idle thread) receives `{protocol, host, port, username?}` from the helper, checks it equals
-the operation's expected host/port (or the configured proxy host for proxy auth), then asks Swift via a
-UniFFI callback interface:
+In both cases the broker (`Services.CredentialBroker` — it lives in `Services`, not `GitCore`, because
+peer verification uses the Security framework and secrets come from the Keychain; `GitCore` only carries
+the opaque `BrokerEndpoint` value and sets the helper's env) is created per remote operation and torn
+down when the child process exits; its socket is serviced by a Dispatch read source — no idle thread,
+nothing listening between operations. It receives `{protocol, host, port, username?}` from the helper,
+checks it equals the operation's expected host/port (or the configured proxy host for proxy auth), then
+asks its `CredentialSource`:
 
-```rust
-#[uniffi::export(callback_interface)]
-pub trait CredentialSource: Send + Sync {
-    fn https_credential(&self, account_id: String, host: String) -> Result<SecretPair, CredentialError>;
-    fn ssh_passphrase(&self, key_fingerprint: String, prompt: String) -> Result<SecretBytes, CredentialError>;
-    fn proxy_credential(&self, proxy_id: String) -> Result<SecretPair, CredentialError>;
-    fn credential_rejected(&self, account_id: String, host: String);   // from `erase`
+```swift
+// Services-internal seam (lets tests substitute a fake source; production reads the Keychain).
+public protocol CredentialSource: Sendable {
+    func httpsCredential(accountID: HostingAccountID, host: String) async throws(CredentialError) -> SecretPair
+    func sshPassphrase(keyFingerprint: String, prompt: String) async throws(CredentialError) -> SecretBytes
+    func proxyCredential(proxyID: ProxyConfigID) async throws(CredentialError) -> SecretPair
+    func credentialRejected(accountID: HostingAccountID, host: String) async   // from `erase`
 }
 ```
 
-Swift fetches from the Keychain (or shows the passphrase sheet) and returns. `store` is ignored (Jit owns
-storage); `erase` marks the account `rejected` so the UI can explain. Requests for unexpected hosts are
-refused and logged (host only). Secret types implement `Zeroize` and have redacting `Debug`.
+The production source fetches from the Keychain (or shows the passphrase sheet on the main actor) and returns.
+`store` is ignored (Jit owns storage); `erase` marks the account `rejected` so the UI can explain.
+Requests for unexpected hosts are refused and logged (host only). Secret values are `SecretBytes`
+(wiped on deinit, redacted descriptions) end to end.
 
 **Username conventions** (verify at implementation): GitHub PAT/OAuth → username = login (or
 `x-access-token`), password = token; GitLab PAT → any username + token; GitLab OAuth → `oauth2` + token.
@@ -323,8 +356,9 @@ then proceed. No timers, no background refresh. Refresh failure → account `exp
 
 - Git gets `GIT_SSH=<abs path to jit-git-helper>` and `GIT_SSH_VARIANT=ssh`. Git calls `GIT_SSH` with
   plain ssh arguments (no mode argument), so the helper detects SSH mode via an env marker
-  (`JIT_HELPER_MODE=ssh`) and `exec`s `/usr/bin/ssh` with an argv array — no shell, so key paths with
-  spaces or metacharacters are safe (unlike `GIT_SSH_COMMAND`, which Git runs through a shell).
+  (`JIT_HELPER_MODE=ssh`) and replaces itself with `/usr/bin/ssh` via `execve` and an argv array — no
+  shell, so key paths with spaces or metacharacters are safe (unlike `GIT_SSH_COMMAND`, which Git runs
+  through a shell).
 - Options added by the helper, from `JIT_SSH_*` env (paths and flags only, never secrets):
   `-o IdentitiesOnly=yes` + `-i <key>` (key mode) or agent-only (agent mode);
   `-o StrictHostKeyChecking=yes`;
@@ -509,16 +543,17 @@ final class GitLabProvider: HostingProvider { /* instance.apiBaseURL — GitLab.
 | 0036 | SSH invocation strategy (`GIT_SSH` wrapper, strict config mode, Jit-owned known_hosts, host-key trust) |
 | 0037 | Provider API clients, pagination, search, caching, minimum GitLab version |
 | 0038 | Connectivity diagnostics and offline/VPN policy |
-| 0039 | Local enterprise test rig (CA, HTTPS Git server, proxy, sshd) |
+| 0039 | Local enterprise test rig (`TestRig` Swift executable: Network.framework TLS front for `git http-backend`, HTTP CONNECT/SOCKS5 proxy with optional auth; throwaway CA via `openssl`/Security; user-level `sshd`; scripts in `scripts/testing/enterprise-rig/`) |
 
 ## 7. Open questions / spikes
 
 | Question | Decide in | Criteria |
 |---|---|---|
-| Broker channel A (inherited FD) vs B (socket + nonce + peer verification) | P5.4 spike | A only if the FD reliably reaches the helper through Git's helper spawning (`sh -c`) on the minimum Git version and the bundled Git; otherwise B with audit-token verification. |
+| Broker channel A (inherited FD) vs B (socket + nonce + peer verification) | P5.4 spike | A only if the FD reliably reaches the helper through Git's helper spawning (`sh -c`) on the minimum Git version and the bundled Git (note: `ProcessRunner` must explicitly keep that one FD open across `posix_spawn` via `posix_spawn_file_actions_addinherit_np` while closing all others); otherwise B with audit-token verification. |
 | GitHub OAuth: PKCE without secret vs device flow | P5.7 | Verified against current GitHub docs and a real registered app; must need no secret in the binary. |
 | Does Git request proxy credentials through the credential protocol for our setup? | P5.11 | Test with the rig's authenticating proxy on min and bundled Git versions. |
 | TLS backend of dev Git and future bundled Git (affects `sslCAInfo` semantics) | P5.10, re-check P7 | Rig test: custom-CA host works, public hosts unaffected. |
 | Data-protection keychain in unsigned dev builds | P5.2 | If unavailable, file-based keychain in dev, data-protection in signed builds — tested both ways by Phase 7. |
+| Profile switcher: popover vs rich `NSMenu` | P5.3 | Popover (system glass) unless keyboard/VoiceOver behavior is worse than a menu after testing; the menu-bar Profile menu exists either way. |
 | Published SSH fingerprint source for GitLab.com | P5.6 | Must be fetched over verified HTTPS from an official source; otherwise show fingerprint without comparison. |
 | Minimum self-managed GitLab version | P5.9 | Oldest version where `/user`, `/projects?membership`, PKCE and token self-info work as designed. |

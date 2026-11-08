@@ -25,8 +25,9 @@ in Terminal create a commit → graph updates with a WIP/new commit row at the t
 ## 2. Scope
 
 **In scope**
-- Commit + ref data model, compact Rust storage, paginated streamed history (ADR-0010).
-- Deterministic lane layout in Rust with golden tests (incl. page boundaries).
+- Commit + ref data model, compact chunked columnar storage in `GitCore` (Swift), paginated streamed
+  history (ADR-0010).
+- Deterministic lane layout in `GitCore` with Swift Testing golden tests (incl. page boundaries).
 - AppKit virtualized graph renderer (ADR-0009) with an original visual design, compact and comfortable density.
 - Ref labels: local branch, remote branch, tag, HEAD, detached HEAD; WIP virtual node.
 - Initials avatars (deterministic colour from author email hash; no network).
@@ -62,6 +63,17 @@ in Terminal create a commit → graph updates with a WIP/new commit row at the t
 Graph columns (left→right): graph lanes (dynamic width, clamped), ref labels + subject (flexible),
 author (initials avatar + name, 140pt), date (relative, 96pt), short SHA (SF Mono, 64pt, hidden in
 narrow layouts). Column widths persist per tab (Phase 1 session state).
+
+**Material layers (ADR-0006).** The graph table, navigator rows and inspector content are the
+**opaque content layer** — `surface.canvas` backgrounds, no glass on rows, labels, pills or anything
+that scrolls. Liquid Glass appears only in the chrome around them: the window toolbar (branch scope
+menu, search field and overflow menu are standard toolbar items, so the system renders them as glass),
+the system sidebar material behind the navigator's section list, and small floating glass capsules for
+transient chips (`Solo: feature/x ✕`, `History: path ✕`, the "Search all history" progress) grouped in
+one `GlassEffectContainer` so they morph instead of stacking. Rows scroll under the toolbar with the
+system scroll-edge effect; text is never drawn on glass over busy content. With Reduce Transparency the
+system renders these surfaces opaque; custom capsules must follow (verify the exact SwiftUI/AppKit
+glass API names against the macOS 26 SDK during P2.4).
 
 ### 3.2 Graph — visual design spec (original identity)
 
@@ -113,7 +125,8 @@ Exact values are defined as `graph.lane[0…7]` tokens in `DesignSystem` during 
 ≥3:1 contrast against `surface.canvas` in both themes. The first-parent line of HEAD's branch always
 uses slot 0. No neon, no gradients, no glow.
 
-Ref labels (in the subject column, before the subject):
+Ref labels (in the subject column, before the subject) — **opaque tinted pills, never glass**
+(legibility at 16pt and zero compositing cost per row):
 - Pill height 16pt (compact) / 18pt (comfortable), radius `radius.xs` (4pt), 6pt horizontal padding,
   `type.caption` medium weight.
 - Local branch: tinted fill (lane colour at 14% light / 22% dark) + lane-colour text.
@@ -158,8 +171,8 @@ States:
   branch (`git log <branch>`), other lanes vanish; a toolbar chip `Solo: feature/x ✕` exits it.
 - **Search (⌘F):** single field with token prefixes: free text matches subject/body; `sha:` or any
   4–40 hex string matches SHAs; `author:`; `ref:`. Results highlight matching rows and jump to the
-  next match with ↩ / ⇧↩; counter `3 of 41`. Search over already-loaded rows is instant (Rust,
-  in-memory); "Search all history" continues into unloaded history in the background, cancellable,
+  next match with ↩ / ⇧↩; counter `3 of 41`. Search over already-loaded rows is instant (`GitCore`,
+  in-memory byte scan); "Search all history" continues into unloaded history in the background, cancellable,
   streaming matches (uses `git log` with `--grep`/`--author`/`-i` and `--fixed-strings` as appropriate).
 - **Filter mode toggle:** "Highlight matches" (default, keeps graph topology) vs "Show only matches"
   (flat list, graph column replaced by simple dots — topology is meaningless for a filtered set).
@@ -240,24 +253,36 @@ selected commit when the graph is first responder; Esc clears search/solo/compar
 
 ### 4.1 Components
 
-**Rust (`git-core`)**
-- `refs` — reads refs with one `git for-each-ref -z --format=…` call (refname, objectname, peeled
-  `*objectname`, upstream, `upstream:track`, HEAD flag, symref). Produces `RefSnapshot` with a hash
-  (`refs_rev`) used for invalidation.
-- `history` — `HistoryReader` (see 4.3) producing `CommitRecord`s into a `CommitStore`.
-- `store` — `CommitStore`: compact columnar storage:
-  - `oids: Vec<[u8; 20]>` (SHA-1; SHA-256 repos detected via `extensions.objectformat` and stored as
-    `[u8; 32]` in a separate variant — the type is generic over object size),
-  - `parents: Vec<u32>` flattened with `parent_offsets: Vec<u32>` (row indices; unknown parents
-    beyond loaded history stored as sentinel + oid in a side table),
-  - `author_idx: Vec<u32>` into an interned author table (name, email),
-  - `time: Vec<i64>`, `subject: StringArena` (one contiguous buffer + offsets), no bodies (bodies
-    fetched lazily for the selected commit).
-  - `oid_index: HashMap<Oid, u32>` for lookup.
-  - Target: ≤ 120 bytes/commit excluding subject text → 100k commits ≈ 12 MB + subjects.
-- `lanes` — `LaneLayouter`: incremental top-down layout (4.4), produces `LaneRow` per commit row.
-- `search` — in-memory scan over `subject`, author table, oid hex, refs; streaming deep search spawns
-  a separate `git log` with filters.
+**`GitCore` (Swift, Foundation-only — ADR-0002/0005)**
+- `Refs` — reads refs with one `git for-each-ref -z --format=…` call (refname, objectname, peeled
+  `*objectname`, upstream, `upstream:track`, HEAD flag, symref), parsed as bytes. Produces a
+  `RefSnapshot` value with a hash (`refsRevision`) used for invalidation.
+- `HistoryReader` (see 4.3) parses `git log -z` output **as bytes** (`UnsafeRawBufferPointer` /
+  `Span<UInt8>` over the read buffer; no `String` per field) and appends into a `CommitStore`.
+- `CommitStore` — **chunked, append-only, columnar** storage; no class or struct-with-references per
+  commit:
+  - Rows live in fixed-size chunks of 4,096 rows. A chunk is filled by the reader and then **sealed**
+    (immutable `final class CommitChunk: Sendable` — one object per 4k commits, not per commit).
+    A `HistorySnapshot` is `{ chunks: [CommitChunk], count }`, so publishing a new snapshot after a
+    page append copies only the chunk-reference array, never the column data.
+  - Columns inside a chunk (`ContiguousArray` of trivial types):
+    `oids: [ObjectID]` where `ObjectID` is an inline 20-byte struct (`(UInt64, UInt64, UInt32)`;
+    SHA-256 repos — detected via `extensions.objectformat` — use a 32-byte variant, store generic over
+    the ID type); `parentOffsets: [UInt32]` + flat `parentRows: [Int32]` (row indices; parents beyond
+    loaded history are negative sentinels resolved through a small side table of pending OIDs);
+    `authorIndex: [UInt32]` into an interned author table (name/email bytes, deduplicated);
+    `time: [Int64]`; `subjectRanges: [UInt32]` into a per-chunk UTF-8 byte arena. No bodies (fetched
+    lazily for the selected commit).
+  - `oidIndex: [ObjectID: Int32]` (ObjectID is `Hashable` over its words) for lookup.
+  - `String`s are materialized only for visible rows (in `GraphRowCache`, §4.5) and dropped after.
+  - Target: ≤ 120 bytes/commit including lane data, excluding subject bytes → 100k commits ≈ 12 MB +
+    subjects. Measured with a 100k fixture by allocation tracking (`malloc_size` sums in a test hook)
+    and Instruments Allocations in P2.10.
+- `LaneLayouter` — incremental top-down layout (4.4); lane rows stored columnar in the same chunks
+  (`nodeLane: [UInt16]`, `nodeColor: [UInt8]`, `nodeKind: [UInt8]`, flat `segments: [EdgeSegment]`
+  (4-byte packed struct) + `segmentOffsets: [UInt32]`).
+- `HistorySearch` — in-memory byte scan over subject arenas, author table, oid hex, refs; streaming
+  deep search spawns a separate `git log` with filters.
 - `compare` — `git diff --name-status -z` + `--numstat -z` (two calls or `--raw --numstat` combined
   where supported) producing `ChangedFile` lists; commit details `git show -s --format=… -z` for body
   and committer + `git diff-tree --root -r -z --numstat --name-status -M` for files.
@@ -265,78 +290,74 @@ selected commit when the graph is first responder; Esc clears search/solo/compar
 
 **Swift**
 - `Features/GitGraph`: `GraphViewController` (AppKit) hosting `GraphTableView: NSTableView`,
-  `GraphCellView` (custom `draw(_:)`), `RefLabelsView`, `GraphToolbar` (SwiftUI in an
-  `NSHostingView` — small, static), `GraphViewModel` (`@Observable`, holds row count, selection,
-  mode, search state — *not* row data).
+  `GraphCellView` (custom `draw(_:)`), `RefLabelsView`, graph toolbar items (standard
+  `NSToolbarItem`s / SwiftUI toolbar content — glass comes from the system), `GraphChipsView`
+  (SwiftUI glass capsules in a `GlassEffectContainer`), `GraphViewModel` (`@Observable`, holds row
+  count, selection, mode, search state — *not* row data), `GraphRowCache` (main-actor cache of
+  materialized visible rows).
 - `Features/BranchNavigator`: `NavigatorViewController` with `NSOutlineView`, `NavigatorViewModel`.
 - `Features/CommitInspector`: SwiftUI `CommitDetailsView` (bounded content, fine in SwiftUI) +
   `ChangedFilesList` (AppKit `NSTableView` if > 500 files, else SwiftUI `List` — decide in P2.6 by
   measurement; default to AppKit for consistency).
-- `Services/RepositorySession` (from Phase 1) gains `history: HistoryController` which owns the Rust
-  `HistoryHandle`, a small Swift-side row cache, and page requests.
+- `Services/RepositorySession` (from Phase 1) gains `history: HistoryController` which owns the
+  `GitCore` `HistoryLoader` actor, the current `HistorySnapshot`, and page requests.
 
-### 4.2 Bridge API sketch (illustrative)
-
-```rust
-// git-ffi — thin UniFFI layer over git-core
-#[derive(uniffi::Record)] pub struct HistoryQuery {
-    pub scope: HistoryScope,          // All | Current | Local | Refs(Vec<String>) | Solo(String)
-    pub path: Option<String>,         // file history
-    pub follow: bool,
-    pub pinned: Vec<String>,          // refs pinned left, in order
-}
-#[derive(uniffi::Object)] pub struct HistoryHandle { /* Arc<Mutex<HistoryState>> */ }
-
-#[uniffi::export] impl RepoHandle {
-    pub fn open_history(&self, q: HistoryQuery) -> Result<Arc<HistoryHandle>, GitError>;
-    pub fn refs(&self) -> Result<RefSnapshot, GitError>;
-    pub fn commit_details(&self, oid: String, cancel: Arc<CancelToken>) -> Result<CommitDetails, GitError>;
-    pub fn compare(&self, a: RevSpec, b: RevSpec, mode: CompareMode, cancel: Arc<CancelToken>)
-        -> Result<Vec<ChangedFile>, GitError>;
-}
-
-#[uniffi::export] impl HistoryHandle {
-    /// Ensures rows [0, min_rows) are loaded; blocks the calling (background) thread while reading.
-    pub fn ensure_loaded(&self, min_rows: u32, cancel: Arc<CancelToken>) -> Result<LoadState, GitError>;
-    /// Returns a window of rows already loaded. Never touches Git.
-    pub fn rows(&self, start: u32, count: u32) -> Vec<GraphRow>;
-    pub fn row_for_oid(&self, oid: String) -> Option<u32>;
-    pub fn search_loaded(&self, q: SearchQuery) -> Vec<u32>;          // row indices
-    pub fn search_deep(&self, q: SearchQuery, sink: Box<dyn SearchSink>, cancel: Arc<CancelToken>)
-        -> Result<(), GitError>;
-    pub fn close(&self);                                              // kills reader process
-}
-
-#[derive(uniffi::Record)] pub struct GraphRow {
-    pub row: u32, pub oid_short: String, pub oid: String,
-    pub subject: String, pub author_name: String, pub author_initials: String, pub author_hue: u8,
-    pub time: i64, pub refs: Vec<RefLabel>, pub is_merge: bool,
-    pub lanes: LaneRow,
-}
-#[derive(uniffi::Record)] pub struct LaneRow {
-    pub node_lane: u16, pub node_color: u8, pub node_kind: NodeKind,      // Regular|Merge|Head|Wip
-    pub segments: Vec<EdgeSegment>,                                       // ≤ ~20 per row
-    pub width_lanes: u16,
-}
-#[derive(uniffi::Record)] pub struct EdgeSegment {
-    pub from_lane: u16, pub to_lane: u16, pub color: u8,
-    pub half: SegmentHalf,   // Top (row top → centre) | Bottom (centre → row bottom) | Full (pass-through)
-}
-#[derive(uniffi::Record)] pub struct LoadState { pub loaded_rows: u32, pub complete: bool, pub refs_rev: u64 }
-```
-
-Swift wrapper (`GitCoreBridge`):
+### 4.2 `GitCore` API sketch (illustrative Swift)
 
 ```swift
-public final class HistoryController: @unchecked Sendable {
-    func ensureLoaded(_ rows: Int) async throws -> LoadState   // runs on a background executor
-    func rows(_ range: Range<Int>) -> [GraphRow]               // cheap, called by table for visible+overscan
-    func cancelAll()
+// GitCore — Foundation-only. All types are value types or immutable final classes (Sendable).
+public struct HistoryQuery: Sendable, Hashable {
+    public var scope: HistoryScope        // .all | .current | .local | .refs([RefName]) | .solo(RefName)
+    public var path: RepoPath?            // file history (raw bytes preserved)
+    public var follow: Bool
+    public var pinned: [RefName]          // refs pinned left, in order
+}
+
+public actor HistoryLoader {               // one per open graph/file-history view
+    public init(repository: RepositoryHandle, query: HistoryQuery) async throws
+    /// Ensures rows [0, minRows) are loaded. Suspends (never blocks a thread) while the reader fills.
+    /// Task cancellation stops reading; the reader process is killed with its process group.
+    public func ensureLoaded(_ minRows: Int) async throws -> HistorySnapshot
+    public var snapshot: HistorySnapshot { get }
+    public func searchLoaded(_ q: SearchQuery) -> [Int32]                 // row indices, byte scan
+    public func searchDeep(_ q: SearchQuery) -> AsyncThrowingStream<ObjectID, Error> // bounded buffer
+    public func close()                                                  // kills reader process group
+}
+
+public struct HistorySnapshot: Sendable {  // immutable; cheap to pass (array of sealed chunk refs)
+    public let count: Int
+    public let complete: Bool
+    public let refsRevision: UInt64
+    public func row(_ index: Int) -> CommitRowRef          // index into chunk columns, no allocation
+    public func row(for oid: ObjectID) -> Int?
+    public func headLane() -> UInt16?
+}
+
+public struct CommitRowRef {                // non-owning view: chunk + local index
+    public var oid: ObjectID
+    public var time: Int64
+    public var isMerge: Bool
+    public var lanes: LaneRowRef               // nodeLane, nodeColor, nodeKind, segments (buffer view)
+    public func subjectBytes<R>(_ body: (UnsafeRawBufferPointer) -> R) -> R
+    public var authorIndex: UInt32             // resolve via snapshot.authors
+}
+
+public struct EdgeSegment: Sendable {       // 4 bytes, packed
+    public var fromLane: UInt8, toLane: UInt8, color: UInt8
+    public var half: SegmentHalf               // .top (row top → centre) | .bottom (centre → row bottom) | .full
+}
+
+extension RepositoryHandle {                // actor from Phase 1
+    public func refs() async throws -> RefSnapshot
+    public func commitDetails(_ oid: ObjectID) async throws -> CommitDetails   // cancellable via Task
+    public func compare(_ a: RevSpec, _ b: RevSpec, mode: CompareMode) async throws -> [ChangedFile]
 }
 ```
 
-Data copying is bounded: the table requests only visible rows + overscan (≈ 2× visible), in windows of
-64 rows cached in a Swift LRU of 16 windows (≈ 1k rows). Rows are drawn from that cache.
+The UI never receives whole histories: the table asks `GraphRowCache` (main actor) for visible rows +
+overscan (≈ 2× visible); the cache materializes `GraphRowDisplay` values (subject `String`, initials,
+ref labels) from the current `HistorySnapshot` in windows of 64 rows, keeping at most 16 windows
+(≈ 1k rows). Materialization is a direct read of chunk columns — no process call, no copy of the store.
 
 ### 4.3 History loading (ADR-0010)
 
@@ -344,8 +365,9 @@ Default design (to be confirmed by spike S1):
 - One long-lived `git log` child per open `HistoryHandle`:
   `git -c core.quotepath=off log --topo-order --format=<NUL-separated fields> -z --parents
   --decorate=no <scope revs> [-- path]` with `--no-color --no-ext-diff`.
-  Output is read through a `BufReader` on a pipe. Rust reads only when `ensure_loaded` asks for more;
-  otherwise the pipe fills and Git blocks (backpressure) — **zero CPU while idle**.
+  The pipe is read through the Phase 0 `ProcessRunner` stream API (Dispatch-source driven, into a
+  reusable byte buffer) **only while `ensureLoaded` is asking for more**; otherwise the read source is
+  suspended, the pipe fills and Git blocks (backpressure) — **zero CPU while idle**, no thread parked.
 - Page size: first page 300 rows (target first rows visible < 150 ms on the 100k fixture), later pages
   2,000 rows, requested when the visible range comes within 500 rows of `loaded_rows`.
 - The reader process is killed on tab close, scope/mode change, a refs change that invalidates
@@ -364,8 +386,11 @@ Default design (to be confirmed by spike S1):
 Alternatives measured by spike S1:
 1. Long-lived reader with backpressure (above).
 2. Re-query per page with `--skip=N --max-count=M` (simple, O(N) per page, no idle process).
-3. `gix` revision walk in-process (topo walk, no subprocess; adds a dependency — ADR-0002 allows it
-   only for a measured read bottleneck).
+3. Two-stage: stream topology only with `git rev-list --topo-order --parents` (compact, fast with a
+   commit-graph) to lay out lanes, and fetch display metadata (subject, author, time) for visible
+   windows through one long-lived `git cat-file --batch` (or `git log --no-walk --stdin`) process per
+   visible repository. Saves memory for very large histories at the cost of an extra process and
+   latency on fast scrolls. (ADR-0002: no in-process Git library unless profiling proves these fail.)
 
 Decision criteria (record numbers in ADR-0010): first-300-rows latency on 1k/10k/100k fixtures and on
 the Git source repo; steady-state CPU while idle (must be 0); RSS of the app + children with 3 tabs;
@@ -401,15 +426,16 @@ to the tip oid. `color = hash64(branch_key) % 8`, then if equal to the color of 
 adjacent active lane, take the next slot in palette order. HEAD's branch is forced to slot 0. Because
 it's derived from names, `main` keeps its color across sessions and page loads.
 
-WIP node: virtual row −1 inserted by Swift as row 0 when dirty (`node_kind = Wip`, lane = HEAD's lane,
-`Bottom` dashed segment into HEAD's row). Rust exposes `head_lane()` so Swift doesn't recompute. Row
-indices in Swift are offset by 1 when WIP is present; Rust is unaware of WIP.
+WIP node: virtual row −1 inserted by the UI layer as row 0 when dirty (`nodeKind = .wip`, lane =
+HEAD's lane, `.bottom` dashed segment into HEAD's row). `HistorySnapshot.headLane()` provides the lane
+so the UI doesn't recompute. UI row indices are offset by 1 when WIP is present; `CommitStore` is
+unaware of WIP.
 
 Detached HEAD: `HEAD` label on the commit; if HEAD is not reachable from any listed ref (e.g. scope
 "Local branches"), HEAD is always added to the scope revs so it appears.
 
-Golden tests (`rust/crates/git-core/tests/lanes/`): fixtures built with `git-testkit`; expected
-output as ASCII art (`*`, `|`, `/`, `\`, `M`) with color slot digits, plus a JSON form. Cases: linear;
+Golden tests (Swift Testing, `macos/Packages/JitKit/Tests/GitCoreTests/Lanes/`, golden files in
+`Tests/GitCoreTests/Resources/lanes/`): fixtures built with `GitTestKit`; expected output as ASCII art (`*`, `|`, `/`, `\`, `M`) with color slot digits, plus a JSON form. Cases: linear;
 two branches merged; three-way octopus; crisscross (A merges B, B merges A); long-lived `develop`
 merged repeatedly into `main`; rebased branch (no merge); 40 parallel branches (lane compression);
 detached HEAD; orphan root (second root commit); merge where second parent appears much later (lane
@@ -433,25 +459,30 @@ and 2000 rows; outputs must be identical.
   end, `Task { try await history.ensureLoaded(...) }` (coalesced; at most one in flight).
 - Appearance change → invalidate color table, `reloadData(forRowIndexes: visible, columnIndexes: all)`.
 - No animations during insertions/bulk updates (`NSAnimationContext.runAnimationGroup` with duration 0).
+- The table's scroll view extends under the glass toolbar (full-size content view); the system
+  scroll-edge effect keeps toolbar items legible. The table itself is opaque (`surface.canvas`), so
+  scrolling never forces re-sampling of custom glass beyond what the system toolbar already does.
 
 ### 4.6 State ownership
 
 | State | Owner | Notes |
 |---|---|---|
-| Commit store, lane rows, refs snapshot | Rust `HistoryHandle` / `RepoHandle` | Source of truth; Swift holds windows only. |
-| Visible row cache | Swift `HistoryController` (LRU) | Dropped on tab deactivation (memory). |
+| Commit store, lane rows, refs snapshot | `GitCore` `HistoryLoader` / `RepositoryHandle` actors | Source of truth; UI reads immutable `HistorySnapshot`s. |
+| Visible row cache (materialized `String`s) | `GraphRowCache` (main actor, LRU of windows) | Dropped on tab deactivation (memory). |
 | Selection (oids, not row indices), scroll anchor oid | `GraphViewModel` → persisted in Phase 1 session state | Survive reload. |
 | Mode (scope, solo, file history, search) | `GraphViewModel` | Persist scope + pinned refs per repo. |
 | Navigator expand state, filter | `NavigatorViewModel` | Persist expand state per repo. |
-| Commit details | `CommitInspectorModel` | Cached LRU of 32 details in Rust. |
+| Commit details | `CommitInspectorModel` | Cached LRU of 32 details in `RepositoryHandle`. |
 
 ### 4.7 Concurrency, cancellation, invalidation
 
-- All Rust calls from Swift run off the main actor (`GitCoreBridge` executor). `rows()` is cheap
-  (memory copy of ≤ 128 rows) and may be called synchronously from the table data source **only** if
-  measured < 0.2 ms; otherwise rows are pre-fetched into the Swift cache asynchronously and cells show
-  a blank row until filled (should be rare due to overscan).
-- Each request carries a `CancelToken`; selecting another commit cancels the previous details request.
+- All Git work runs in `GitCore` actors off the main actor. The main actor only reads the latest
+  immutable `HistorySnapshot` (sealed chunks are never mutated, so reads need no locks) and
+  materializes visible rows in `GraphRowCache`. Materializing 128 rows must measure < 0.2 ms p99
+  (spike S3); if not, windows are materialized off-main and cells show a blank row until filled
+  (rare due to overscan).
+- Requests are Swift `Task`s; selecting another commit cancels the previous details task, which kills
+  its Git process group (ADR-0005).
 - Phase 1's FSEvents watcher reports `.git/HEAD`, `.git/refs/**`, `.git/packed-refs`, `.git/index`
   changes. Handling:
   - Refs changed → re-read refs (`refs_rev` changes). If only labels moved but all old tips remain
@@ -465,8 +496,10 @@ and 2000 rows; outputs must be identical.
 ### 4.8 Performance approach
 
 - Budgets: first page visible < 150 ms (fixture 100k, warm cache); page append < 16 ms on main thread
-  (insertRows only); scroll 60 FPS with ≤ 2 ms per row draw; Rust memory ≤ 25 MB for 100k commits;
-  Swift row cache ≤ 2 MB.
+  (insertRows only); scroll 60 FPS with ≤ 2 ms per row draw; `CommitStore` ≤ 25 MB for 100k commits
+  (including subject arenas and author table); `GraphRowCache` ≤ 2 MB.
+- Byte-level parsing: no `String`/`Substring` per field while reading `git log -z`; fields are
+  located with `memchr`-style scans over the buffer and copied straight into column arrays.
 - Signposts (`os_signpost`) around: first page, page append, row draw, details fetch — used in Phase 6.
 - 100k fixture generated by `scripts/benchmarks/make-history-fixture.sh` using `git fast-import`
   (fast, deterministic; includes merges every N commits and 50 branches).
@@ -497,12 +530,12 @@ and 2000 rows; outputs must be identical.
 | Commit with 30 parents (octopus) | Layout allocates up to N lanes; segments per row capped by data, not by drawing assumptions. |
 | History rewritten under us (force-push fetch, rebase in Terminal) | Refs change → new handle; selection kept if oid still exists, else cleared with no error. |
 | `index.lock` present | Reads still work; no error. |
-| Reader process dies (OOM, killed) | `ensure_loaded` returns `GitError::ProcessExited` → banner + Retry; loaded rows stay visible. |
+| Reader process dies (OOM, killed) | `ensureLoaded` throws `GitError.processExited` → banner + Retry; loaded rows stay visible. |
 | Corrupt object | Mapped error for the affected range; loaded rows remain. |
 | Path with newline / non-UTF-8 bytes | `-z` parsing; non-UTF-8 displayed with replacement chars, original bytes kept for argv. |
 | Search with regex metacharacters | Fixed-string by default. |
 | Tag pointing to a tree/blob | Shown in navigator as "non-commit tag", no graph label. |
-| Tab closed during load | Cancel token fires, process group killed, handle dropped. |
+| Tab closed during load | Load task cancelled, process group killed, `HistoryLoader` released. |
 
 ## 6. ADRs to write
 
@@ -512,7 +545,9 @@ and 2000 rows; outputs must be identical.
 - **ADR-0010** History loading strategy — spike S1 numbers and decision.
 - **ADR-0021 (P2)** Lane layout algorithm & colour assignment — invariants (prefix-stability,
   determinism), cooldown, compression; golden-test format.
-- **ADR-0022 (P2)** Compact commit storage & memory budget (columnar store, interned authors, lazy bodies).
+- **ADR-0022 (P2)** Compact commit storage & memory budget in Swift (chunked append-only columnar store,
+  inline `ObjectID`, byte arenas, interned authors, lazy bodies, strings only for visible rows; measured
+  bytes/commit).
 - **ADR-0023 (P2)** Read-only Git invocation policy (which program-executing config is neutralised for
   display reads: ext-diff, textconv, showSignature; respecting everything else).
 - **ADR-0024 (P2)** History invalidation on ref changes (in-place label update vs handle swap).
@@ -521,9 +556,9 @@ and 2000 rows; outputs must be identical.
 
 | Spike | Question | Decision criteria |
 |---|---|---|
-| S1 History source | Long-lived reader vs `--skip` re-query vs `gix` walk | §4.3 criteria; idle CPU must be 0; prefer the simplest that meets first-page < 150 ms on the 100k fixture. |
+| S1 History source | Long-lived `git log` reader with backpressure vs `--skip` re-query vs two-stage `rev-list` topology + `cat-file --batch` metadata | §4.3 criteria; idle CPU must be 0; prefer the simplest that meets first-page < 150 ms on the 100k fixture. |
 | S2 Renderer | Does view-based `NSTableView` with flattened row layers hold 60 FPS at 100k rows on the reference Mac? | Instruments Animation Hitches: 0 hitches > 1 frame over a 10 s fling; row draw ≤ 2 ms p95. If not, prototype a single custom `NSView` canvas drawing visible rows directly. |
-| S3 `rows()` sync cost | Can the data source call Rust synchronously? | p99 < 0.2 ms for 128 rows → sync; else async prefetch only. |
+| S3 Row materialization cost | Can the main-actor data source materialize visible rows synchronously from the snapshot? | p99 < 0.2 ms for 128 rows → sync; else off-main window materialization. |
 | S4 Commit-graph absence | How slow is `--topo-order` on a 100k repo without a commit-graph file? | If first row > 500 ms, use `--date-order` for the first page? (No — breaks topo invariant.) Instead document and plan an explicit "Optimize repository" action (Phase 6). |
 | Q1 | Should "Highlight matches" dim non-matching rows or only mark matches? | Usability check on 3 real repos; pick the one where matches are findable in < 2 s scanning. |
 | Q2 | Default density | Compact for ≥ 14" displays? Decide with screenshots; default "Comfortable" unless screenshots show waste. |

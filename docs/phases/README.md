@@ -36,13 +36,13 @@ screenshots under `screenshots/<epic>/`.
 
 Status: in progress | complete | complete with carry-overs | blocked (<on what>)
 Branch / PR: <branch>, <PR link>
-Environment: <Mac model>, macOS <ver>, Xcode <ver>, Swift <ver>, Rust <ver>, Git <ver>
+Environment: <Mac model>, macOS <ver>, Xcode <ver>, Swift <ver>, Git <ver>
 
 ## Implemented
 - <milestone id> <what now works> — evidence: <test names, screenshots path, commands>
 
 ## Verified
-- Tests: `cargo test` <n passed>, Swift <n passed>, UI <n passed>; skipped: <none | list + reason>
+- Tests: `swift test` <n passed>, Xcode tests <n passed>, UI <n passed>; skipped: <none | list + reason>
 - Real-workflow checks: <what was exercised against which repos>
 - Screenshots: `docs/phases/NN-.../screenshots/<name>-{light,dark}.png`
 
@@ -69,8 +69,8 @@ Environment: <Mac model>, macOS <ver>, Xcode <ver>, Swift <ver>, Rust <ver>, Git
 ## Conventions shared by all phase docs
 
 - Milestone IDs: `P<phase>.<n>` (e.g. `P3.6`). Specs are named `specs/P3.6-partial-staging.md`.
-- Bridge API sketches in design docs are illustrative Rust/Swift signatures; the implementing agent
-  adjusts names to what UniFFI actually supports and records significant changes.
+- API sketches in design docs are illustrative Swift signatures; the implementing agent
+  adjusts names to what the current SDK supports and records significant changes.
 - "Planned" is the only allowed label for visible-but-unbuilt functionality, and only where showing
   it helps the user (otherwise hide it).
 - Screenshots live in each phase's `screenshots/` folder, named `<screen>-<state>-<light|dark>.png`.

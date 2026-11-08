@@ -31,7 +31,7 @@ the profile's author; `git config --global --list` unchanged.
   submodules (read-only display).
 - Working-directory panel; file-level stage/unstage/discard; stage all / unstage all; open in editor;
   reveal in Finder.
-- Rust diff engine with a byte-exact model and stable hunk/line IDs.
+- `GitCore` (Swift) diff engine with a byte-exact model and stable hunk/line IDs.
 - Diff renderer (ADR-0011) with unified, side-by-side and full-file layouts; staged, unstaged,
   commit, commit↔commit, commit↔working-directory targets; focused diff mode.
 - Syntax highlighting (ADR-0012), word-level diff, whitespace handling.
@@ -39,7 +39,9 @@ the profile's author; `git config --global --list` unchanged.
   verification, and recovery copies for discards (ADR-0025).
 - Blame view.
 - Commit composer: commit, amend, validation, identity snapshot, hooks policy (ADR-0014).
-- Per-repository write serialization (ADR-0027), designed to be lifted into Phase 4's OperationCenter.
+- Per-repository write serialization in the `RepositoryHandle` actor (ADR-0027), designed to be lifted
+  into Phase 4's OperationCenter.
+- Liquid Glass chrome around the opaque diff/file content (ADR-0006).
 
 **Out of scope (and where it lives)**
 - Conflict resolution UI → Phase 4 (conflicted files are listed with "Resolve conflicts to stage";
@@ -62,6 +64,11 @@ Hierarchy, top to bottom:
 3. **Staged (n)** with section action `Unstage All`.
 4. **Unstaged (n)** (modified + deleted + untracked, untracked marked `U`) with `Stage All`.
 5. **Commit composer** pinned at the bottom (§3.6).
+
+Material layers (ADR-0006): the panel header (branch, counts, view toggle, filter) uses the inspector's
+glass header treatment shared with Phase 2; the file sections and rows are **opaque content** (no glass
+on rows or anything that scrolls; rows scroll under the header with the system scroll-edge effect); the
+composer's action bar is glass (§3.6).
 
 File row: status glyph (A M D R C T U, coloured via `status.*` tokens), file-type icon (SF Symbol by
 extension, generic `doc`), file name (`type.body`), parent directory dimmed (`text.tertiary`,
@@ -108,12 +115,27 @@ Placement: the diff area occupies the inspector's lower region or, in **Focused 
 graph area with a 200 ms panel transition. Minimum comfortable width for side-by-side: 900pt; below
 that, the side-by-side button shows a tooltip "Widen the window or use Focus Diff" and unified is used.
 
-**File header bar:** path (SF Mono, directory dimmed), status, `+12 −3`, badges (CRLF, No newline at
-end, Mode 100644 → 100755, Binary, LFS pointer, Large file), layout segmented control
-(Unified / Split / Full File), whitespace menu (Show whitespace, Ignore whitespace changes — with note
-"Line actions are disabled while ignoring whitespace"), word-diff toggle, and actions: Stage File /
-Unstage File, Discard…, Open in Editor, Blame, File History. Header actions reflect the diff target
-(staged vs unstaged); commit diffs only show read-only actions.
+**Material layers (ADR-0006).** The diff body, gutters, hunk headers and blame gutter are the
+**opaque content layer** (`surface.canvas` / diff tokens; no glass on lines, rows or anything that
+scrolls). Glass is used only for small floating controls over the top-trailing edge of the diff body,
+grouped in one `GlassEffectContainer` (SwiftUI) / `NSGlassEffectContainerView` (AppKit) so they merge
+and morph rather than stack — verify exact API names against the macOS 26 SDK:
+- the **layout switcher** capsule (Unified / Split / Full File) with whitespace and word-diff toggles;
+- the **change navigator** capsule (previous / next change, `3 of 12`);
+- the **find bar** (⌘F) which slides in as a glass capsule and morphs back on Esc;
+- the **selection action capsule**: when changed lines are selected, a compact glass capsule appears
+  next to the selection with the primary action ("Stage 3 Lines", "Discard 3 Lines…"); it follows the
+  selection without animating during scroll and disappears when the selection clears.
+Diff text scrolls under these capsules with the system scroll-edge effect so they stay legible. With
+Reduce Transparency the capsules render opaque. Glass effects are created once per document view, never
+per row, and animate only on user action (§3.4 durations).
+
+**File header bar** (opaque strip above the body): path (SF Mono, directory dimmed), status, `+12 −3`,
+badges (CRLF, No newline at end, Mode 100644 → 100755, Binary, LFS pointer, Large file), and file
+actions: Stage File / Unstage File, Discard…, Open in Editor, Blame, File History. Header actions reflect
+the diff target (staged vs unstaged); commit diffs only show read-only actions. The whitespace menu
+(Show whitespace, Ignore whitespace changes — with note "Line actions are disabled while ignoring
+whitespace") and word-diff toggle live in the layout switcher capsule.
 
 **Body:**
 - Gutters: old and new line numbers (SF Mono, `text.tertiary`), then a 3pt change bar
@@ -201,6 +223,10 @@ Pinned at the bottom of the working-directory panel.
   is contained in its upstream, a warning row: "This commit is already on origin/main. Amending
   rewrites it; pushing will then require a force push." If HEAD's author differs from the profile, an
   extra checkbox "Reset author to Ana Ruiz" (off by default; committer is always the profile).
+- **Action bar (glass):** the identity line and Commit button sit in a glass bar at the bottom of the
+  panel (system glass background; the Commit button uses the prominent glass button style tinted with
+  `accent.primary`). The Summary/Description fields above it stay on opaque surfaces for long-form
+  typing legibility.
 - **Commit button:** "Commit 3 Files" (⌘↩), disabled with reason tooltip when: no staged changes (and
   not amend), empty summary, no active profile, conflicts present, operation in progress.
 - **No profile:** the identity line becomes a call-to-action "Choose a profile to commit" opening the
@@ -219,43 +245,55 @@ Pinned at the bottom of the working-directory panel.
 - File rows: label "src/app.rs, modified, 12 additions, 3 deletions, staged".
 - Diff rows: label includes line numbers and change type ("Added line 42: …"); rotor for hunks.
 - Line selection fully keyboard-operable (⇧↑/⇧↓ extend; Space toggles line selection).
-- Reduce Motion: row moves and panel transitions instant.
+- Reduce Motion: row moves, panel transitions and glass morphs instant.
+- Reduce Transparency / Increase Contrast: glass capsules and the composer bar fall back to opaque,
+  higher-contrast surfaces (system materials do this automatically; custom glass is checked in P3.12).
 
 ## 4. Technical design
 
 ### 4.1 Components
 
-**Rust `git-core`**
-- `status` — extend Phase 1 parser: `git status --porcelain=v2 -z --branch
+**`GitCore` (Swift, Foundation-only — ADR-0002/0005)**
+- `Status` — extend the Phase 1 byte-level parser: `git status --porcelain=v2 -z --branch
   --untracked-files=normal --find-renames --ignore-submodules=none` → `StatusSnapshot` (entries with
-  XY, sub-state, modes H/I/W, oids, rename source/score, conflict stage info). Numstat via
-  `git diff --numstat -z` and `git diff --cached --numstat -z`, computed lazily per visible batch.
-- `diff` —
+  XY, sub-state, modes H/I/W, oids, rename source/score, conflict stage info; paths kept as raw bytes
+  in an arena, `String` only for visible rows). Numstat via `git diff --numstat -z` and
+  `git diff --cached --numstat -z`, computed lazily per visible batch.
+- `Diff` —
   - `DiffInvocation` builds the canonical argv (see 4.3).
-  - `PatchParser` parses bytes (never `String`) into `FilePatch { header, hunks: Vec<Hunk> }`,
-    `Hunk { old_start, old_len, new_start, new_len, section, lines: Vec<Line> }`,
-    `Line { kind: Context|Add|Del, bytes: Range<usize>, eol: Lf|CrLf|None, no_newline_marker: bool,
-    old_no, new_no }`. IDs: `HunkId(u32)` and `LineId { hunk: u32, idx: u32 }`, stable for the
-    lifetime of a `DiffDocument`.
-  - `DiffDocument` (UniFFI object) owns raw bytes + parsed index, snapshot token, layout tables for
-    unified/split/full-file rows, and serves row windows.
-  - `wordiff` — token-level Myers on paired `-`/`+` runs within a hunk (pairs only when run lengths
-    are within 2× and line length < 1,000 bytes); results cached per hunk.
-- `highlight` — tree-sitter: parses pre-image and post-image blobs once per document in the background
-  (≤ 2 MB, ≤ 50k lines), queries highlights for requested row ranges; `Vec<Span { line, start_utf16,
-  len_utf16, kind: u8 }>`. Initial grammar set (measure binary size): Swift, Rust, C/C++/ObjC,
-  JavaScript/TypeScript (incl. JSX/TSX), Python, Go, Java, Kotlin, Ruby, JSON, YAML, TOML, Markdown,
-  Shell, HTML, CSS. Language detection: extension map + shebang + `.gitattributes linguist-language`
-  ignored (simplicity).
-- `patch_builder` — selection → patch (4.4).
-- `stage` — file-level (`git add -- <paths>`, `git rm --cached` for unstage of new files /
+  - `PatchParser` parses bytes (never `String`) into a flat, columnar `DiffDocument` model: one
+    contiguous `[UInt8]` buffer holding the raw patch, and parallel arrays — `hunks: [HunkRecord]`
+    (`oldStart, oldLen, newStart, newLen, sectionRange, firstLine, lineCount`) and
+    `lines: [LineRecord]` (8–16-byte struct: `kind` Context/Add/Del, `byteRange` into the buffer,
+    `eol` LF/CRLF/none, `noNewlineMarker`, `oldNo`, `newNo`). **No class or `String` per line.**
+    IDs: `HunkID(UInt32)` and `LineID(hunk: UInt32, index: UInt32)`, stable for the lifetime of a
+    `DiffDocument`.
+  - `DiffDocument` (`final class`, immutable after parse, `Sendable`) owns the buffer + index, the
+    snapshot token, and layout tables (row → line mapping) for unified / split / full-file rows; it
+    serves row windows. Display strings are decoded (lossy UTF-8) only for visible rows.
+  - `WordDiff` — token-level Myers on paired `-`/`+` runs within a hunk (pairs only when run lengths
+    are within 2× and line length < 1,000 bytes); results cached per hunk (ADR-0029).
+- `Highlight` (ADR-0012, spike S2) — candidates: (a) the **tree-sitter C runtime** plus grammars
+  compiled as a SwiftPM C target (vendored sources, or the SwiftTreeSitter package if its dependency
+  weight is acceptable); (b) a **small hand-written lexer set** (keywords/strings/comments/numbers per
+  language family) in pure Swift. Either way: highlight runs off-main for the **visible row range plus
+  a margin**, lazily as the user scrolls, caching spans per document; spans are compact
+  `(line: UInt32, startUTF16: UInt32, lengthUTF16: UInt16, kind: UInt8)` records. Limits: ≤ 2 MB,
+  ≤ 50k lines, else plain. Initial language set (measure binary-size cost per language): Swift,
+  C/C++/ObjC, JavaScript/TypeScript (incl. JSX/TSX), Python, Go, Rust, Java, Kotlin, Ruby, JSON, YAML,
+  TOML, Markdown, Shell, HTML, CSS. Language detection: extension map + shebang.
+- `PatchBuilder` — selection → patch (4.4).
+- `Stage` — file-level (`git add -- <paths>`, `git rm --cached` for unstage of new files /
   `git restore --staged -- <paths>`), line/hunk via `git apply`.
-- `discard` — file-level (`git restore --worktree -- <paths>`; untracked → returned to Swift to move
-  to Trash), line/hunk via `git apply -R`; recovery copy written before mutation.
-- `commit` — `git commit -F -` (message on stdin), `--amend`, `--reset-author`, `--no-verify` only
-  when explicitly requested; streams hook output via progress sink.
-- `blame` — `git blame --incremental [-w] [-M] <rev> -- <path>` streamed through a sink.
-- `writer` — `RepoWriter`: per-repository mutex + monotonic `RepoRevision` counter (ADR-0027).
+- `Discard` — file-level (`git restore --worktree -- <paths>`; untracked → returned to `Services` to
+  move to Trash), line/hunk via `git apply -R`; recovery copy written before mutation.
+- `Commit` — `git commit -F -` (message on stdin), `--amend`, `--reset-author`, `--no-verify` only
+  when explicitly requested; streams hook output through the bounded progress stream.
+- `Blame` — `git blame --incremental [-w] [-M] <rev> -- <path>` streamed as a bounded
+  `AsyncThrowingStream` of line blocks.
+- `RepositoryHandle` write gate — the single per-repository serialization point (ADR-0027): an
+  internal FIFO gate inside the actor (actor reentrancy means `await` points would otherwise let two
+  mutations interleave) plus a monotonic `RepoRevision`.
 
 **Swift**
 - `Features/WorkingDirectory`: `WorkingDirectoryViewController` (AppKit outline for virtualization),
@@ -265,72 +303,75 @@ Pinned at the bottom of the working-directory panel.
   `DiffHeaderView` (SwiftUI in hosting view), `DiffSelection`, `DiffSearchController`.
 - `Features/Blame`: `BlameViewController` reusing the renderer's line drawing + gutter.
 - `Features/CommitComposer`: SwiftUI `CommitComposerView` + `CommitComposerModel`.
-- `Services/RepositorySession.writer`: a Swift `actor RepositoryWriter` funnelling all mutations, so
-  the UI can show "busy" and disable conflicting actions; Phase 4 replaces it with OperationCenter.
+- `Services/RepositorySession` exposes the `RepositoryHandle` write gate's state (`isBusy`, current
+  operation description, pending queue) so the UI can show "busy" and disable conflicting actions;
+  Phase 4 lifts this into OperationCenter (no second queue is introduced).
 - `Services/RecoveryStore`: manages `~/Library/Application Support/Jit/Recovery/`.
 
-### 4.2 Bridge API sketch (illustrative)
+### 4.2 `GitCore` API sketch (illustrative Swift)
 
-```rust
-#[derive(uniffi::Enum)] pub enum DiffTarget {
-    Unstaged { path: String },                         // index → worktree (untracked: synthesized)
-    Staged { path: String },                           // HEAD (or empty tree) → index
-    Commit { oid: String, path: Option<String> },      // first parent → commit
-    Range { from: String, to: String, path: Option<String>, merge_base: bool },
-    CommitToWorktree { oid: String, path: Option<String> },
+```swift
+public enum DiffTarget: Sendable, Hashable {
+    case unstaged(RepoPath)                              // index → worktree (untracked: synthesized)
+    case staged(RepoPath)                                // HEAD (or empty tree) → index
+    case commit(ObjectID, path: RepoPath?)               // first parent → commit
+    case range(from: RevSpec, to: RevSpec, path: RepoPath?, mergeBase: Bool)
+    case commitToWorktree(ObjectID, path: RepoPath?)
 }
-#[derive(uniffi::Record)] pub struct DiffOptions {
-    pub context_lines: u32,          // default 3
-    pub ignore_whitespace: bool,     // disables line actions
-    pub word_diff: bool,
+public struct DiffOptions: Sendable, Hashable {
+    public var contextLines = 3
+    public var ignoreWhitespace = false                  // disables line actions
+    public var wordDiff = true
 }
-#[derive(uniffi::Record)] pub struct SnapshotToken {
-    pub path: String,
-    pub head_oid: Option<String>,
-    pub index_oid: Option<String>, pub index_mode: Option<u32>,
-    pub worktree_hash: Option<Vec<u8>>,              // git-blob SHA-1 of raw bytes
-    pub worktree_size: u64, pub worktree_mtime_ns: i64,
-    pub repo_revision: u64,
-}
-
-#[uniffi::export] impl RepoHandle {
-    pub fn status(&self, cancel: Arc<CancelToken>) -> Result<StatusSnapshot, GitError>;
-    pub fn numstat(&self, paths: Vec<String>, staged: bool, cancel: Arc<CancelToken>) -> Result<Vec<NumStat>, GitError>;
-    pub fn open_diff(&self, t: DiffTarget, o: DiffOptions, cancel: Arc<CancelToken>) -> Result<Arc<DiffDocument>, GitError>;
-
-    pub fn stage_paths(&self, paths: Vec<String>) -> Result<RepoRevision, GitError>;
-    pub fn unstage_paths(&self, paths: Vec<String>) -> Result<RepoRevision, GitError>;
-    pub fn discard_paths(&self, items: Vec<DiscardItem /* path + token */>) -> Result<DiscardOutcome, GitError>;
-
-    pub fn apply_selection(&self, req: SelectionRequest) -> Result<ApplyOutcome, GitError>;
-    pub fn commit(&self, req: CommitRequest, sink: Box<dyn ProgressSink>, cancel: Arc<CancelToken>) -> Result<CommitOutcome, GitError>;
-    pub fn blame(&self, path: String, rev: Option<String>, o: BlameOptions, sink: Box<dyn BlameSink>, cancel: Arc<CancelToken>) -> Result<(), GitError>;
+public struct SnapshotToken: Sendable, Hashable {
+    public var path: RepoPath
+    public var headOID: ObjectID?
+    public var indexOID: ObjectID?, indexMode: UInt32?
+    public var worktreeBlobID: ObjectID?                 // git-blob SHA-1 of raw bytes
+    public var worktreeSize: UInt64, worktreeMtimeNs: Int64
+    public var repoRevision: RepoRevision
 }
 
-#[derive(uniffi::Record)] pub struct SelectionRequest {
-    pub action: SelectionAction,      // Stage | Unstage | Discard | KeepOnly
-    pub token: SnapshotToken,         // from the DiffDocument the user selected in
-    pub lines: Vec<LineId>,           // or all lines of chosen hunks
-}
-#[derive(uniffi::Record)] pub struct ApplyOutcome { pub revision: u64, pub recovery_id: Option<String> }
-#[derive(uniffi::Record)] pub struct CommitRequest {
-    pub message: String, pub amend: bool, pub reset_author: bool, pub no_verify: bool,
-    pub identity: IdentitySnapshot,   // captured from the active profile when the user pressed Commit
+extension RepositoryHandle {                             // actor (Phase 1), reads concurrent, writes gated
+    public func status() async throws -> StatusSnapshot
+    public func numstat(_ paths: [RepoPath], staged: Bool) async throws -> [NumStat]
+    public func openDiff(_ target: DiffTarget, _ options: DiffOptions) async throws -> DiffDocument
+
+    public func stage(_ paths: [RepoPath]) async throws -> RepoRevision
+    public func unstage(_ paths: [RepoPath]) async throws -> RepoRevision
+    public func discard(_ items: [DiscardItem]) async throws -> DiscardOutcome   // path + token each
+
+    public func apply(_ request: SelectionRequest) async throws -> ApplyOutcome
+    public func commit(_ request: CommitRequest) -> OperationStream<CommitOutcome> // progress + result
+    public func blame(_ path: RepoPath, rev: RevSpec?, _ o: BlameOptions) -> AsyncThrowingStream<BlameBlock, Error>
 }
 
-#[uniffi::export] impl DiffDocument {
-    pub fn summary(&self) -> DiffSummary;                       // flags, hunks, row counts, token, badges
-    pub fn rows(&self, layout: DiffLayout, start: u32, count: u32) -> Vec<DiffRow>;
-    pub fn highlights(&self, layout: DiffLayout, start: u32, count: u32) -> Vec<RowSpans>; // may be empty until parsed
-    pub fn search(&self, q: String, case_sensitive: bool) -> Vec<RowMatch>;
-    pub fn expand_context(&self, gap: u32, lines: u32) -> u32; // returns new row count
-    pub fn close(&self);
+public struct SelectionRequest: Sendable {
+    public var action: SelectionAction                   // .stage | .unstage | .discard | .keepOnly
+    public var token: SnapshotToken                      // from the DiffDocument the user selected in
+    public var lines: [LineID]                           // or all lines of chosen hunks
 }
+public struct ApplyOutcome: Sendable { public var revision: RepoRevision; public var recoveryID: RecoveryID? }
+public struct CommitRequest: Sendable {
+    public var message: String, amend: Bool, resetAuthor: Bool, noVerify: Bool
+    public var identity: IdentitySnapshot                // captured from the active profile at Commit press
+}
+
+public final class DiffDocument: Sendable {              // immutable after parse
+    public var summary: DiffSummary { get }              // flags, hunks, row counts, token, badges
+    public func rowCount(_ layout: DiffLayout) -> Int
+    public func row(_ layout: DiffLayout, _ index: Int) -> DiffRowRef      // view into columns, no copy
+    public func search(_ query: String, caseSensitive: Bool) -> [RowMatch]
+    public func expandingContext(gap: Int, lines: Int) -> DiffDocument     // new layout table, shared buffer
+}
+// Highlighting is separate so the document stays immutable:
+public actor HighlightCache { public func spans(for doc: DiffDocument, rows: Range<Int>, _ layout: DiffLayout) async -> [RowSpans] }
 ```
 
-`DiffRow` carries kind, line numbers, the line text (UTF-8, lossy for display; original bytes stay in
-Rust), `LineId` if changed, word-diff ranges (UTF-16), and `eol`/`no_newline` flags. The bridge never
-transfers whole files: only visible windows (≈ 2× viewport), like the graph.
+`DiffRowRef` exposes kind, line numbers, a byte view of the line (decoded to a display `String` only
+for visible rows, lossy UTF-8; original bytes stay in the document), `LineID` if changed, word-diff
+ranges (UTF-16), and `eol`/`noNewline` flags. The UI never copies whole files into view models: only
+visible windows (≈ 2× viewport) are materialized, like the graph.
 
 ### 4.3 Canonical diff invocation (ADR-0026)
 
@@ -348,7 +389,7 @@ headers.)
 - `--no-textconv` and `--no-ext-diff`: the diff must be applicable and must not run external programs.
 - `--binary` so binary patches are representable (file-level only, never line-level).
 - Repository `diff.algorithm` is respected for display; `--indent-heuristic` default respected.
-- Untracked files: Rust synthesizes a "new file" patch from the raw bytes (no `git add -N`, which would
+- Untracked files: `GitCore` synthesizes a "new file" patch from the raw bytes (no `git add -N`, which would
   mutate the index as a side effect).
 - Bytes in, bytes out: CRLF and missing final newline are preserved exactly; the parser never
   normalizes. Paths are taken from the `diff --git` header with C-quoting decoded; when ambiguous, the
@@ -369,11 +410,12 @@ Rationale: the forward patch's pre-image must match the target (index for stage)
 post-image must match the target (index for unstage, worktree for discard), so unselected lines that
 exist in the target become context and the rest are dropped.
 
-**Steps for every selection operation** (inside `RepoWriter`, so no other mutation interleaves):
+**Steps for every selection operation** (inside the `RepositoryHandle` write gate, so no other
+mutation interleaves even across `await` points):
 
 1. **Validate token.** Re-read the path's current state: `git ls-files -s -z -- <path>` (index mode +
    oid), worktree `lstat` + git-blob SHA-1 of contents (for stage/discard), `HEAD` oid (for unstage).
-   If anything differs from the token → `GitError::StaleDiff` (UI reloads the diff, clears selection,
+   If anything differs from the token → `GitError.staleDiff` (UI reloads the diff, clears selection,
    explains "The file changed since you selected those lines").
 2. **Build the patch** from the `DiffDocument`'s parsed hunks and S using the table above. Hunk headers
    are recounted exactly (no `--recount` reliance). Each emitted hunk keeps all original context lines
@@ -382,13 +424,13 @@ exist in the target become context and the rest are dropped.
    carries the marker, the marker is preserved on the context line; if a selection would require
    changing only the final-newline state ambiguously, the operation is refused (see unsupported cases).
    Headers include `diff --git`, `index <old>..<new> <mode>` (full oids), `---`/`+++`.
-3. **Compute the expected result independently.** Apply S to the in-memory pre-image lines (Rust
+3. **Compute the expected result independently.** Apply S to the in-memory pre-image lines (`GitCore`
    model) → expected target bytes (index blob content for stage/unstage, worktree bytes for discard).
 4. **Check.** Write the patch to a private temp file (`0600`, in an app temp dir, deleted after) and run
    `git apply --check [--cached] [-R] --whitespace=nowarn <absolute-patch-path>` (no `--3way`, no `--reject`,
    no `--unidiff-zero`, no `--recount`). Failure → refuse with the mapped error; nothing changed.
 5. **Recovery copy (discard/keep-only only).** Copy the current worktree file into the recovery store
-   with metadata (repo, path, time, branch, token) before applying. Record `recovery_id`.
+   with metadata (repo, path, time, branch, token) before applying. Record `recoveryID`.
 6. **Apply** the same command without `--check`.
 7. **Verify.** Read back the actual result: index blob (`git cat-file blob <oid from ls-files>`) or
    worktree bytes. Compare with the expected bytes from step 3. Also assert other index entries are
@@ -397,7 +439,7 @@ exist in the target become context and the rest are dropped.
    entries; otherwise compare the target path plus a checksum of `ls-files -s` output).
    - Mismatch on index → restore the captured entry with
      `git update-index --cacheinfo <mode>,<oid>,<path>` (or `--force-remove` if it didn't exist) and
-     report `GitError::VerificationFailed` with diagnostics written to the log (no file contents).
+     report `GitError.verificationFailed` with diagnostics written to the log (no file contents).
    - Mismatch on worktree → restore from the recovery copy **only if** the worktree still equals the
      applied (unexpected) result; otherwise leave it and tell the user where the recovery copy is.
 8. **Bump `RepoRevision`**, emit invalidation for the path (status + diff reload).
@@ -441,7 +483,7 @@ available unless noted):
 
 ### 4.6 Commit identity & hooks (ADR-0014, ADR-0028)
 
-- `IdentitySnapshot { author_name, author_email, committer_name, committer_email }` captured from the
+- `IdentitySnapshot { authorName, authorEmail, committerName, committerEmail }` captured from the
   active profile at the moment the user presses Commit (§6.2: profile switches mid-operation don't
   affect it).
 - Applied via the child's environment only: `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`,
@@ -460,11 +502,13 @@ available unless noted):
 
 ### 4.7 Concurrency, invalidation & state ownership
 
-- `RepoWriter` (Rust): one mutex per repository held for the full duration of a mutation (token check →
-  apply → verify). Reads (status, diff) run concurrently and tag their results with the
-  `RepoRevision` they observed; Swift discards results older than the latest known revision.
-- Swift `actor RepositoryWriter`: serializes user-initiated mutations, exposes `isBusy` + current
-  operation description; queued actions show as pending (disabled UI), never silently dropped.
+- **One serialization point:** the `RepositoryHandle` actor's write gate is held for the full duration
+  of a mutation (token check → apply → verify), FIFO, across `await`s. Reads (status, diff) do not take
+  the gate; they run concurrently and tag results with the `RepoRevision` they observed; the UI discards
+  results older than the latest known revision.
+- The gate exposes `isBusy`, the current operation description and the pending queue; queued actions
+  show as pending (disabled UI), never silently dropped. Phase 4 lifts exactly this into
+  OperationCenter / ADR-0015.
 - FSEvents (Phase 1) → worktree/index change for path set → re-run status (coalesced) and, if the
   current diff's path is affected, reload the `DiffDocument` (keeping scroll position by nearest line
   number; clearing selection if lines changed).
@@ -542,22 +586,25 @@ The renderer is built as a reusable `CodeLinesView` so Phase 4's conflict resolv
 ## 6. ADRs to write
 
 - **ADR-0011** Diff renderer (spike numbers, decision, reusable `CodeLinesView`).
-- **ADR-0012** Syntax highlighting (tree-sitter grammars, limits, binary size impact, lazy spans).
+- **ADR-0012** Syntax highlighting (tree-sitter C runtime via SwiftPM C target vs hand-written Swift
+  lexers: binary size, speed, quality; limits; lazy per-viewport spans).
 - **ADR-0013** Partial staging algorithm (selection table, token, check/apply/verify/rollback,
   unsupported list).
 - **ADR-0014** Git hooks policy (run as Git does, visible output, explicit no-verify).
 - **ADR-0025 (P3)** Discard recovery store (location, retention, Trash for untracked).
 - **ADR-0026 (P3)** Canonical diff invocation and byte-exact patch model.
-- **ADR-0027 (P3)** Per-repository write serialization and `RepoRevision` (precursor to ADR-0015).
+- **ADR-0027 (P3)** Per-repository write serialization (`RepositoryHandle` FIFO write gate, reentrancy-safe)
+  and `RepoRevision` (precursor to ADR-0015).
 - **ADR-0028 (P3)** Commit identity application (env-only, amend author rules, repo-config override note).
-- **ADR-0029 (P3)** Word-level diff algorithm (own Myers on tokens vs `similar` crate) — dependency decision.
+- **ADR-0029 (P3)** Word-level diff algorithm (own Myers on tokens vs the standard library's
+  `CollectionDifference`) — no third-party dependency.
 
 ## 7. Open questions / spikes
 
 | Spike | Question | Decision criteria |
 |---|---|---|
 | S1 Renderer | TextKit 2 vs custom row renderer | §4.8 numbers; choose the simplest that meets all criteria. |
-| S2 Tree-sitter cost | Binary size per grammar; parse time for a 50k-line file | Total grammar weight ≤ 15 MB (else trim set); parse 50k lines < 300 ms off-main. |
+| S2 Highlighter | tree-sitter C runtime + grammars vs hand-written Swift lexers: binary size, parse/lex time for a 50k-line file, highlight quality on the language set | Tree-sitter only if total grammar weight ≤ 15 MB and 50k lines < 300 ms off-main *and* lexers are visibly worse; otherwise lexers (smaller, no C sources). Record numbers in ADR-0012. |
 | S3 Filters / autocrlf | Which conversions break worktree-side `git apply` | Fixture matrix (autocrlf true/input, `text eol=crlf`, LFS filter); outcome = allow/refuse table in ADR-0013. |
 | S4 Index-verify cost | Cost of full `ls-files -s` snapshot on a 100k-file repo | If > 100 ms, use path-scoped comparison + checksum. |
 | Q1 | Should line selection also allow selecting context lines for "Keep only" semantics? | No by default; revisit after usability check. |

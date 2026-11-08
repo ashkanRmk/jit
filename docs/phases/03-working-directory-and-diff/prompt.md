@@ -10,9 +10,11 @@ accepted carry-overs), that an active identity-only profile can be selected (Pha
 Xcode is selected.
 
 ```text
-You are the principal macOS / Rust / Git engineer, security engineer and product designer described in
-docs/master-prompt.md §0, implementing Phase 3 (Working directory & diff) of Jit, a native macOS Git
-client (SwiftUI + AppKit, Rust git-core via UniFFI, Git CLI).
+You are the principal macOS / Swift / Git engineer, security engineer and product designer described in
+docs/master-prompt.md §0, implementing Phase 3 (Working directory & diff) of Jit, a native macOS 26+
+Git client written entirely in Swift (SwiftUI + AppKit, Foundation-only GitCore module, Git CLI).
+ADR-0002 (pure Swift, no Rust) and ADR-0006 (macOS 26+, Liquid Glass chrome, opaque content) override
+the master prompt where they differ — read "Rust core" there as GitCore.
 
 Read first, in this order:
 1. CLAUDE.md
@@ -36,8 +38,8 @@ exercise the real workflow on real repos → screenshots (light and dark) for UI
 Phase emphases:
 - Data safety outranks everything (§26). Build and prove the safety core (P3.3 byte-exact diff model,
   P3.4 patch builder with snapshot token → git apply --check → apply → independent verification →
-  rollback) entirely in Rust with the full §7.4 matrix and property tests BEFORE wiring line actions
-  into the UI. Never use --unidiff-zero, --recount, --reject or --3way; never hand-edit index or
+  rollback) entirely in GitCore, tested with `swift test`, with the full §7.4 matrix and seeded property
+  tests BEFORE wiring line actions into the UI. Never use --unidiff-zero, --recount, --reject or --3way; never hand-edit index or
   worktree text as a substitute for patch application.
 - Every destructive or partial test must assert that unrelated lines, files and index entries are
   byte-identical afterwards.
@@ -52,10 +54,18 @@ Phase emphases:
 - Commits use the active profile's identity snapshot via GIT_AUTHOR_*/GIT_COMMITTER_* env only; prove
   with tests that no config file changes. Hooks run as Git runs them with visible output; no-verify only
   on explicit request (ADR-0014).
-- Decide the renderer (ADR-0011) and highlighting (ADR-0012) by measured spikes. No WebView, Monaco or
-  CodeMirror. Only visible rows cross the bridge; highlighting is lazy and never blocks first paint.
-- All mutations go through the per-repo writer (Rust mutex + Swift actor, ADR-0027) designed so Phase 4
-  can lift it into the OperationCenter.
+- Decide the renderer (ADR-0011) and highlighting (ADR-0012: tree-sitter C runtime vs hand-written Swift
+  lexers) by measured spikes. No WebView, Monaco or CodeMirror. Only visible rows are materialized as
+  Strings; highlighting is lazy per viewport and never blocks first paint.
+- Memory discipline (ADR-0005): DiffDocument is one byte buffer plus flat line/hunk records — no class or
+  String per line; inactive tabs release documents.
+- All mutations go through the single RepositoryHandle FIFO write gate (ADR-0027) — remember actor
+  reentrancy: an await inside an actor method lets other calls in, so the gate must serialize explicitly.
+  Phase 4 lifts it into the OperationCenter; do not build a second queue.
+- Liquid Glass (ADR-0006): diff body, gutters, file rows and blame are opaque content; glass only for the
+  floating layout switcher, change navigator, find bar and selection-action capsule (one glass container),
+  the panel header and the composer action bar. Verify API names against the macOS 26 SDK; check Reduce
+  Transparency / Increase Contrast.
 - The diff viewer is a flagship surface: review screenshots in both themes and refine the diff colours,
   gutters, hunk headers and selection states until they are calm, readable and original.
 
@@ -63,7 +73,7 @@ Out of scope (do NOT build; leave absent or clearly disabled with explanation): 
 (Phase 4 — list conflicted files only), push/pull/fetch, branch operations, stash/reset/patch export
 (Phase 8), signing configuration UI (Phase 8), provider features (Phase 5), external diff/merge tools.
 
-Verification and honesty: use real temporary Git repositories via git-testkit, never mocked Git output.
+Verification and honesty: use real temporary Git repositories via GitTestKit, never mocked Git output.
 Run property tests with at least 50,000 cases locally before declaring P3.4 done and record the count.
 Release builds for performance; report measured numbers with hardware, macOS, Git version and repo size,
 including misses and their bottlenecks. Never fabricate results; no skipped tests without a reason.

@@ -6,7 +6,9 @@ Design: [`design.md`](design.md). Exit gate: §6 below + [`../../roadmap.md`](..
 
 - [ ] Phase 0 PR merged; `docs/phases/00-foundation/progress.md` status complete (or carry-overs accepted).
 - [ ] `scripts/build/build-all.sh debug` and all tests green on `main`.
-- [ ] ADR-0001…0006 accepted (FFI concurrency model and minimum Git version are relied on here).
+- [ ] ADR-0001…0006 accepted (the ADR-0005 concurrency/process model and the ADR-0006 minimum Git
+      version and glass rules are relied on here).
+- [ ] `docs/design-system.md` records the verified Liquid Glass APIs and the `DesignSystem` glass helpers exist.
 - [ ] Baseline numbers from Phase 0 available for regression comparison.
 
 ## 2. Milestones
@@ -29,26 +31,35 @@ Done when: tests pass; app launches with an empty new-tab page and restores an e
 
 ### P1.2 — Tab bar
 - [ ] Spec `specs/P1.2-tab-bar.md` (anatomy, states, metrics from design §3.1).
-- [ ] Spike titlebar placement (design §7) and record the choice in the spec.
-- [ ] `TabStripView`/`TabItemView` (AppKit, layer-backed): select, close button, middle-click close,
-      drag reorder with neighbor animation, overflow (compression → horizontal scroll with edge fades →
-      overflow menu), status dot, tooltips, window drag on empty space, double-click zoom behavior.
+- [ ] Spike toolbar-item vs titlebar-accessory placement and AppKit vs hosted SwiftUI glass container
+      (design §7); record the choice in the spec.
+- [ ] Unified `NSToolbar` with system sidebar/inspector toggles, overflow `⌄` button and the profile
+      capsule item; window title/subtitle set from the active repository.
+- [ ] `TabStripView`/`TabItemView` (AppKit, layer-backed) inside one glass container: capsule glass tabs
+      with stable `glassEffectID`s, select (glass morph, ≤ 240 ms), close button, middle-click close,
+      drag reorder with neighbor animation, overflow (compression → horizontal scroll inside the
+      container → overflow menu), status dot, tooltips, window drag on empty space, double-click zoom
+      behavior, full-screen toolbar behavior.
+- [ ] Reduce Transparency fallback (`surface.chromeOpaque`) and Increase Contrast check.
 - [ ] Keyboard: ⌃Tab/⌃⇧Tab, ⌘⇧]/⌘⇧[, ⌘W, ⌘⇧T; Window menu "Move Tab Left/Right".
 - [ ] Accessibility: roles, labels, "tab n of m", reorder actions.
-- [ ] Reduce Motion handling.
+- [ ] Reduce Motion handling (no morphs; cross-fade).
 Tests: `TabOrderingTests` (pure model: move, close, overflow index math);
 UI tests `TabBarUITests.testNewTabCloseReopen`, `.testKeyboardCycling`, `.testMiddleClickClose`
 (if XCUITest supports it; otherwise manual check documented).
-Verification: screenshots `tabbar-{default,hover,overflow,many}-{light,dark}.png`; manual drag test
-with 3, 12 and 40 tabs; full-screen mode check; VoiceOver pass.
-Done when: tab interactions feel native and smooth; no layout jumps.
+Verification: screenshots `tabbar-{default,hover,overflow,many}-{light,dark}.png` plus
+`tabbar-default-reducetransparency.png`; manual drag test with 3, 12 and 40 tabs; full-screen mode
+check; VoiceOver pass; idle CPU unchanged with the strip visible (glass is static when idle).
+Done when: tab interactions feel native to macOS 26 and smooth; no layout jumps; no glass nested in glass.
 
 ### P1.3 — New-tab page and opening repositories
 - [ ] Spec `specs/P1.3-new-tab.md`.
-- [ ] New-tab view: Open tile (⌘O), recents list with hover actions, empty state, missing-path rows with
-      Locate…/Remove, keyboard navigation, ⌫ remove + ⌘Z undo.
-- [ ] Window-wide folder drop overlay; drop on any tab content opens a new tab (or focuses existing).
-- [ ] Open flow: discovery via bridge → top-level path → new `TabModel(.repository)` → session activates.
+- [ ] New-tab view (opaque content under the glass toolbar): prominent glass "Open Repository…" button
+      (⌘O), opaque recents list with hover actions, empty state, missing-path rows with Locate…/Remove,
+      keyboard navigation, ⌫ remove + ⌘Z undo. No glass cards.
+- [ ] Window-wide folder drop overlay (opaque, not glass); drop on any tab content opens a new tab (or
+      focuses existing).
+- [ ] Open flow: `GitEngine` discovery → top-level path → new `TabModel(.repository)` → session activates.
 - [ ] "Open Recent" menu bound to `RecentsStore`.
 - [ ] Test hook: launch argument `-JitUITestOpenRepository <path>` (DEBUG/UI-test builds only) because
       `NSOpenPanel` isn't scriptable reliably.
@@ -59,36 +70,40 @@ Done when: all entry points open repositories; nothing on the page is a placehol
 
 ### P1.4 — Workbench layout skeleton
 - [ ] Spec `specs/P1.4-workbench-layout.md`.
-- [ ] `NSSplitViewController` with sidebar / main / inspector items, min/max from `PanelMetrics`,
-      collapse/expand (⌃⌘S, ⌥⌘0) animated with `motion.panel`, widths persisted globally,
-      collapse flags per tab.
+- [ ] `NSSplitViewController` with a system **sidebar** item (macOS 26 glass sidebar), main item and a
+      system **inspector** item; min/max from `PanelMetrics`; collapse/expand (⌃⌘S, ⌥⌘0) with the
+      system animation (instant with Reduce Motion); widths persisted globally, collapse flags per tab.
+- [ ] Sidebar content uses system sidebar list styling on glass (no custom opaque fills); main and
+      inspector are opaque content.
 - [ ] Repository header (name, branch/detached/unborn, upstream ahead/behind, operation chip).
 - [ ] Region contents per design §3.3 with loading (150 ms delayed placeholder), normal, error +
       recovery actions (Locate…, Remove Tab, Retry), bare-repository variant.
 Tests: `LayoutStateTests.testWidthsClampToMinMax`, `.testPersistence`; snapshot of header states
 (pure SwiftUI view rendered to bitmap if snapshot infra exists; otherwise screenshots).
-Verification: screenshots `workbench-{loading,normal,error,bare}-{light,dark}.png`; resize window
-down to 960×600 and up to a 5K display size.
+Verification: screenshots `workbench-{loading,normal,error,bare}-{light,dark}.png` and one with Reduce
+Transparency; resize window down to 960×600 and up to a 5K display size.
 Done when: layout persists across relaunch and handles all states.
 
-### P1.5 — Rust status and operation state
+### P1.5 — `GitCore` status and operation state
 - [ ] Spec `specs/P1.5-status.md`.
-- [ ] `git-core::status` parser (porcelain v2, `-z`, `--branch`) → `StatusSnapshot` with entries + summary.
-- [ ] `git-core::repo_state::operation_state(git_dir)`.
-- [ ] `RepositoryHandle` with generation counter, cache, `invalidate`, coalesced refresh (one in flight +
-      one queued), `release_caches`.
-- [ ] Bridge: `open_repository`, `info`, `status_summary`, `invalidate`, `release_caches`; Swift
-      `RepositorySession.refresh(reason:)` updating `statusSummary` and the tab's status dot.
-- [ ] `read_global_identity()` (read-only `git config --global --get user.name/email`) for P1.8 pre-fill.
-Rust tests (unit, from captured porcelain samples): `parses_branch_headers_with_upstream`,
-`parses_no_upstream`, `parses_detached`, `parses_unborn`, `parses_rename_entry_z_format`,
-`parses_unmerged_entries`, `parses_untracked_and_ignored`, `parses_unicode_and_spaces_paths`,
-`parses_submodule_fields`, `rejects_truncated_record`.
-Rust integration (`git-testkit`): `status_clean_repo`, `status_mixed_changes_counts`,
-`status_partially_staged_file_counts_both`, `status_does_not_touch_index_mtime` (asserts
-`--no-optional-locks` effect), `operation_state_merge`, `operation_state_rebase_with_progress`,
-`operation_state_cherry_pick`, `operation_state_revert`, `refresh_coalesces_concurrent_requests`,
-`stale_result_discarded_after_invalidate`.
+- [ ] `GitCore` byte-level status parser (porcelain v2, `-z`, `--branch`) → `StatusSnapshot` with compact
+      `StatusEntries` + summary (no `String` per line; paths materialized on demand).
+- [ ] `GitCore` `OperationStateDetector.detect(gitDir:)`.
+- [ ] `actor RepositoryHandle` with generation counter, cache, `invalidate(_:)`, coalesced refresh (one in
+      flight + one queued), `releaseCaches()`; `GitEngine.openRepository(at:)`.
+- [ ] `Services`: `RepositorySession.refresh(reason:)` awaiting the handle and updating `statusSummary`
+      and the tab's status dot on the main actor.
+- [ ] `GitEngine.readGlobalIdentity()` (read-only `git config --global --get user.name/email`) for P1.8 pre-fill.
+Unit tests (`swift test`, from captured porcelain samples): `parsesBranchHeadersWithUpstream`,
+`parsesNoUpstream`, `parsesDetached`, `parsesUnborn`, `parsesRenameEntryZFormat`,
+`parsesUnmergedEntries`, `parsesUntrackedAndIgnored`, `parsesUnicodeAndSpacesPaths`,
+`parsesSubmoduleFields`, `rejectsTruncatedRecord`.
+Integration (`GitTestKit`): `statusCleanRepo`, `statusMixedChangesCounts`,
+`statusPartiallyStagedFileCountsBoth`, `statusDoesNotTouchIndexMtime` (asserts
+`--no-optional-locks` effect), `operationStateMerge`, `operationStateRebaseWithProgress`,
+`operationStateCherryPick`, `operationStateRevert`, `refreshCoalescesConcurrentRequests`,
+`staleResultDiscardedAfterInvalidate`, `cancellingRefreshKillsGitProcess`.
+JitBench: `status-parse` on a 100k-entry captured sample (time + allocations).
 Done when: counts in the UI match `git status` for every fixture.
 
 ### P1.6 — File watching
@@ -108,14 +123,16 @@ Done when: updates are timely, and there is zero activity when the app is in the
 - [ ] Appearance preference System/Light/Dark in Settings ▸ General and View ▸ Appearance; applied via
       `NSApp.appearance`; persisted; applied before the first window is shown (no flash).
 Tests: `PreferencesStoreTests.testAppearancePersists`; UI `ThemeUITests.testSwitchToDarkAndBack`.
-Verification: every Phase 1 screen screenshotted in both themes; increase-contrast spot check.
+Verification: every Phase 1 screen screenshotted in both themes; Increase Contrast and Reduce
+Transparency spot checks (glass chrome and content tokens).
 Done when: no surface or text ignores the theme; no white flash on dark launch.
 
 ### P1.8 — Identity-only profiles
 - [ ] Spec `specs/P1.8-profiles-identity.md` (model, validation, snapshot semantics for Phase 3).
 - [ ] `ProfileStore` (`profiles.json`), `GitProfile`, `GitIdentity`, `ProfileSnapshot`.
-- [ ] Create/edit sheet with validation and "Fill from Git config".
-- [ ] Profile indicator in tab bar; switcher popover (search > 6, active check, New/Manage).
+- [ ] Create/edit system sheet with validation and "Fill from Git config".
+- [ ] Profile capsule in the toolbar (glass); switcher as a system popover (search > 6, active check,
+      New/Manage); "No Profile" warning-tinted capsule.
 - [ ] Settings ▸ Profiles list/editor; delete with confirmation; deleting the active profile → none.
 - [ ] "No profile" state and resolution path.
 Tests: `ProfileStoreTests.testCreateEditDeletePersist`, `.testDeleteActiveLeavesNoneSelected`,
@@ -135,8 +152,8 @@ Done when: menus enable/disable correctly for new-tab vs repository tabs.
 ### P1.10 — Restore, lazy loading, measurements
 - [ ] Restore tabs from `session.json` before Git work; only the active tab activates.
 - [ ] Missing repositories surface as error tabs without blocking.
-- [ ] Measure (release build): warm/cold launch with 0 and 5 restored tabs; idle CPU and wakeups with
-      5 tabs over 60 s; tab switch latency (signpost from click to content committed) for loaded and
+- [ ] Measure (release build): warm/cold launch with 0 and 5 restored tabs; idle CPU, wakeups and GPU
+      with 5 tabs over 60 s (glass chrome visible); tab switch latency (signpost from click to content committed) for loaded and
       unloaded tabs; memory after opening/closing a repository 50 times (DEBUG-only stress command or
       UI-test loop) — no sustained growth; idle network = none (`nettop -p <pid>` / `lsof -i -p`).
 - [ ] Update `docs/performance.md`.
@@ -146,11 +163,11 @@ Done when: numbers recorded honestly; regressions versus Phase 0 explained or fi
 
 | Layer | Coverage |
 |---|---|
-| Rust unit | porcelain v2 parser (all record types, edge paths), operation-state detection, cache generations |
-| Rust integration | status counts on real repos, no index writes during status, coalescing, staleness |
-| Swift unit | stores (persistence, corruption, permissions), app/tab model logic, layout clamping, FSEvent classifier, profiles + snapshot |
-| Swift UI | new tab, open via hook, tab cycling/close/reopen, theme switch, profile create/switch, menu states |
-| Manual | drag reorder, overflow, full screen, VoiceOver, Reduce Motion, increase contrast, external edits |
+| `GitCore` unit (`swift test`) | porcelain v2 parser (all record types, edge paths), operation-state detection, cache generations |
+| `GitCore` integration (`GitTestKit`) | status counts on real repos, no index writes during status, coalescing, staleness, cancellation |
+| `Services`/app unit | stores (persistence, corruption, permissions), app/tab model logic, layout clamping, FSEvent classifier, profiles + snapshot |
+| UI (`xcodebuild test`) | new tab, open via hook, tab cycling/close/reopen, theme switch, profile create/switch, menu states |
+| Manual | drag reorder, overflow, full screen, VoiceOver, Reduce Motion, Increase Contrast, Reduce Transparency, external edits |
 
 ## 4. Performance checks
 
@@ -158,6 +175,7 @@ Done when: numbers recorded honestly; regressions versus Phase 0 explained or fi
 |---|---|---|
 | Warm launch, 5 restored tabs | < 500 ms first window | `scripts/benchmarks/launch.sh` |
 | Idle CPU, 5 tabs, app active | 0.0–0.2 % | `scripts/benchmarks/idle.sh` |
+| Idle GPU with glass chrome | no recurring work | Instruments GPU / `powermetrics` (user-run) |
 | Idle CPU, app in background | ~0 %, no FSEvents callbacks | idle script + debug counter of callbacks |
 | Tab switch (loaded) | < 16 ms to committed frame | signposts in Instruments |
 | Memory growth over 50 open/close | no sustained growth | footprint before/after |
@@ -166,8 +184,8 @@ Done when: numbers recorded honestly; regressions versus Phase 0 explained or fi
 
 ## 5. Docs to update
 
-`docs/architecture.md` (state, lifecycle, persistence, watching), `docs/design-system.md` (tab bar,
-popover, new-tab tile, workbench header patterns), `docs/performance.md`, `docs/security.md`
+`docs/architecture.md` (state, lifecycle, persistence, watching), `docs/design-system.md` (glass tab
+strip, toolbar, profile capsule, popover, new-tab, workbench header patterns, "No Profile" tint exception), `docs/performance.md`, `docs/security.md`
 (file permissions, NSWorkspace launching), `docs/product.md` (shortcut table, Phase 1 behavior),
 ADR-0007, ADR-0008, CLAUDE.md if commands change, `progress.md`.
 
@@ -178,6 +196,7 @@ ADR-0007, ADR-0008, CLAUDE.md if commands change, `progress.md`.
 - [ ] Only the active/visible tab does work; background app does none (verified).
 - [ ] Global `~/.gitconfig` unchanged by any Phase 1 action (checksum evidence).
 - [ ] No placeholder actions on the new-tab page, menus, or workbench.
-- [ ] Screenshots for every new screen and state in light and dark.
+- [ ] Screenshots for every new screen and state in light and dark (+ Reduce Transparency for chrome).
+- [ ] Glass only on chrome (toolbar, tab strip, sidebar, popovers, sheets); content opaque; no nested glass.
 - [ ] Performance table updated; no regressions versus Phase 0 without explanation.
 - [ ] ADR-0007 and ADR-0008 written; docs updated; roadmap §9 gate satisfied; `progress.md` complete; PR opened.

@@ -6,30 +6,36 @@
 ## 1. Goal & demo
 
 Produce a universal (Apple Silicon + Intel), Developer ID–signed, hardened, notarized and stapled DMG
-that installs and runs on a clean macOS machine with **no Xcode, Command Line Tools, Rust or Homebrew**,
+that installs and runs on a clean macOS 26+ machine with **no Xcode, Command Line Tools or Homebrew**,
 using a bundled, signed Git runtime — and prove it with a documented clean-VM run of scenarios A–G.
+The app is 100% Swift (ADR-0002): the only native code beyond the app is the `jit-git-helper`
+executable and the bundled Git. Intel matters only for Intel Macs that run macOS 26 (believed to be
+the last macOS release supporting Intel — verify at implementation time; if the user decides Intel is
+not worth it, ship arm64-only and record it in ADR-0049).
 
 **Demo at the end of the phase**
 
-1. `scripts/release/release.sh --version 1.0.0` runs steps 1–10 of §20 end to end and prints a summary
+1. `scripts/release/release.sh --version 1.0.0` runs all §20 steps (scripts 01–09) end to end and prints a summary
    (artifact path, SHA-256, signing identity, notarization submission ID, staple status).
-2. On a fresh macOS 14 VM and a fresh latest-macOS VM (no CLT): open the DMG, drag Jit to Applications,
+2. On a fresh macOS 26 VM and a fresh latest-macOS VM (no CLT): open the DMG, drag Jit to Applications,
    launch — no Gatekeeper warning beyond the standard first-open confirmation, no CLT install prompt.
 3. In the VM, clone a public repository, browse the graph, stage a line, commit, resolve a conflict.
 4. `docs/release.md` has the completed acceptance checklist A–G with evidence; `docs/performance.md`
    has the release-build numbers re-measured with the bundled Git and universal binary.
 
-If Developer ID / notarization credentials are unavailable, the demo is steps 1–3 with ad-hoc/local
+If Developer ID / notarization credentials are unavailable, the demo is items 1–3 above with ad-hoc/local
 signing, and the phase is reported **blocked on credentials** (§20) — see §4.8.
 
 ## 2. Scope / out of scope
 
 **In scope**
-- Universal builds of the app, the Rust core (XCFramework) and `credential-helper`.
+- Universal builds of the app (including the local Swift package targets) and the `jit-git-helper`
+  executable (`JitGitHelper` target).
 - Bundled Git runtime: build, layout, relocation, configuration isolation, signing, licensing.
 - Git resolution order and onboarding fallback.
 - Entitlements, Hardened Runtime, sandbox decision.
-- Code signing (inside-out), DMG creation and styling, notarization, stapling, verification.
+- App icon in the current macOS style (layered Liquid Glass icon) and DMG styling.
+- Code signing (inside-out), DMG creation, notarization, stapling, verification.
 - Idempotent `scripts/release/` steps + orchestrator; secrets handling; `.gitignore` rules.
 - Clean-machine verification and scenario A–G acceptance checklist.
 - Release checklist, final documentation pass, release-build performance re-measure.
@@ -48,14 +54,27 @@ signing, and the phase is reported **blocked on credentials** (§20) — see §4
 
 ### 3.1 DMG
 
-- Window ≈ 640×400 pt, background artwork in the app's visual identity (light, mineral surface, subtle
-  brand mark; legible in macOS dark mode because Finder shows the image as-is — design for both),
-  app icon on the left, `Applications` alias on the right, a thin arrow/guide between. No text clutter.
+- Window ≈ 640×400 pt, background artwork in the app's visual identity, consistent with the macOS 26
+  look: a calm, softly lit surface that echoes the app icon's glass material (rendered artwork — the
+  DMG window cannot use live glass), subtle brand mark; legible in macOS dark mode because Finder
+  shows the image as-is — design for both. App icon on the left, `Applications` alias on the right, a
+  thin arrow/guide between. No text clutter.
 - Volume name `Jit <version>`, custom volume icon, icon size 128, hidden toolbar/sidebar.
 - Background provided at 1× and 2× (`.tiff` multi-resolution via `tiffutil -cathidpicheck`).
 - Read-only compressed (`UDZO` or `ULFO`; choose by size/compat — ULFO needs macOS 10.11+, fine).
 
-### 3.2 First launch & Git runtime onboarding
+### 3.2 App icon
+
+- Designed for the current macOS icon system: a layered icon (foreground glyph layers over a
+  background) authored in Apple's **Icon Composer** so the system renders the Liquid Glass material and
+  the default, dark, clear and tinted appearances. Verify the tooling and the asset format the current
+  Xcode expects (e.g. an `.icon` document in the app target) at implementation time; fall back to an
+  asset-catalog `AppIcon` only if the toolchain requires it, and record which path was used.
+- Glyph: a simple, original mark (e.g. abstract lanes/nodes) — no Git logo, no imitation of other Git
+  clients. Readable at 16 pt; tested in Finder, Dock, Launchpad/App library, Spotlight and the DMG.
+- Volume icon (`.VolumeIcon.icns`) derived from the same artwork.
+
+### 3.3 First launch & Git runtime onboarding
 
 - Normal case: bundled Git is found and validated silently (version check deferred until the first Git
   operation, per Phase 6 startup rules). No onboarding screen.
@@ -73,29 +92,34 @@ signing, and the phase is reported **blocked on credentials** (§20) — see §4
 
 States: normal (silent), loading (validation in progress — inline spinner in the sheet only),
 error (sheet above), custom-Git-invalid (inline error under the picker with the failing check).
-Light/dark: standard sheet tokens. Accessibility: sheet fully keyboard operable, buttons labelled.
+Light/dark: standard system sheet (glass per ADR-0006 — no custom styling). Accessibility: sheet fully
+keyboard operable, buttons labelled.
 
-### 3.3 About & Acknowledgements
+### 3.4 About & Acknowledgements
 
 - About window: app name, version + build, short SHA, copyright, links to Acknowledgements and license.
 - Acknowledgements: bundled third-party components with licenses — Git (GPLv2) with the written source
-  offer / link to the corresponding source archive, and every Rust/Swift dependency license
-  (generated, e.g. `cargo about` or `cargo-deny`-assisted listing, reviewed).
+  offer / link to the corresponding source archive, and every Swift package dependency license
+  (generated from `Package.resolved` and each package's LICENSE, reviewed; tree-sitter and grammars
+  if Phase 3 adopted them).
 
 ## 4. Technical design
 
 ### 4.1 Universal build
 
-- **Rust:** `rustup target add aarch64-apple-darwin x86_64-apple-darwin`; build `git-ffi` staticlib for
-  both with `MACOSX_DEPLOYMENT_TARGET=14.0`; `lipo -create` into a universal static library; package
-  `JitCoreFFI.xcframework` with a single macOS universal slice (`xcodebuild -create-xcframework`).
-  Generated Swift bindings are architecture-independent; generate once and verify identical.
-- **credential-helper:** build both targets, `lipo` to universal, embed at
-  `Jit.app/Contents/Helpers/jit-git-helper` (final path per Phase 5; keep it out of `MacOS/`
-  if that confuses launch services — record decision).
-- **Swift/app:** `ARCHS = arm64 x86_64`, `ONLY_ACTIVE_ARCH = NO` for Release; `xcodebuild archive`
-  then export with Developer ID method (or manual copy + signing script — choose the one that keeps
-  inside-out signing under our control; recommended: archive, then our own signing script).
+- **Everything is built by Xcode.** Release configuration: `ARCHS = arm64 x86_64`,
+  `ONLY_ACTIVE_ARCH = NO`, `MACOSX_DEPLOYMENT_TARGET = 26.0`, set in `macos/project.yml` (XcodeGen) so
+  the app target and the local Swift package targets it links (`GitCore`, `DesignSystem`, `Services`,
+  `Features`) are compiled for both architectures in one build. No separate core build, no `lipo` step
+  for our own code.
+- **jit-git-helper:** the `JitGitHelper` executable target built in the same archive with the same
+  `ARCHS`, embedded at `Jit.app/Contents/Helpers/jit-git-helper` (path fixed in Phase 5) via a
+  copy-files build phase.
+- **Archive/export:** `xcodebuild archive` then export with the Developer ID method, or a manual copy
+  + our own signing script — choose the one that keeps inside-out signing under our control
+  (recommended: archive, then our own signing script).
+- Dev-only targets (`TestRig`, `JitBench`, `GitTestKit`) are never embedded in the shipped app —
+  `03-verify-archs.sh` also asserts their absence.
 - **Verification:** `lipo -archs` on every Mach-O in the bundle prints `x86_64 arm64`
   (script: walk the bundle, `file`-detect Mach-O, assert). Intel runtime testing: an Intel Mac if
   available; otherwise Rosetta (`arch -x86_64`) launch on Apple Silicon as partial evidence, clearly
@@ -118,7 +142,7 @@ tarball, built for arm64 and x86_64 separately then `lipo`'d.
   NO_INSTALL_HARDLINKS=YesPlease` (exact flags verified against the pinned Git's Makefile; Perl is needed
   only for a few porcelain commands — exclude if none are used by Jit, verify list).
 - HTTPS transport: link against the system `libcurl` (`/usr/lib/libcurl.4.dylib`, available on all
-  supported macOS, uses Secure Transport/LibreSSL + system trust) to avoid bundling OpenSSL — verify
+  supported macOS 26+ systems, uses Secure Transport/LibreSSL + system trust) to avoid bundling OpenSSL — verify
   that custom CA configuration from Phase 5 (`http.sslCAInfo` scoped per URL) works with system curl's
   backend; if not, the fallback is bundling curl + OpenSSL (document security-update cost).
 - `zlib`, `expat`: system libraries. `pcre2`: omit (`NO_PCRE` default) unless `git grep -P` is needed.
@@ -183,7 +207,7 @@ first use. Cached per session; re-validated if the path changes.
 
 ### 4.4 Entitlements, Hardened Runtime, sandbox (ADR-0045)
 
-- **Hardened Runtime:** on for the app, `credential-helper` and every bundled Git binary
+- **Hardened Runtime:** on for the app, `jit-git-helper` and every bundled Git binary
   (`--options runtime`).
 - **Entitlements (app):** none beyond defaults is the goal. Candidates to evaluate and reject unless
   needed: `com.apple.security.cs.disable-library-validation` (should not be needed — all code is signed
@@ -201,8 +225,9 @@ first use. Cached per session; re-validated if the path changes.
 
 - Identity: "Developer ID Application: <Team> (<TEAMID>)" from the login keychain or a temporary CI
   keychain; never committed.
-- Inside-out order: every Mach-O in `git/libexec/git-core` and `git/bin` → `credential-helper` → any
-  frameworks/dylibs (if dynamic) → the app bundle. Each with
+- Inside-out order: every Mach-O in `git/libexec/git-core` and `git/bin` → `Contents/Helpers/jit-git-helper`
+  → any frameworks/dylibs (only if a Swift package is linked dynamically; the plan links them
+  statically) → the app bundle. Each with
   `codesign --force --timestamp --options runtime --sign "$IDENTITY" [--entitlements <file>] <path>`.
 - **No `--deep`** for signing (it applies one entitlement set to everything and hides ordering
   mistakes); `--deep` is used only in verification.
@@ -240,16 +265,15 @@ Each step is a separate idempotent script, runnable alone, reading config from e
 
 | # (§20) | Script | Output / idempotency key |
 |---|---|---|
-| 1 | `01-build-swift.sh` | archive / `.app` (skips if inputs unchanged — or always rebuilds clean; prefer clean for releases) |
-| 2 | `02-build-rust.sh` | universal staticlib + XCFramework + bindings; credential-helper universal |
-| 3 | `03-verify-archs.sh` | asserts every Mach-O is `arm64 x86_64` |
-| 4 | `04-bundle-git.sh` | builds/copies pruned universal Git into the app |
-| 5 | `05-sign-embedded.sh` | signs nested code inside-out |
-| 6 | `06-sign-app.sh` | signs the app bundle, verifies |
-| 7 | `07-create-dmg.sh` | styled DMG, signed |
-| 8 | `08-notarize.sh` | submission ID + log saved; skips if already accepted for this DMG hash |
-| 9 | `09-staple.sh` | stapled DMG |
-| 10 | `10-validate.sh` | full verification report (`validation.txt`), SHA-256 |
+| 1–3 | `01-build-app.sh` | XcodeGen generate + clean universal Release archive of the app and `jit-git-helper` (§20 steps 1–3: native Swift components, no separate core build, required architectures) |
+| 4 | `02-bundle-git.sh` | builds/copies pruned universal Git into the app (§20 step 4: native dependencies) |
+| — | `03-verify-archs.sh` | asserts every Mach-O is `arm64 x86_64` (or arm64-only if ADR-0049 says so); no dev-only targets embedded |
+| 5 | `04-sign-embedded.sh` | signs nested code inside-out |
+| 6 | `05-sign-app.sh` | signs the app bundle, verifies |
+| 7 | `06-create-dmg.sh` | styled DMG, signed |
+| 8 | `07-notarize.sh` | submission ID + log saved; skips if already accepted for this DMG hash |
+| 9 | `08-staple.sh` | stapled DMG |
+| 10 | `09-validate.sh` | full verification report (`validation.txt`), SHA-256 |
 | — | `release.sh` | orchestrator with `--skip-notarize`, `--adhoc`, `--from-step N` |
 
 Rules: `set -euo pipefail`; no secrets echoed (`set +x` around credential use); fail fast with clear
@@ -260,8 +284,9 @@ account info.
 ### 4.8 Credentials-unavailable path
 
 If no Developer ID certificate / notary credentials:
-- Run steps 1–7 with `--adhoc` (`codesign --sign -` with `--options runtime`), verify hardened runtime
-  flags and structure with `codesign -dv`, build the DMG, run steps 3 and 10 (structure parts).
+- Run scripts 01–06 with `--adhoc` (`codesign --sign -` with `--options runtime`), verify hardened
+  runtime flags and structure with `codesign -dv`, build the DMG, run `03-verify-archs.sh` and the
+  structure parts of `09-validate.sh`.
 - Run clean-VM verification with the ad-hoc build (user must right-click → Open or remove quarantine —
   documented as *not* representative of Gatekeeper behavior).
 - `progress.md` status: **blocked (Developer ID certificate and notarization credentials)** with the
@@ -269,13 +294,14 @@ If no Developer ID certificate / notary credentials:
 
 ### 4.9 Clean-machine verification (ADR-0048)
 
-- VMs via Virtualization.framework tooling (UTM, `tart`, or Apple's sample app) — macOS 14 and the latest
-  macOS, freshly installed, no CLT/Xcode/Homebrew, standard user account, Gatekeeper default.
+- VMs via Virtualization.framework tooling (UTM, `tart`, or Apple's sample app) — macOS 26 (the minimum)
+  and the latest macOS, freshly installed, no CLT/Xcode/Homebrew, standard user account, Gatekeeper default.
 - Transfer the DMG by download (so it gets the quarantine attribute — e.g. serve over a local HTTP
   server and download in Safari) rather than shared folders that may skip quarantine.
 - Checks: `xcode-select -p` fails (proves no CLT); first launch shows only the standard "downloaded from
   the internet" confirmation; no CLT install dialog during any scenario; `ps` shows Git processes running
-  from inside the app bundle.
+  from inside the app bundle; Liquid Glass chrome renders correctly in the VM (note: VMs may lack full
+  GPU acceleration — judge glass visuals on real hardware and only functional behavior in the VM).
 - Run scenarios A–G (§24) with the checklist in `docs/release.md` (each item: expected, observed,
   evidence — screenshot/log path, pass/fail). Scenario E/F need real accounts/servers: if unavailable,
   run against the Phase 5 local test rig and mark "verified against test rig, not production" explicitly.
@@ -291,26 +317,29 @@ enables them, no system profiling) can be proposed in Phase 8. ADR records both 
 
 ### 4.11 Security review for release
 
-- Dependency audit: `cargo deny check` (licenses, advisories, bans) / `cargo audit`; Swift packages
-  reviewed for license and maintenance; results in `docs/security.md`.
+- Dependency audit: every entry in `Package.resolved` reviewed for license, maintenance and known
+  advisories (GitHub advisory database / package changelogs); pinned exact versions; results in
+  `docs/security.md`. Bundled Git version checked against Git security announcements.
 - Binary audit: `strings`/grep the bundle for accidental secrets, debug endpoints, test client IDs,
   developer paths; strip debug info from shipped binaries (keep dSYMs privately archived).
 - Confirm no telemetry/network at idle on the release build (re-run Phase 6 idle network check).
 
 ## 5. Edge cases & failure modes
 
-- Notarization rejects unsigned/ad-hoc nested binary or missing timestamp → `08-notarize.sh` surfaces
-  the specific issue from the log; fix in step 5.
+- Notarization rejects unsigned/ad-hoc nested binary or missing timestamp → `07-notarize.sh` surfaces
+  the specific issue from the log; fix in `04-sign-embedded.sh`.
 - Notarization service slow/unavailable → `--wait` with timeout; resumable by submission ID.
 - Hardlinked Git binaries signed multiple times break the seal → replaced by symlinks before signing.
-- System libcurl behavior differs on macOS 14 vs latest (TLS, proxy) → test both VMs; fallback plan
-  in ADR-0019.
+- System libcurl behavior differs between macOS 26 and the latest macOS (TLS, proxy) → test both VMs;
+  fallback plan in ADR-0019.
 - App translocation (running from the DMG or Downloads) → app works read-only from translocated path;
   optionally prompt to move to Applications (decide; no auto-move without consent).
 - Quarantine attribute on bundled Git after copying → irrelevant once the app is notarized; verify
   Git runs without prompts.
 - Rosetta not installed on test Mac → Intel slice untested; report.
 - DMG Finder layout broken on dark mode / different macOS → test both VMs, screenshots.
+- App icon renders wrong in an appearance (dark/clear/tinted) or at small sizes → check Finder, Dock,
+  Spotlight in each appearance; fix layers in Icon Composer.
 - Version mismatches between `CFBundleShortVersionString`, `CFBundleVersion`, DMG name and git tag →
   `release.sh` derives all from one `--version` and asserts consistency.
 - User has a custom Git configured that is older than the minimum → validation error with reason.
@@ -324,16 +353,17 @@ enables them, no system profiling) can be proposed in Phase 8. ADR records both 
 - **ADR-0047** DMG format and notarization flow (notarize DMG, staple DMG, layout method).
 - **ADR-0048** Clean-machine verification protocol (VM tooling, OS versions, evidence requirements).
 - **ADR-0049** Release versioning and artifacts (semver, build numbers, tag format `v1.0.0`, checksums,
-  source-offer artifacts).
+  source-offer artifacts, universal vs arm64-only decision).
 
 ## 7. Open questions / spikes
 
 | Question | Spike | Decision criteria |
 |---|---|---|
-| System libcurl vs bundled curl+OpenSSL for Git HTTPS? | Build Git against system curl; test Phase 5 custom-CA + proxy rig on macOS 14 and latest. | Custom CA scoped per URL and proxy work → system curl; otherwise bundle with documented patch process. |
+| System libcurl vs bundled curl+OpenSSL for Git HTTPS? | Build Git against system curl; test Phase 5 custom-CA + proxy rig on macOS 26 and latest. | Custom CA scoped per URL and proxy work → system curl; otherwise bundle with documented patch process. |
 | Which `libexec/git-core` entries are needed? | Run full integration suite with `GIT_TRACE=1` against a pruned bundle. | All tests pass; no "not a git command" or missing helper errors. |
 | Perl/Python needed? | Grep invoked subcommands; check for Perl-based porcelains. | Exclude if unused. |
 | Bundle location for Git (Resources vs SharedSupport vs Helpers)? | Sign + notarize a test bundle each way. | Notarization accepted, `codesign --strict` clean, simplest layout. |
 | `GIT_CONFIG_NOSYSTEM=1` vs bundled empty system config? | Test with user `~/.gitconfig` + CLT installed. | User/repo config respected, Apple's osxkeychain helper not inherited. |
-| HFS+ vs APFS DMG; `.DS_Store` committed vs AppleScript? | Build both. | Layout correct on macOS 14 + latest, CI-friendly, no automation prompts. |
-| Intel hardware availability? | Ask user. | Real Intel test, else Rosetta + explicit caveat. |
+| HFS+ vs APFS DMG; `.DS_Store` committed vs AppleScript? | Build both. | Layout correct on macOS 26 + latest, CI-friendly, no automation prompts. |
+| Intel hardware availability / is Intel worth shipping? | Ask user; confirm which Intel Macs run macOS 26. | Real Intel test, else Rosetta + explicit caveat; or arm64-only by owner decision (ADR-0049). |
+| Icon Composer / `.icon` support in the current Xcode? | Build a test app with a layered icon. | Renders in all system appearances; builds from the command line in CI. |

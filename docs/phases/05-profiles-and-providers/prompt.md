@@ -10,10 +10,12 @@
 - Open a fresh Claude Code session at the repository root and paste the block below.
 
 ```text
-You are the principal macOS + Rust + Git + security engineer on Jit, a native macOS Git client
-(SwiftUI + AppKit UI, Rust git-core behind UniFFI, Git CLI underneath). Your role and standards are
-defined in docs/master-prompt.md §0 and §25. You are implementing Phase 5 — Profiles & providers.
-Treat this phase as security-sensitive work.
+You are the principal macOS + Swift + Git + security engineer on Jit, a native macOS Git client written
+entirely in Swift (SwiftUI + AppKit UI in the native Liquid Glass design language, a Foundation-only
+GitCore module, Git CLI underneath). Your role and standards are defined in docs/master-prompt.md §0 and
+§25; ADR-0002 (pure Swift, no Rust/UniFFI — read "Rust core" in the master prompt as GitCore) and
+ADR-0006 (macOS 26+, Liquid Glass chrome, opaque content) amend it. You are implementing Phase 5 —
+Profiles & providers. Treat this phase as security-sensitive work.
 
 Read first, in this order:
 1. CLAUDE.md
@@ -21,12 +23,13 @@ Read first, in this order:
 3. docs/master-prompt.md §10, §11, §12, §13.5, §19, §23, §24 (Scenarios E and F)
 4. docs/phases/05-profiles-and-providers/design.md and implementation.md
 5. docs/phases/04-git-workflows-and-conflicts/progress.md (what actually exists; trust it over plans)
-6. docs/adr/ (all existing ADRs, especially 0005, 0015, 0030–0034)
+6. docs/adr/ (all existing ADRs, especially 0002, 0005, 0006, 0015, 0030–0034)
 
 Verify preconditions before writing code:
-- Phase 4 exit gate passed; the app builds; all tests pass on main.
-- OperationCenter, ExecContext with AuthPlan/NetworkPlan and a single remote-command path, PresentableError,
-  remote URL parser, weblink, clone flow and Phase 1 profiles exist.
+- Phase 4 exit gate passed; the app builds; `swift test` and the Xcode test suites pass on main.
+- OperationCenter over the single `actor RepositoryHandle` writer, ExecContext with AuthPlan/NetworkPlan
+  and a single remote-command path (GitEnvironment.remoteCommand), PresentableError, remote URL parser,
+  WebLink, clone flow and Phase 1 profiles exist.
 - Record which external prerequisites are available (OAuth client IDs, test accounts, real self-managed
   instance). Missing ones block only their items; you will report those items as blocked, not done.
 If a code precondition is missing or failing, stop and report exactly what must be done first.
@@ -50,9 +53,12 @@ Phase-specific emphasis and pitfalls:
 - Secrets live only in the Keychain. Never in argv, URLs, environment values that could be logged,
   log output, error details, preferences or crash output. Add the sentinel-secret harness early and
   keep it running for every auth path.
-- Credential delivery: bundled jit-git-helper + operation-scoped broker; clear inherited credential
+- Credential delivery: jit-git-helper is a small Swift executable target (`JitGitHelper`, Foundation/
+  Darwin only) embedded at Contents/Helpers/; the operation-scoped broker lives in Services (Dispatch-
+  source socket handling, no idle thread, torn down with the child process); clear inherited credential
   helpers on Jit's invocations (justify in ADR-0016); helper answers only for the expected host/port.
-  Decide broker channel A vs B by spike with evidence.
+  Secrets are `SecretBytes` (wiped on deinit, redacted descriptions), never `String`. Decide broker
+  channel A vs B by spike with evidence.
 - SSH: GIT_SSH wrapper exec'ing /usr/bin/ssh with an argv array (no shell), IdentitiesOnly,
   StrictHostKeyChecking=yes, strict config mode by default, Jit-owned known_hosts written only after the
   user verifies a fingerprint. Changed host keys are hard errors with no override.
@@ -63,8 +69,17 @@ Phase-specific emphasis and pitfalls:
   never auto-trust certificates, never put proxy credentials in a proxy URL.
 - No network at launch or while idle; no background refresh; no polling (NWPathMonitor is event-driven;
   the GitHub device flow may poll only while its sheet is open, at the server-specified interval).
-- Visual quality: the switcher menu, Settings panes, account sheets, browser and diagnostics must follow
-  DesignSystem tokens and feel premium in light and dark. Review screenshots before moving on.
+- Visual quality (ADR-0006): Liquid Glass only on chrome, via system components and the official APIs
+  (verify names against the installed SDK — e.g. SwiftUI glassEffect / GlassEffectContainer / .glass and
+  .glassProminent button styles; AppKit NSGlassEffectView / NSGlassEffectContainerView). The profile pill
+  is a standard toolbar item with a profile-color avatar; the switcher is a system popover (glass) with
+  avatar rows (plus a menu-bar Profile submenu for keyboard/VoiceOver); Settings follows macOS System
+  Settings style (NavigationSplitView with the system sidebar + grouped Forms); account, passphrase and
+  host-key sheets are standard system sheets; the repository browser has a glass sidebar and toolbar
+  search but OPAQUE list rows and detail; connectivity diagnostics are an opaque step list. No glass per
+  row, no hand-made blur. Respect Reduce Transparency, Increase Contrast and Reduce Motion. Everything
+  follows DesignSystem tokens and feels premium in light and dark; review screenshots (light, dark,
+  Reduce Transparency) before moving on.
 
 Out of scope (do not build): pull/merge requests, reviews, CI/pipelines (excluded by §9.3);
 per-repository automatic profiles (excluded in V1); commit signing (Phase 8, fields reserved only);
@@ -72,13 +87,14 @@ remote add/edit/remove UI (Phase 8); command palette coverage (Phase 6); signing
 (Phase 7). Log anything else you discover in progress.md instead of building it.
 
 Verification and honesty:
-- Use real Git, the local rig and, where available, real GitHub/GitLab; do not mock Git output.
+- Use real Git, the local rig (the dev-only `TestRig` Swift executable + scripts/testing/enterprise-rig/)
+  and, where available, real GitHub/GitLab; do not mock Git output.
 - Never skip or ignore a failing test silently. Never claim OAuth, self-managed GitLab or enterprise CA
   support works beyond what you actually validated — list unvalidated items explicitly.
 - Report measured numbers only, with hardware, macOS, Git version and method.
 - Run the security checklist in design §4.11 and record results.
 - Write ADRs 0016–0018 and 0035–0039; update docs/security.md, docs/architecture.md, docs/product.md,
-  docs/release.md, docs/performance.md and CLAUDE.md to match reality.
+  docs/release.md, docs/performance.md, docs/design-system.md and CLAUDE.md to match reality.
 
 Finish:
 - Run the strict self-review from master-prompt §25 step 5 with extra weight on security, races

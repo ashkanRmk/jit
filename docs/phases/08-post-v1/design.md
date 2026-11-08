@@ -24,7 +24,7 @@ instead of adding parallel mechanisms:
 | Native diff renderer + syntax highlighting (ADR-0011/0012) | P3 | stash viewer, patch preview, reflog commit view, submodule diffs |
 | Graph renderer + lane layout + paginated history (ADR-0009/0010) | P2 | reflog "lost commit" view, filtered history, drag-to-rebase |
 | Profile snapshot + per-invocation identity/credentials (ADR-0016) | P1/P5 | signing, tag push, LFS locks, submodule remotes |
-| Bundled helper binary (`credential-helper` crate, ADR-0016) | P5 | sequence/message editor helper for interactive rebase |
+| Bundled helper binary `jit-git-helper` (`JitGitHelper` Swift executable target, ADR-0016) | P5 | sequence/message editor subcommands for interactive rebase |
 
 **Demo per epic:** each epic ends with a demonstrable workflow against real repositories, listed in the
 epic's "Done when" in `implementation.md`.
@@ -80,6 +80,11 @@ Shared UX rules for every epic:
   under Reduce Motion; no animation during bulk updates (reorder of > 50 rows applies instantly).
 - **Themes:** new semantic tokens only (e.g. `stash.node`, `reflog.unreachable`, `rebase.action.drop`);
   each verified in light and dark with screenshots.
+- **Glass vs content (ADR-0006):** new sheets, popovers, menus, the rebase preview panel and palette
+  entries use the system Liquid Glass chrome (system components or the official glass APIs, grouped in
+  a container). New lists and editors — stash rows, reflog entries, rebase todo rows, worktree/remote/
+  submodule lists, patch previews — are content: opaque, token-colored, no glass per row. Drag feedback
+  for reordering uses the system drag image and an opaque insertion marker, not a glass morph.
 - **Accessibility:** every list keyboard navigable; reorderable lists support ⌥⌘↑/⌥⌘↓ as the
   keyboard equivalent of drag; VoiceOver announces action, position and risk.
 
@@ -246,7 +251,7 @@ interactive-rebase engine with a generated todo and no editor:
 ### 4.1 Common extensions to the V1 core
 
 **Operation kinds and risk classes (extends ADR-0015).** Each epic registers operation kinds in
-`git-core::ops` with a fixed risk class:
+`GitCore`'s operation registry with a fixed risk class:
 
 | Class | New kinds |
 |---|---|
@@ -265,64 +270,64 @@ exposes `continue`, `skip` (where Git supports it), `abort`, and a human summary
 step 3 of 7, stopped for edit at a1b2c3").
 
 **Recovery points (ADR-0050).** Before a rewrite or destructive op, the core records a
-`RecoveryPoint { op_id, ref_name, old_oid, new_oid, reflog_selector, timestamp }` in the per-session
+`RecoveryPoint { opID, refName, oldOID, newOID, reflogSelector, timestamp }` in the per-session
 operation log (memory + the session JSON, bounded to the last 50). Recovery relies on Git's own reflog
 and `ORIG_HEAD`; Jit does **not** write extra refs into the user's repository by default. An opt-in
 setting "Keep backup refs under refs/jit/backup/" may be evaluated in the ADR.
 
-**Rewrite safety (ADR-0052).** `published_commits(range) -> Vec<Oid>` = the commits of the range minus
+**Rewrite safety (ADR-0052).** `publishedCommits(in range:) -> [ObjectID]` = the commits of the range minus
 `git rev-list <range> --not --remotes` (the unpublished ones), one process per plan. Result drives the rewrite banner and the force-push-with-
 lease requirement. Force push is only ever `--force-with-lease=<ref>:<sha>`; plain `--force` is never
 emitted.
 
-### 4.2 Bridge API sketch (illustrative)
+### 4.2 `GitCore` API sketch (illustrative Swift)
 
-```rust
-// git-ffi — thin UniFFI layer; all calls are synchronous (ADR-0005), invoked off the main actor.
-#[uniffi::export]
-impl RepoHandle {
-    // stash
-    fn stash_list(&self) -> Result<Vec<StashEntry>, GitError>;
-    fn stash_push(&self, req: StashPushRequest, rev: RepoRevision, cancel: Arc<CancelToken>) -> Result<OpOutcome, GitError>;
-    fn stash_apply(&self, index: u32, pop: bool, rev: RepoRevision) -> Result<OpOutcome, GitError>; // OpOutcome::Conflicts(..) possible
-    fn stash_drop(&self, index: u32, expected_oid: Oid, rev: RepoRevision) -> Result<RecoveryPoint, GitError>;
-
-    // reflog / recovery
-    fn reflog_page(&self, ref_name: String, cursor: Option<String>, limit: u32) -> Result<ReflogPage, GitError>;
-    fn find_unreachable(&self, cancel: Arc<CancelToken>, progress: Box<dyn ProgressSink>) -> Result<Vec<DanglingCommit>, GitError>;
-
-    // reset
-    fn reset_preview(&self, target: Oid, mode: ResetMode) -> Result<ResetPreview, GitError>; // files lost, commits unreachable
-    fn reset(&self, target: Oid, mode: ResetMode, rev: RepoRevision) -> Result<RecoveryPoint, GitError>;
-
-    // interactive rebase
-    fn rebase_plan(&self, base: Oid, head_ref: String) -> Result<RebasePlan, GitError>; // commits + published flags + unsupported reasons
-    fn rebase_validate(&self, plan: RebasePlan) -> Result<Vec<PlanIssue>, GitError>;
-    fn rebase_start(&self, plan: RebasePlan, identity: IdentitySnapshot, rev: RepoRevision, progress: Box<dyn ProgressSink>) -> Result<OpOutcome, GitError>;
-
-    // patches
-    fn patch_check(&self, patch_path: String, target: ApplyTarget, three_way: bool) -> Result<PatchCheckReport, GitError>;
-    fn patch_apply(&self, patch_path: String, target: ApplyTarget, three_way: bool, rev: RepoRevision) -> Result<OpOutcome, GitError>;
-    fn format_patch(&self, commits: Vec<Oid>, out_dir: String) -> Result<Vec<String>, GitError>;
-}
-```
+All of this lives in the Foundation-only `GitCore` module (ADR-0002); there is no bridge. Calls are
+`async`, run off the main actor, spawn Git via `ProcessRunner`, honor Swift task cancellation
+(`killpg` on the child's process group) and report progress through a bounded `AsyncStream` (ADR-0005).
+Mutations go through the per-repository actor that serializes writes (P3/P4).
 
 ```swift
-// GitCoreBridge — Swift wrapper: async, off-main, maps GitError to the §16.4 taxonomy.
-public actor RepositoryOps {
-    public func stashPush(_ req: StashPushRequest) async throws -> OpOutcome
-    public func resetPreview(to: Oid, mode: ResetMode) async throws -> ResetPreview
-    public func startInteractiveRebase(_ plan: RebasePlan) async throws -> OpOutcome
+// GitCore — extensions on the per-repository actor; names illustrative.
+extension Repository {
+    // stash
+    func stashList() async throws(GitError) -> [StashEntry]
+    func stashPush(_ req: StashPushRequest, at rev: RepoRevision) async throws(GitError) -> OpOutcome
+    func stashApply(index: Int, pop: Bool, at rev: RepoRevision) async throws(GitError) -> OpOutcome // .conflicts(..) possible
+    func stashDrop(index: Int, expected: ObjectID, at rev: RepoRevision) async throws(GitError) -> RecoveryPoint
+
+    // reflog / recovery
+    func reflogPage(ref: String, cursor: String?, limit: Int) async throws(GitError) -> ReflogPage
+    func findUnreachable(progress: ProgressSink) async throws(GitError) -> [DanglingCommit]
+
+    // reset
+    func resetPreview(to target: ObjectID, mode: ResetMode) async throws(GitError) -> ResetPreview // files lost, commits unreachable
+    func reset(to target: ObjectID, mode: ResetMode, at rev: RepoRevision) async throws(GitError) -> RecoveryPoint
+
+    // interactive rebase
+    func rebasePlan(base: ObjectID, headRef: String) async throws(GitError) -> RebasePlan // commits + published flags + unsupported reasons
+    func validate(_ plan: RebasePlan) async throws(GitError) -> [PlanIssue]
+    func startRebase(_ plan: RebasePlan, identity: IdentitySnapshot, at rev: RepoRevision,
+                     progress: ProgressSink) async throws(GitError) -> OpOutcome
+
+    // patches
+    func checkPatch(at url: URL, target: ApplyTarget, threeWay: Bool) async throws(GitError) -> PatchCheckReport
+    func applyPatch(at url: URL, target: ApplyTarget, threeWay: Bool, at rev: RepoRevision) async throws(GitError) -> OpOutcome
+    func formatPatch(_ commits: [ObjectID], into dir: URL) async throws(GitError) -> [URL]
 }
 ```
+
+Feature view models call these through `Services` (`RepositorySession`), which maps `GitError` to the
+§16.4 taxonomy for presentation. `ProgressSink` is the bounded `AsyncStream` continuation type from
+ADR-0005; `IdentitySnapshot`, `RepoRevision`, `OpOutcome` and `RecoveryPoint` are the P1/P4 value types.
 
 ### 4.3 Per-epic technical approach
 
 **Stash.** `git stash list -z --format=%gd%x00%H%x00%P%x00%ct%x00%gs`; content via `git diff` of the stash
 parents (never `stash show` text parsing). Push uses `git stash push -m <msg> [--include-untracked]
-[--keep-index] [--staged] -- <paths>`. Drop validates `expected_oid` against `stash@{n}` first, because
+[--keep-index] [--staged] -- <paths>`. Drop validates `expectedOid` against `stash@{n}` first, because
 indices shift — then `git stash drop stash@{n}`. Pop on conflict leaves the stash (Git) and the UI
-reflects `OpOutcome::Conflicts`.
+reflects `OpOutcome.conflicts`.
 
 **Reflog.** `git reflog show --format=%H%x00%gd%x00%gs%x00%ct -z <ref>` paged with `--skip`/`-n` (reflogs
 are short; acceptable). The "unreachable" marker is computed on demand for the visible page only
@@ -339,12 +344,13 @@ permissions). Annotated tagger identity from the profile snapshot via `GIT_COMMI
 Push `git push <remote> refs/tags/<name>`; remote delete `git push <remote> --delete refs/tags/<name>`.
 
 **Interactive rebase (ADR-0051).** Jit generates and validates the todo itself, then drives Git:
-1. `rebase_plan` lists `git rev-list --reverse --parents <base>..<head>`; any merge commit → unsupported.
-2. Swift edits the plan; `rebase_validate` checks: first non-drop action is not squash/fixup, all OIDs
+1. `rebasePlan` lists `git rev-list --reverse --parents <base>..<head>`; any merge commit → unsupported.
+2. The editor UI edits the plan; `validate(_:)` checks: first non-drop action is not squash/fixup, all OIDs
    exist and belong to the range, no duplicates, messages non-empty for reword/squash.
 3. Write the todo (Git's own syntax) and the per-step messages to a 0700 temp dir.
 4. Run `git rebase -i [--update-refs] <base>` with `GIT_SEQUENCE_EDITOR` and `GIT_EDITOR` pointing to
-   the bundled helper binary (`<helper> sequence-editor` / `<helper> message-editor`); the helper
+   the bundled `jit-git-helper` (`jit-git-helper sequence-editor` / `jit-git-helper message-editor`,
+   subcommands of the `JitGitHelper` Swift target); the helper
    receives the temp dir via an environment variable (no untrusted text in the command string), copies
    the prepared todo over Git's file, and supplies prepared messages in order for reword/squash.
    Alternative to evaluate in the spike: `pick` + `exec git commit --amend -F <file>` lines, or
@@ -357,8 +363,8 @@ Push `git push <remote> refs/tags/<name>`; remote delete `git push <remote> --de
 `move(oid, after)`, `squash(oid, into)`. Single-commit reword at HEAD uses `commit --amend` (P3).
 
 **History filters (ADR-0058).** Extends the P2 history reader with `HistoryFilter { authors, committers,
-since, until, paths, grep, pickaxe: Option<Pickaxe>, first_parent, merges: MergeFilter, ancestry_path:
-Option<(Oid, Oid)>, branches }` → mapped to `git log` arguments (`--author=`, `--since=`, `--grep=`
+since, until, paths, grep, pickaxe: Pickaxe?, firstParent, merges: MergeFilter, ancestryPath:
+(ObjectID, ObjectID)?, branches }` → mapped to `git log` arguments (`--author=`, `--since=`, `--grep=`
 with `--regexp-ignore-case`/`-E`, `-S`/`-G`, `--first-parent`, `--no-merges`, `--ancestry-path`,
 `--simplify-by-decoration`, `-- <paths>`). Graph edges use the parents Git reports with `--parents`
 under history simplification so the filtered graph stays connected; lanes are recomputed per filter
@@ -470,15 +476,15 @@ Locks: `git lfs locks --json`, `lock`, `unlock` with credentials from the P5 hel
 
 | ADR | Topic | Epic |
 |---|---|---|
-| 0021 | Recovery points: rely on reflog/ORIG_HEAD + session op log; optional backup refs under `refs/jit/` opt-in only | reflog / reset |
-| 0022 | Interactive rebase driving mechanism (helper as sequence/message editor vs `exec` lines), empty-commit policy, `--update-refs` | rebase-interactive |
-| 0023 | History rewrite safety: published-commit detection, force-with-lease only, `--force-if-includes` | rebase-interactive / branch-history |
-| 0024 | Worktree session model: per-worktree sessions grouped by common dir, shared invalidation, ref-write lock | worktrees |
-| 0025 | Patch sharing extension point (`PatchSharingProvider`), no Cloud Patch backend | patches |
-| 0026 | Commit/tag signing integration and verification scope | signing |
-| 0027 | Submodule security and update policy, minimum Git version | submodules |
-| 0028 | Git LFS: bundle vs detect, filter policy exception | lfs |
-| 0029 | Filtered history graph semantics (parent rewriting, layout cache keys) | history-filters |
+| 0050 | Recovery points: rely on reflog/ORIG_HEAD + session op log; optional backup refs under `refs/jit/` opt-in only | reflog / reset |
+| 0051 | Interactive rebase driving mechanism (helper as sequence/message editor vs `exec` lines), empty-commit policy, `--update-refs` | rebase-interactive |
+| 0052 | History rewrite safety: published-commit detection, force-with-lease only, `--force-if-includes` | rebase-interactive / branch-history |
+| 0053 | Worktree session model: per-worktree sessions grouped by common dir, shared invalidation, ref-write lock | worktrees |
+| 0054 | Patch sharing extension point (`PatchSharingProvider`), no Cloud Patch backend | patches |
+| 0055 | Commit/tag signing integration and verification scope | signing |
+| 0056 | Submodule security and update policy, minimum Git version | submodules |
+| 0057 | Git LFS: bundle vs detect, filter policy exception | lfs |
+| 0058 | Filtered history graph semantics (parent rewriting, layout cache keys) | history-filters |
 
 The helper binary gaining editor subcommands amends ADR-0016 (note it there).
 
