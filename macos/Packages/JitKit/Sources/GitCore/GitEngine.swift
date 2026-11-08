@@ -1,0 +1,134 @@
+import Foundation
+
+/// The Git binary Jit uses, with its probed version.
+public struct GitExecutable: Sendable, Equatable {
+    public let path: String
+    public let version: GitVersion
+    public let source: GitSource
+}
+
+/// One Git invocation. `arguments` follow the `git` executable and never pass through a shell.
+public struct GitCommand: Sendable {
+    public var arguments: [String]
+    public var workingDirectory: String
+    public var kind: CommandKind
+    public var timeout: Duration?
+    public var stdoutLimit: Int
+    public var acceptedExitCodes: Set<Int32>
+
+    public init(
+        _ arguments: [String],
+        in workingDirectory: String,
+        kind: CommandKind = .read,
+        timeout: Duration? = .seconds(30),
+        stdoutLimit: Int = 16 * 1024 * 1024,
+        acceptedExitCodes: Set<Int32> = [0]
+    ) {
+        self.arguments = arguments
+        self.workingDirectory = workingDirectory
+        self.kind = kind
+        self.timeout = timeout
+        self.stdoutLimit = stdoutLimit
+        self.acceptedExitCodes = acceptedExitCodes
+    }
+
+    /// Options prepended to every invocation: no pager, unquoted UTF-8 paths, no color codes.
+    public static let globalOptions = ["--no-pager", "-c", "core.quotepath=false", "-c", "color.ui=false"]
+}
+
+/// Entry point to Git for the app. Creating it does no I/O; Git is located and its version probed on
+/// first use, off the main actor, and cached for the process lifetime. Failures are not cached, so
+/// installing Git while Jit runs works.
+public actor GitEngine {
+    public struct Configuration: Sendable {
+        public var locator: GitLocator.Configuration
+        public var probe: any FileProbe
+        /// Invocation-scoped variables (test isolation now; per-profile identity in later phases).
+        public var environmentOverrides: [String: String]
+        public var discoveryTimeout: Duration
+        public var terminationGrace: Duration
+
+        public init(
+            locator: GitLocator.Configuration = .init(allowsEnvironmentOverride: GitEngine.isDebugBuild),
+            probe: any FileProbe = SystemFileProbe(),
+            environmentOverrides: [String: String] = [:],
+            discoveryTimeout: Duration = .seconds(15),
+            terminationGrace: Duration = .seconds(2)
+        ) {
+            self.locator = locator
+            self.probe = probe
+            self.environmentOverrides = environmentOverrides
+            self.discoveryTimeout = discoveryTimeout
+            self.terminationGrace = terminationGrace
+        }
+    }
+
+    public static let isDebugBuild: Bool = {
+        #if DEBUG
+            true
+        #else
+            false
+        #endif
+    }()
+
+    public nonisolated let configuration: Configuration
+    private let runner: ProcessRunner
+    private var executable: GitExecutable?
+
+    public init(configuration: Configuration = Configuration()) {
+        self.configuration = configuration
+        self.runner = ProcessRunner(terminationGrace: configuration.terminationGrace)
+    }
+
+    /// Locates Git and checks its version against `GitVersion.minimum`.
+    public func gitInfo() async throws(GitCoreError) -> GitExecutable {
+        if let executable { return executable }
+        let location = try GitLocator(configuration: configuration.locator, probe: configuration.probe).locate()
+        let spec = ProcessSpec(
+            executable: location.path,
+            arguments: ["--version"],
+            workingDirectory: "/",
+            environment: environment(for: location.path, kind: .read),
+            timeout: .seconds(10),
+            stdoutLimit: 4096
+        )
+        let output = try await runner.run(spec)
+        guard let version = GitVersion(parsing: output.stdoutText) else {
+            throw .internalError(summary: "Jit couldn't read the version of the Git at \(location.path).")
+        }
+        guard version >= GitVersion.minimum else {
+            throw .gitTooOld(found: version, required: GitVersion.minimum)
+        }
+        let found = GitExecutable(path: location.path, version: version, source: location.source)
+        executable = found
+        return found
+    }
+
+    /// Runs one Git command with the located executable.
+    public func run(_ command: GitCommand) async throws(GitCoreError) -> ProcessOutput {
+        let git = try await gitInfo()
+        let spec = ProcessSpec(
+            executable: git.path,
+            arguments: GitCommand.globalOptions + command.arguments,
+            workingDirectory: command.workingDirectory,
+            environment: environment(for: git.path, kind: command.kind),
+            timeout: command.timeout,
+            stdoutLimit: command.stdoutLimit,
+            acceptedExitCodes: command.acceptedExitCodes
+        )
+        return try await runner.run(spec)
+    }
+
+    /// Classifies the folder at `url` (or the repository enclosing it).
+    public func discoverRepository(at url: URL) async throws(GitCoreError) -> RepositoryInfo {
+        try await RepositoryDiscovery(engine: self, timeout: configuration.discoveryTimeout).discover(at: url.path)
+    }
+
+    private func environment(for gitPath: String, kind: CommandKind) -> [String: String] {
+        ProcessEnvironment.make(
+            executableDirectory: (gitPath as NSString).deletingLastPathComponent,
+            kind: kind,
+            overrides: configuration.environmentOverrides
+        )
+    }
+}
