@@ -11,12 +11,12 @@ worktree, a merge in progress, a rebase in progress and a 50,000-file repository
 
 | Metric | Target | Phase 0 | Phase 1 | Method |
 |---|---|---|---|---|
-| Warm launch → key window, no tabs | < 500 ms | 237.1 ms median | **261.0 ms median, p90 268.1** (n = 20, all `key`) | `JIT_BENCH_LABEL=key-0tabs launch.sh --key 20` |
-| Warm launch → key window, 5 restored tabs | < 500 ms | — | **293.6 ms median, p90 300.5** (n = 20) | `JIT_APP_SUPPORT=<5 tabs> launch.sh --key 20` |
+| Warm launch → key window, no tabs | < 500 ms | 237.1 ms median | **256.8 ms median, p90 265.0** (n = 20, all `key`; final build — an earlier run gave 261.0) | `JIT_BENCH_LABEL=key-0tabs launch.sh --key 20` |
+| Warm launch → key window, 5 restored tabs | < 500 ms | — | **293.0 ms median, p90 302.1** (n = 20) | `JIT_APP_SUPPORT=<5 tabs> launch.sh --key 20` |
 | Idle CPU, no repository, app active | 0.0–0.2 % | 0.0 % | **0.0 %** mean and max, **0** wakeups in 60 s, 3 threads, **31 MB** | `JIT_ACTIVATE=1 idle.sh p1-no-repo-active` |
-| Idle CPU, 5 tabs, app active (glass chrome on screen, one FSEvents stream) | 0.0–0.2 % | — | **0.0 %** mean and max, **0** wakeups, energy 0.0, 4 threads, **40 MB** | `JIT_ACTIVATE=1 idle.sh p1-5tabs-active` |
+| Idle CPU, 5 tabs, app active (glass chrome on screen, one FSEvents stream) | 0.0–0.2 % | — | **0.0 %** mean and max, **0** wakeups, energy 0.0, 3–4 threads, **40–41 MB** (two runs, incl. the final build) | `JIT_ACTIVATE=1 idle.sh p1-5tabs-active` |
 | Idle CPU, 5 tabs, app in background | ~0 %, no FSEvents callbacks | — | **0.0 %**, **0** wakeups, 3 threads, 40 MB (no session active; callback counter test in `AppModelTests.testNoStreamWhenAppInactive`) | `idle.sh p1-5tabs-background` (never activated) |
-| Tab switch, loaded tab (select → layout + display committed) | < 16 ms | — | **median 7.0 ms, p90 10.1 ms** (3 runs × 25 switches; 16.7 ms before keeping hidden views in place) | `JIT_BENCHMARK_TAB_SWITCH=1` |
+| Tab switch, loaded tab (select → layout + display committed) | < 16 ms | — | **median 6.6–7.0 ms, p90 9.6–10.1 ms** (4 runs × 25 switches, last on the final build; 16.7 ms before keeping hidden views in place) | `JIT_BENCHMARK_TAB_SWITCH=1` |
 | Tab switch, first show (builds the workbench, starts loading) | — | — | median 33.6 ms (n = 5 × 3 runs) | same |
 | Memory over open/close cycles | no sustained growth | — | 31.6 MB → 42.2 (10 cycles, warm-up) → **43.3 (50)**; 200 cycles: ≈ 16–21 KB per cycle after warm-up | `JIT_STRESS_OPEN_CLOSE=<repo> [JIT_STRESS_CYCLES=200]` |
 | Idle network | none | — | **none**: no sockets (`lsof -i -p`), no traffic (`nettop -p`) with 5 tabs | manual, release |
@@ -26,7 +26,7 @@ worktree, a merge in progress, a rebase in progress and a 50,000-file repository
 | Cold launch, idle GPU power | < 1 s / no recurring work | not measured | **not measured** — needs a reboot / root (`powermetrics`) | user-run |
 
 Reading:
-- **Launch +24 ms vs Phase 0.** Phase 1 builds an AppKit window with a toolbar, a hosted SwiftUI tab strip and
+- **Launch +20 ms vs Phase 0.** Phase 1 builds an AppKit window with a toolbar, a hosted SwiftUI tab strip and
   profile capsule, a code-built menu bar and reads three JSON files before the first frame; restoring 5 tabs adds
   another ≈ 33 ms (cached titles only, no Git work). Both stay well inside the 500 ms budget; Phase 6 owns further
   launch work.

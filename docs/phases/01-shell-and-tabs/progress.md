@@ -22,7 +22,7 @@ Git 2.54.0 (Homebrew), XcodeGen 2.46.0
 - **P1.1 State & persistence** — new `Services` target: versioned atomic `0600` JSON files with backup-on-corrupt,
   one-shot debounced writer, `SessionStore`, `RecentsStore`, `PreferencesStore`, `ProfileStore`; `AppModel`,
   `TabModel`, `LayoutState`; `RepositorySession` lifecycle; memory-pressure source; ADR-0007. Evidence:
-  `SessionStoreTests` (6), `RecentsStoreTests` (4), `AppModelTests` (12), `RepositorySessionTests` (8),
+  `SessionStoreTests` (7), `RecentsStoreTests` (4), `AppModelTests` (14), `RepositorySessionTests` (9),
   `specs/P1.1-state-and-persistence.md`.
 - **P1.2 Tab bar** — unbordered toolbar item hosting one SwiftUI `GlassEffectContainer`; capsule tabs with status
   dots, selection tint + morph, hover, close button, middle-click, drag reorder, overflow scrolling + all-tabs
@@ -57,8 +57,9 @@ Git 2.54.0 (Homebrew), XcodeGen 2.46.0
   tabs for missing repositories, all measurements below. `docs/performance.md` updated.
 
 ## Verified
-- Tests: `swift test` **118 passed** (GitCoreTests 73, ServicesTests 33, DesignSystemTests 12) — stress-run 5×
-  after the final changes, 5/5 green; `xcodebuild test` (JitAppTests) **21 passed**; skipped: none. Lint clean.
+- Tests: `swift test` **120 passed** (GitCoreTests 73, ServicesTests 35, DesignSystemTests 12) — stress-run 5×
+  after the final changes, 5/5 green; `xcodebuild test` (JitAppTests)
+  **23 passed**; skipped: none. Lint clean.
 - Real-workflow checks (debug app, real repositories, real input via MacOS-MCP pointer/keyboard events): this
   repository (counts matched `git status` exactly: 3/6/9/0, ↑2 ↓0), a clone, a bare clone, a linked worktree, a
   merge in progress ("Merging", conflict → danger dot), an interactive rebase stopped on a conflict ("Rebasing 2/3",
@@ -67,18 +68,19 @@ Git 2.54.0 (Homebrew), XcodeGen 2.46.0
   window drag from empty strip space, overflow scroll-into-view, external edit → count updated, profile created via
   "Fill from Git config", quit flushes session (order, active tab, window frame). Quit leaves no Git process.
 - `~/.gitconfig` SHA-256 before and after all profile operations (incl. Fill from Git config):
-  `b00247605a19f522c00f8aee694e21f1d36d5ddcf0706883015c5d9842af930f` — unchanged. State files `0600`.
+  `b00247605a19f522c00f8aee694e21f1d36d5ddcf0706883015c5d9842af930f` — unchanged (re-checked at the end of the
+  phase). State files `0600`.
 - Screenshots: `docs/phases/01-shell-and-tabs/screenshots/` — 42 real captures (21 screens × light/dark), see its README.
 
 ## Performance (release build)
 | Metric | Previous | Now | Method |
 |---|---|---|---|
-| Warm launch → key, no tabs | 237.1 ms median | 261.0 ms median, p90 268.1 (n = 20) | `launch.sh --key 20` |
-| Warm launch → key, 5 restored tabs | — | 293.6 ms median, p90 300.5 (n = 20) | `JIT_APP_SUPPORT=<5 tabs> launch.sh --key 20` |
+| Warm launch → key, no tabs | 237.1 ms median | 256.8 ms median, p90 265.0 (n = 20) | `launch.sh --key 20` |
+| Warm launch → key, 5 restored tabs | — | 293.0 ms median, p90 302.1 (n = 20) | `JIT_APP_SUPPORT=<5 tabs> launch.sh --key 20` |
 | Idle CPU / wakeups, no repo, active | 0.0 % / 0 | 0.0 % / 0, 31 MB | `idle.sh` |
-| Idle CPU / wakeups, 5 tabs, active | — | 0.0 % / 0, 40 MB, 4 threads | `JIT_ACTIVATE=1 idle.sh` |
+| Idle CPU / wakeups, 5 tabs, active | — | 0.0 % / 0, 40–41 MB, 3–4 threads (2 runs) | `JIT_ACTIVATE=1 idle.sh` |
 | Idle CPU / wakeups, 5 tabs, background | — | 0.0 % / 0, 40 MB | `idle.sh` |
-| Tab switch, loaded | — | 7.0 ms median, p90 10.1 | `JIT_BENCHMARK_TAB_SWITCH=1` |
+| Tab switch, loaded | — | 6.6–7.0 ms median, p90 ≤ 10.1 | `JIT_BENCHMARK_TAB_SWITCH=1` |
 | Tab switch, first show | — | 33.6 ms median | same |
 | Memory, 50 open/close cycles | — | 31.6 → 42.2 (warm-up, 10) → 43.3 MB | `JIT_STRESS_OPEN_CLOSE` |
 | Idle network | — | none (no sockets, no traffic) | `lsof -i`, `nettop` |
@@ -126,11 +128,40 @@ Full table, reading and methods: `docs/performance.md`.
 - **UI automation suite** (XCUITest) — needs Accessibility automation permission. Medium; Phase 6 visual/UI suite.
 - **Churn cost** on very large worktrees (each status ≈ 0.4 s CPU on 50k files) — ignore-aware filtering. Low; Phase 6.
 - **Repository paths containing a newline** (Phase 0 carry-over) — still unsupported by discovery. Low; Phase 2.
-- **Launch +24 ms vs Phase 0** (AppKit shell, menus, stores) — within budget. Low; Phase 6.
-- Dropping several folders at once opens only the last one (each open cancels the previous). Low; Phase 4.
+- **Launch +20 ms vs Phase 0** (AppKit shell, menus, stores) — within budget. Low; Phase 6.
 
 ## Self-review findings
-(filled in below)
+A strict review by a separate reviewer (code read only, no shared conclusions) found **no blockers**. Fixed in
+`fix: address self-review findings` (each with a test where testable):
+- Opening several folders at once (Dock drop, `open -a Jit a b c`, two quick recents) opened only the last —
+  opens are now keyed by target; only a newer open of the same target supersedes (`testConcurrentOpensAllComplete`).
+- Changes between the first `git status` and the watcher start could be missed — the watcher now starts first
+  and events during the load queue a coalesced refresh.
+- A debounced write already in flight at ⌘Q wasn't awaited, and an older write could rename over a newer one —
+  writes go through a per-file gate ordered by generation; `flush()` waits for it
+  (`testFlushAfterInFlightWriteKeepsNewestState`).
+- "Fill from Git config" overwrote typed values — fills only empty fields.
+- An indeterminate spinner could animate indefinitely while a restored tab waited for the window to reach the
+  foreground — the spinner shows only while a load runs; otherwise static text.
+- Locate… removed the old recent before the new folder opened — removed only on success
+  (`testLocateKeepsRecentWhenNewFolderFails`).
+- The status dot said "No local changes" before any status had loaded — now "Not loaded"
+  (`testDotIsNotLoadedUntilFirstStatus`).
+
+Logged, not fixed:
+- `RecentsStore.noteOpened` resolves up to 20 paths with `realpath` on the main actor, and the watcher's root
+  check uses `fileExists` there — a hung network volume could stall the UI. Low; Phase 6 (move off main).
+- `.bak-*` backups are unbounded; a crash mid-write can leave a `.tmp-*` file next to the JSON. Low; Phase 6 (prune).
+- Benchmark hooks (`JIT_BENCHMARK_*`, `JIT_STRESS_*`) are active in release builds and `JIT_BENCHMARK_OUTPUT`
+  appends to a caller-chosen path — env-controlled by whoever launches the process anyway. Low; Phase 7 decides
+  whether to compile them out of distributed builds.
+
+Own findings during the phase (all fixed): toolbar wrapped the strip in a second glass platter (nested glass);
+overflowing tab glass drew outside the strip; the profile capsule fell into toolbar overflow (strip width from the
+wrong leading edge); close-button clicks swallowed by the tab's drag gesture; drop overlay dimmed the toolbar;
+email placeholder rendered as a Markdown link; window frame not saved until moved; Settings window "Untitled";
+loaded-tab switch 16.7 ms (now 7 ms); churn ran Git back-to-back (now ≤ ~50 % duty); missing-folder discovery
+reported a launch failure instead of "This folder no longer exists".
 
 ## Next
 - Phase 2 (`docs/phases/02-graph-and-navigation`), P2.1. Preconditions: PR #1 and this PR merged (cherry-pick the
