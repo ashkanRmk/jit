@@ -81,6 +81,11 @@ public struct TestRepo: Sendable {
     public let sandbox: GitSandbox
     public let path: String
 
+    public init(sandbox: GitSandbox, path: String) {
+        self.sandbox = sandbox
+        self.path = path
+    }
+
     public func write(_ relativePath: String, _ contents: String) throws {
         let url = URL(fileURLWithPath: path).appendingPathComponent(relativePath)
         try FileManager.default.createDirectory(
