@@ -225,7 +225,8 @@ import Testing
             for index in 0..<100 { try repo.write("churn/\(burst)/f\(index).txt", "\(index)") }
             try await Task.sleep(for: .milliseconds(50))
         }
-        #expect(try await waitUntil(.seconds(5)) { session.status?.summary?.untracked == 1 })  // `churn/` collapses to one entry
+        // `churn/` is one untracked entry (untracked directories collapse).
+        #expect(try await waitUntil(.seconds(5)) { session.status?.summary?.untracked == 1 })
         try await Task.sleep(for: .milliseconds(800))
         let refreshes = session.refreshCount - before
         // 3,000 file writes in 30 bursts: at most a refresh or two per burst, never one per file.
