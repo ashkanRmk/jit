@@ -375,7 +375,11 @@ struct InspectorView: View {
                             .typeStyle(.callout)
                             .foregroundStyle(.token(.textSecondary))
                     }
-                } else if session.error == nil {
+                } else if session.error != nil {
+                    Text("Unavailable until the repository can be read.")
+                        .typeStyle(.callout)
+                        .foregroundStyle(.token(.textTertiary))
+                } else {
                     Text("Loading…")
                         .typeStyle(.callout)
                         .foregroundStyle(.token(.textTertiary))

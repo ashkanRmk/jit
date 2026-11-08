@@ -59,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        windowController?.recordFrame()
         model?.flush()
         // No Git child may outlive Jit.
         ProcessRunner.terminateAllRunning()

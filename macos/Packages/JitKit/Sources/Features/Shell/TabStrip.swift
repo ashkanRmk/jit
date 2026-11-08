@@ -23,29 +23,29 @@ struct TabStripView: View {
             let tabs = model.tabs
             let available = max(0, geometry.size.width - TabMetrics.newTabButton - TabMetrics.spacing * 2)
             let layout = TabOrdering.layout(count: tabs.count, available: available)
-            HStack(spacing: 0) {
-                GlassTabStrip {
-                    if layout.overflows {
-                        ScrollViewReader { proxy in
-                            ScrollView(.horizontal) {
-                                row(tabs, layout: layout)
-                            }
-                            .scrollIndicators(.never)
-                            .scrollEdgeEffectStyle(.soft, for: .horizontal)
-                            .frame(width: available)
-                            .onChange(of: model.activeTabID) { _, id in
-                                guard let id else { return }
-                                withAnimation(reduceMotion ? nil : MotionToken.select.animation) {
-                                    proxy.scrollTo(id)
-                                }
-                            }
-                            .onAppear { model.activeTabID.map { proxy.scrollTo($0) } }
+            HStack(spacing: TabMetrics.spacing) {
+                if layout.overflows {
+                    // The glass container lives inside the scrolling content so glass is clipped with it.
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal) {
+                            GlassTabStrip { row(tabs, layout: layout) }
                         }
-                    } else {
-                        row(tabs, layout: layout)
+                        .scrollIndicators(.never)
+                        .scrollEdgeEffectStyle(.soft, for: .horizontal)
+                        .frame(width: available)
+                        .clipped()
+                        .onChange(of: model.activeTabID) { _, id in
+                            guard let id else { return }
+                            withAnimation(reduceMotion ? nil : MotionToken.select.animation) {
+                                proxy.scrollTo(id)
+                            }
+                        }
+                        .onAppear { model.activeTabID.map { proxy.scrollTo($0) } }
                     }
-                    NewTabButton { model.newTab() }
+                } else {
+                    GlassTabStrip { row(tabs, layout: layout) }
                 }
+                GlassTabStrip { NewTabButton { model.newTab() } }
                 // Empty toolbar space keeps dragging the window and zooming on double-click.
                 WindowDragArea()
             }

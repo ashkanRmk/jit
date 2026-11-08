@@ -64,6 +64,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         observeProfiles()
         observeForeground()
         updateChromeWidth()
+        recordFrame()
     }
 
     @available(*, unavailable)
@@ -173,7 +174,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.flush()
     }
 
-    private func recordFrame() {
+    /// Stores the current frame in the session (also called before the final flush at quit).
+    public func recordFrame() {
         guard let window, !window.styleMask.contains(.fullScreen) else { return }
         let frame = window.frame
         model.windowFrame = .init(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
@@ -220,6 +222,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             let item = NSToolbarItem(itemIdentifier: identifier)
             let host = NSHostingView(rootView: TabStripView(model: model))
             host.translatesAutoresizingMaskIntoConstraints = false
+            host.clipsToBounds = true
             let width = host.widthAnchor.constraint(equalToConstant: 600)
             width.isActive = true
             host.heightAnchor.constraint(equalToConstant: TabMetrics.height + Space.s2 * 2).isActive = true
