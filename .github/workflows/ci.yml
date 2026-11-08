@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "phase/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      JIT_DERIVED_DATA: ${{ runner.temp }}/DerivedData
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26 or newer
+        run: |
+          set -euo pipefail
+          candidate=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1 || true)
+          [[ -n "$candidate" ]] || { echo "::error::No Xcode installed on this runner"; exit 1; }
+          sudo xcode-select -s "$candidate/Contents/Developer"
+          xcodebuild -version
+          major=$(xcodebuild -version | awk 'NR==1 {split($2, v, "."); print v[1]}')
+          [[ "$major" -ge 26 ]] || { echo "::error::Xcode $major found; Jit needs Xcode 26+"; exit 1; }
+          git --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Lint
+        run: scripts/build/lint.sh
+
+      - name: Core tests (swift test)
+        run: scripts/build/test-core.sh
+
+      - name: Build app (debug)
+        run: scripts/build/build-all.sh debug
+
+      - name: App tests (xcodebuild test)
+        run: scripts/build/test-app.sh
+
+      - name: Build app (release)
+        run: scripts/build/build-app.sh release
