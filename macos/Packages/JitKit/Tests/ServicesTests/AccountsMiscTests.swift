@@ -1,5 +1,6 @@
 import Foundation
 import GitCore
+import GitTestKit
 import Synchronization
 import Testing
 
@@ -186,7 +187,7 @@ final class FakePathMonitor: PathMonitoring, @unchecked Sendable {
         let state = ConnectivityState(monitor: monitor)
         state.start()
         monitor.handler?(PathSnapshot(status: .unsatisfied))
-        let spawned = Mutex(0)
+        let spawned = Locked(0)
         // Other suites spawn processes in parallel: count only ones that would contact this remote.
         ProcessRunner.spawnObserver.withLock { observer in
             observer = { spec in

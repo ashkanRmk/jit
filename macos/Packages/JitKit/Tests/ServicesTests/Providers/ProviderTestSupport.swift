@@ -1,4 +1,5 @@
 import Foundation
+import GitTestKit
 import Synchronization
 import Testing
 
@@ -30,7 +31,7 @@ final class ProviderStubTransport: HTTPTransport {
 
     /// Answers the given responses in order (the last one repeats).
     convenience init(sequence: [ProviderStubResponse]) {
-        let index = Mutex(0)
+        let index = Locked(0)
         self.init { _ in
             index.withLock { value in
                 defer { value += 1 }

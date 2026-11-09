@@ -25,7 +25,7 @@ import Testing
     }
 
     @Test func beginAndEndArePairedAndDoubleEndIsIgnored() {
-        let events = Mutex<[Signposts.Event]>([])
+        let events = Locked<[Signposts.Event]>([])
         Signposts.setObserver { event in events.withLock { $0.append(event) } }
         defer { Signposts.setObserver(nil) }
         let token = Signposts.begin(Signposts.corePatchBuild)
@@ -51,7 +51,7 @@ import Testing
         let engine = GitEngine(configuration: repo.sandbox.engineConfiguration())
         let handle = try await engine.openRepository(at: URL(fileURLWithPath: repo.path))
 
-        let events = Mutex<[Signposts.Event]>([])
+        let events = Locked<[Signposts.Event]>([])
         Signposts.setObserver { event in events.withLock { $0.append(event) } }
         _ = try await handle.status()
         Signposts.setObserver(nil)

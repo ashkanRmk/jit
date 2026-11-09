@@ -18,7 +18,7 @@ import Testing
     }
 
     final class Recorded: Sendable {
-        let paths = Mutex<[String]>([])
+        let paths = Locked<[String]>([])
         func append(_ path: String) { paths.withLock { $0.append(path) } }
         var all: [String] { paths.withLock { $0 } }
     }

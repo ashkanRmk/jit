@@ -254,7 +254,7 @@ import Testing
         let sandbox = try GitSandbox()
         let repo = try await committedRepo(sandbox, files: ["a.txt": "a\n"])
         let handle = try await open(repo)
-        let log = Mutex<[String]>([])
+        let log = Locked<[String]>([])
 
         await withTaskGroup(of: Void.self) { group in
             for name in ["one", "two", "three"] {
@@ -286,7 +286,7 @@ import Testing
         let repo = try await committedRepo(sandbox, files: ["a.txt": "a\n"])
         let handle = try await open(repo)
         let (release, releaseContinuation) = AsyncStream<Void>.makeStream()
-        let ran = Mutex<[String]>([])
+        let ran = Locked<[String]>([])
 
         let holder = Task {
             try await handle.performExclusive("holder") { () throws(GitCoreError) in

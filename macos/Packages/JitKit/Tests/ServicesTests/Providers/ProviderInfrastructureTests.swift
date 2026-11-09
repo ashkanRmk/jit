@@ -1,4 +1,5 @@
 import Foundation
+import GitTestKit
 import Synchronization
 import Testing
 
@@ -46,7 +47,7 @@ import Testing
         let cache = RepositoryCache(now: clock.closure)
         let a = RepositoryCache.Key(accountID: HostingAccountID(rawValue: "a"))
         let b = RepositoryCache.Key(accountID: HostingAccountID(rawValue: "b"))
-        let fetches = Mutex(0)
+        let fetches = Locked(0)
         for _ in 0..<3 {
             _ = try await cache.page(for: a) {
                 fetches.withLock { $0 += 1 }
@@ -128,7 +129,7 @@ final class ProviderURLProtocol: URLProtocol, @unchecked Sendable {
 
     @Test func endToEndThroughURLSession() async throws {
         let host = "stub-\(UUID().uuidString.lowercased()).test"
-        let seen = Mutex<URLRequest?>(nil)
+        let seen = Locked<URLRequest?>(nil)
         ProviderURLProtocol.register(host: host) { request in
             seen.withLock { $0 = request }
             return .json(#"{"id":7,"username":"bob","name":"Bob"}"#)
@@ -156,8 +157,10 @@ final class ProviderURLProtocol: URLProtocol, @unchecked Sendable {
             do {
                 _ = try await gitlab.currentUser()
                 Issue.record("expected a transport error for \(code)")
-            } catch let error as ProviderError {
-                #expect(error.transportFailure == expected)
+            } catch {
+                // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
+                guard let providerError = error as? ProviderError else { throw error }
+                #expect(providerError.transportFailure == expected)
             }
         }
         #expect(

@@ -166,7 +166,7 @@ struct RigIntegrationTests {
         try await fixture.secrets.store(
             SecretBytes(utf8: Rig.value("JIT_RIG_PROXY_PASSWORD")), for: .proxy(proxy.id), label: "p")
         let instance = try fixture.instance(ca: Rig.value("JIT_RIG_CA"), proxy: .manual(proxy))
-        let seen = Mutex<[String]>([])
+        let seen = Locked<[String]>([])
         ProcessRunner.spawnObserver.withLock { observer in
             observer = { spec in
                 seen.withLock {
@@ -246,7 +246,7 @@ struct RigIntegrationTests {
             displayName: "Rig", colorIndex: 0, author: Self.ada,
             auth: ProfileAuth(instanceID: instance.id, ssh: .keyFile(path: key, fingerprint: "SHA256:test")))
         let snapshot = ProfileSnapshot(profile, instance: instance)
-        let prompted = Mutex(0)
+        let prompted = Locked(0)
         let source = KeychainCredentialSource(
             store: fixture.secrets, accounts: [], instances: [instance], status: { _, _ in },
             prompt: { path, _ in

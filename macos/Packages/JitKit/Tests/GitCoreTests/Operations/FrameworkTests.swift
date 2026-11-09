@@ -213,9 +213,9 @@ import Testing
     @Test func writerSerializesMutationsAcrossSuspension() async throws {
         let (sandbox, _, handle) = try await Ops.single()
         defer { withExtendedLifetime(sandbox) {} }
-        let active = Mutex(0)
-        let overlap = Mutex(false)
-        let order = Mutex<[Int]>([])
+        let active = Locked(0)
+        let overlap = Locked(false)
+        let order = Locked<[Int]>([])
         await withTaskGroup(of: Void.self) { group in
             for index in 0..<24 {
                 group.addTask {
@@ -334,10 +334,13 @@ import Testing
                 CloneRequest(url: server.url, parentDirectory: sandbox.root, name: "x", allowInsecureHTTP: true),
                 engine: sandbox.engine)
             Issue.record("clone should fail")
-        } catch .failed(let failure) {
-            #expect(failure.kind == .authenticationFailed)
         } catch {
-            Issue.record("unexpected \(error)")
+            // Exhaustive catch + explicit test: Swift 6.3's SILGen crashes on `catch .failed(let …)` here.
+            if case .failed(let failure) = error {
+                #expect(failure.kind == .authenticationFailed)
+            } else {
+                Issue.record("unexpected \(error)")
+            }
         }
         // A prompt would hang forever; isolated this takes ~50 ms. Bounded generously for parallel debug runs.
         #expect(ContinuousClock.now - start < PerfBudget.limit(.seconds(1)))
