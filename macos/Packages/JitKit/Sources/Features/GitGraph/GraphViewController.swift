@@ -252,6 +252,7 @@ final class GraphViewController: NSViewController {
         history.start()
         if history.snapshot.count > 0 { historyUpdated(.replaced) }
         observeHistoryState()
+        observeDensity()
         observeStatus()
     }
 
@@ -545,6 +546,43 @@ final class GraphViewController: NSViewController {
         super.viewDidAppear()
         appearanceChanged()
         view.window?.makeFirstResponder(tableView)
+    }
+
+    // MARK: - Menu commands (responder chain)
+
+    @objc func jitFind(_ sender: Any?) { viewModel.focusSearchToken += 1 }
+    @objc func jitFindNext(_ sender: Any?) { nextMatch(forward: true) }
+    @objc func jitFindPrevious(_ sender: Any?) { nextMatch(forward: false) }
+
+    @objc func setGraphDensity(_ sender: Any?) {
+        guard let raw = (sender as? NSMenuItem)?.representedObject as? String,
+            let density = PreferencesStore.GraphDensity(rawValue: raw)
+        else { return }
+        model.preferences.graphDensity = density
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(jitFindNext(_:)), #selector(jitFindPrevious(_:)):
+            return !viewModel.matches.isEmpty
+        case #selector(setGraphDensity(_:)):
+            item.state = (item.representedObject as? String) == model.preferences.graphDensity.rawValue ? .on : .off
+            return true
+        default:
+            return true
+        }
+    }
+
+    /// Every open graph follows the global density preference.
+    private func observeDensity() {
+        withObservationTracking {
+            _ = model.preferences.graphDensity
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.densityChanged()
+                self?.observeDensity()
+            }
+        }
     }
 
     // MARK: - Hover
@@ -1141,3 +1179,5 @@ final class GraphTableView: NSTableView {
         }
     }
 }
+
+extension GraphViewController: NSMenuItemValidation {}
