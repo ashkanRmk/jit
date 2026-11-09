@@ -100,7 +100,9 @@ import Testing
             let indexBefore = try await repo.git("ls-files", "-s")
             let worktreeBefore = try Data(contentsOf: url)
             do {
-                _ = try await handle.apply(SelectionRequest(document: d, lines: selected, action: action))
+                _ = try await handle.apply(
+                    SelectionRequest(document: d, lines: selected, action: action),
+                    hooks: DiscardHooks(preserve: { _, _ in "test" }, trash: { _ in }))
             } catch {
                 // Only the documented refusal is allowed; nothing may have changed.
                 #expect(error.summary == UnsupportedReason.ambiguousEol.explanation, "\(label): \(error.summary)")

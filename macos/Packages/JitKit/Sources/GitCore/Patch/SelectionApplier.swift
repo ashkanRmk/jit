@@ -43,6 +43,11 @@ extension RepositoryHandle {
         default: throw .refused(summary: UnsupportedReason.wrongSource.explanation)
         }
         if let reason = PatchBuilder.unsupported(document) { throw .refused(summary: reason.explanation) }
+        // Discards always keep a recovery copy (ADR-0025): no hooks, no discard.
+        if request.action == .discard || request.action == .keepOnly, hooks == nil {
+            throw .refused(summary: "Discarding lines needs a recovery copy; nothing was changed.")
+        }
+        let format = try await objectFormat()
         let topLevel = try requireWorkingTree()
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         let path = token.path
@@ -166,7 +171,7 @@ extension RepositoryHandle {
                 }
                 if !ok {
                     try await Self.restoreIndexEntry(
-                        path, entryBefore, engine: engine, in: topLevel, gitDirectory: gitDirectory)
+                        path, entryBefore, format: format, engine: engine, in: topLevel, gitDirectory: gitDirectory)
                     throw .verificationFailed(
                         summary: "The staging result was not what Jit expected, so “\(path)” was put back as it was.")
                 }
@@ -234,13 +239,14 @@ extension RepositoryHandle {
 
     /// Puts the captured index entry back (or removes the path if it had none), path on stdin (`-z`).
     static func restoreIndexEntry(
-        _ path: String, _ entry: IndexEntry?, engine: GitEngine, in directory: String, gitDirectory: String
+        _ path: String, _ entry: IndexEntry?, format: ObjectFormat, engine: GitEngine, in directory: String,
+        gitDirectory: String
     ) async throws(GitCoreError) {
         var input: [UInt8]
         if let entry {
             input = Array("\(entry.mode) \(entry.id) \(entry.stage)\t".utf8)
         } else {
-            input = Array("0 \(String(repeating: "0", count: 40))\t".utf8)
+            input = Array("0 \(String(repeating: "0", count: format.byteCount * 2))\t".utf8)
         }
         input += Array(path.utf8)
         input.append(0)

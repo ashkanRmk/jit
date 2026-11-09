@@ -426,6 +426,26 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: w.repo.path + "/.git/index.lock"))
     }
 
+    @Test func keepOnlyWithoutSelectionAndDiscardWithoutRecoveryRefused() async throws {
+        let w = try await world(["f.txt": s("a\nb\n")])
+        try write(w.repo, "f.txt", s("a\nx\nb\ny\n"))
+        let d = try await doc(w, .unstaged(path: "f.txt"))
+        let contextOnly = Set((0..<d.storage.lineCount).filter { d.kind(ofLine: $0) == .context })
+        for lines in [Set<Int>(), contextOnly] {
+            do {
+                try await w.handle.apply(SelectionRequest(document: d, lines: lines, action: .keepOnly), hooks: w.hooks)
+                Issue.record("expected refusal")
+            } catch {
+                #expect(error.summary == UnsupportedReason.noSelection.explanation)
+            }
+        }
+        await #expect(throws: GitCoreError.self) {
+            try await w.handle.apply(
+                SelectionRequest(document: d, lines: self.select(d) { _, _ in true }, action: .discard))
+        }
+        #expect(worktree(w, "f.txt") == s("a\nx\nb\ny\n"))
+    }
+
     @Test func stageThenUnstageSameSelectionRestoresIndex() async throws {
         let w = try await world(["f.txt": s("a\nb\nc\nd\n")])
         try write(w.repo, "f.txt", s("a\nB\nc\nd\ne\n"))

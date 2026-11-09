@@ -82,6 +82,9 @@ public enum PatchBuilder {
         let lines = document.storage.lines
         let changed = Set(file.hunks.flatMap { document.hunks[$0].lines }.filter { lines[$0].kind != .context })
         var selected = selection.intersection(changed)
+        // Checked before keep-only takes the complement: keeping "nothing selected" must never mean
+        // "discard every change in the file".
+        guard !selected.isEmpty else { throw .unsupported(.noSelection) }
         var operation = action
         if action == .keepOnly {
             selected = changed.subtracting(selected)

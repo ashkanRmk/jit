@@ -158,7 +158,7 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   performance; ADRs 0011–0014, 0025–0029 written.
 
 ## Verified
-- Tests: `scripts/build/test-core.sh` — **369 passed** (43 + 242 + 70 + 14 across the four test targets); skipped: none.
+- Tests: `scripts/build/test-core.sh` — **370 passed** (43 + 243 + 70 + 14 across the four test targets); skipped: none.
   Xcode app tests (`scripts/build/test-app.sh`): **23 passed, 0 failed** (xcresult summary). Lint clean.
 - Property tests: 150 cases in every `test-core` run; 50,000-case local run: pending.
 - Real workflow (debug app, generated repositories, screenshots in `screenshots/`): command bar; working
@@ -166,6 +166,13 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   side by side, full file, highlighted, selection capsule, no-newline note, binary); blame; composer.
   Pointer interaction was not driven (the window opened behind the user's apps and driving their mouse was
   declined): every flow is covered by model-level tests on real repositories instead, including Scenario C.
+
+- Independent review of the line-staging core (discard, patch builder, applier): no data-loss path on
+  the UI paths; three API-level hardening fixes applied — keep-only with an empty (or context-only)
+  selection is refused instead of discarding every change, line discards without recovery hooks are
+  refused, and index rollback writes a removal id of the repository's hash length (SHA-256 safe). Test
+  `keepOnlyWithoutSelectionAndDiscardWithoutRecoveryRefused`. Known limit: rollback of an intent-to-add
+  entry restores it as a normal empty entry.
 
 ## Decisions
 - ADR-0027: FIFO write gate inside `RepositoryHandle`; reads never take it; every finished mutation bumps
