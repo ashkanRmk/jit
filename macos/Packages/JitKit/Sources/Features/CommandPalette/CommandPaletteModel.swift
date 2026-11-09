@@ -77,6 +77,10 @@ final class CommandPaletteModel {
         self.window = window
     }
 
+    /// Memory pressure (ADR-0043): the tracked-path index is rebuilt on next use.
+    static func trimCaches() { fileIndexCache.removeAll() }
+    static var fileIndexCacheCount: Int { fileIndexCache.count }
+
     var recents: [String] {
         get { UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? [] }
         set { UserDefaults.standard.set(Array(newValue.prefix(Self.recentLimit)), forKey: Self.recentsKey) }
@@ -247,7 +251,7 @@ final class CommandPaletteModel {
         fileTask = Task { [weak self, weak workbench] in
             let result: Result<TrackedPaths, GitCoreError>
             do throws(GitCoreError) {
-                result = .success(try await handle.trackedPaths())
+                result = .success(try await handle.trackedPaths(limit: CacheLimits.paletteTrackedPaths))
             } catch {
                 result = .failure(error)
             }
@@ -258,7 +262,9 @@ final class CommandPaletteModel {
             case .success(let files):
                 Self.fileIndexCache.removeAll { $0.path == path }
                 Self.fileIndexCache.insert((path, revision, files), at: 0)
-                if Self.fileIndexCache.count > 2 { Self.fileIndexCache.removeLast() }
+                if Self.fileIndexCache.count > CacheLimits.paletteFileIndexRepositories {
+                    Self.fileIndexCache.removeLast()
+                }
                 if let workbench { self.addTracked(files, workbench: workbench) }
             case .failure(let error):
                 self.fileIndexError = error.summary

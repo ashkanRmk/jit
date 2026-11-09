@@ -1,6 +1,7 @@
 import AppKit
 import CoreText
 import DesignSystem
+import GitCore
 import Services
 
 /// What one cell (one column of one row) shows.
@@ -91,6 +92,9 @@ public final class CodeLinesView: NSView {
     /// The saved preference (`PreferencesStore.codeTextSize`, standard defaults).
     static var preferredTextSizeStep: Int { UserDefaults.standard.integer(forKey: "codeTextSize") }
     nonisolated(unsafe) private var textSizeObserver: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var trimObserver: (any NSObjectProtocol)?
+    /// Cached `CTLine`s (tests: bounded by `CacheLimits.codeLines`).
+    var cachedLineCount: Int { cache.count }
     public private(set) var rowHeight: CGFloat = TypeToken.monoBody.lineHeight
     public private(set) var characterWidth: CGFloat = 7
     /// Spaces per tab.
@@ -113,7 +117,7 @@ public final class CodeLinesView: NSView {
 
     private var cache: [CacheKey: CTLine] = [:]
     private var cacheOrder: [CacheKey] = []
-    private static let cacheLimit = 4000
+    private static let cacheLimit = CacheLimits.codeLines
     private var accessibilityRows: [Int: NSAccessibilityElement] = [:]
 
     private struct CacheKey: Hashable {
@@ -131,6 +135,11 @@ public final class CodeLinesView: NSView {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.textSizeStep = Self.preferredTextSizeStep }
         }
+        trimObserver = NotificationCenter.default.addObserver(
+            forName: CacheLimits.trimNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.clearCache(releasingStorage: true) }
+        }
         setAccessibilityRole(.list)
         setAccessibilityLabel("Diff")
     }
@@ -138,7 +147,10 @@ public final class CodeLinesView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    deinit { textSizeObserver.map(NotificationCenter.default.removeObserver) }
+    deinit {
+        textSizeObserver.map(NotificationCenter.default.removeObserver)
+        trimObserver.map(NotificationCenter.default.removeObserver)
+    }
 
     public override var isFlipped: Bool { true }
     public override var isOpaque: Bool { true }
@@ -163,7 +175,7 @@ public final class CodeLinesView: NSView {
     /// Longest part of one line that is laid out and drawn (UTF-16 units). A minified file's single 5 MB line
     /// otherwise costs hundreds of MB of glyph storage and GPU surfaces (P6.6, large-diff benchmark); the rest
     /// of such a line is summarized as "+N characters not shown". Copy and line actions use the document.
-    public static let maxRenderedCharacters = 10_000
+    public static let maxRenderedCharacters = CacheLimits.renderedLineCharacters
 
     public var columnWidth: CGFloat {
         let columns = CGFloat(dataSource?.columnCount ?? 1)
@@ -193,10 +205,10 @@ public final class CodeLinesView: NSView {
         needsDisplay = true
     }
 
-    private func clearCache() {
+    private func clearCache(releasingStorage: Bool = false) {
         generation &+= 1
-        cache.removeAll(keepingCapacity: true)
-        cacheOrder.removeAll(keepingCapacity: true)
+        cache.removeAll(keepingCapacity: !releasingStorage)
+        cacheOrder.removeAll(keepingCapacity: !releasingStorage)
     }
 
     public func rowRect(_ row: Int) -> NSRect {

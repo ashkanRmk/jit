@@ -60,7 +60,7 @@ public final class AppModel {
     /// all complete; a newer open for the same target supersedes the older one.
     @ObservationIgnored private var openTasks: [String: Task<Void, Never>] = [:]
 
-    static let reopenCapacity = 10
+    static let reopenCapacity = CacheLimits.reopenClosedTabs
 
     public init(
         engine: GitEngine, preferences: PreferencesStore, recents: RecentsStore, profiles: ProfileStore,
@@ -169,6 +169,9 @@ public final class AppModel {
     }
 
     public func handleMemoryPressure() {
+        // Rebuildable caches go first (code-line layouts, palette file index); in-flight operations keep their
+        // own snapshots, so nothing an operation relies on is dropped (ADR-0043).
+        NotificationCenter.default.post(name: CacheLimits.trimNotification, object: nil)
         var suspended: Set<UUID> = []
         for tab in tabs where tab.id != activeTabID {
             guard let session = tab.session, session.lifecycle == .inactive else { continue }

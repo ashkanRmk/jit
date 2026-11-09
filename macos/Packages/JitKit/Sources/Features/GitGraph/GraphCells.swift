@@ -25,7 +25,7 @@ import GitCore
     }
     private var avatars: [AvatarKey: CGImage] = [:]
     private var symbols: [String: NSImage] = [:]
-    static let maxCachedAvatars = 1024
+    static let maxCachedAvatars = CacheLimits.graphAvatars
 
     init(density: Density) {
         metrics = .forDensity(density)

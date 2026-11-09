@@ -5,7 +5,7 @@ import GitCore
 /// run of added lines is paired line by line when the run lengths are within 2× of each other; each pair
 /// (both lines < 1,000 bytes) is diffed on tokens with Myers' algorithm. Pure; results in UTF-16 ranges.
 public enum WordDiff {
-    public static let maxLineBytes = 1000
+    public static let maxLineBytes = CacheLimits.wordDiffLineBytes
 
     /// Deleted line → added line, and back.
     public static func pairs(in document: DiffDocument) -> [Int: Int] {

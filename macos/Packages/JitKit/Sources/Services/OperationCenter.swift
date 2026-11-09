@@ -53,7 +53,7 @@ public struct OperationSummary: Sendable, Equatable {
 /// children). History is in memory only, bounded to 20 finished operations.
 @MainActor @Observable
 public final class OperationCenter {
-    public static let historyLimit = 20
+    public static let historyLimit = CacheLimits.operationHistory
 
     /// Newest first: running operations, then finished ones.
     public private(set) var records: [OperationRecord] = []

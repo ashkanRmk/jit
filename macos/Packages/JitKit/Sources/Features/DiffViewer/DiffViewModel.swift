@@ -17,7 +17,7 @@ public final class DiffViewModel {
     }
 
     /// Diffs larger than this are not rendered (design §3.3 large state).
-    public static let maxBytes = 64 * 1024 * 1024
+    public static let maxBytes = CacheLimits.diffBytes
 
     public let session: RepositorySession
     public private(set) var target: DiffTarget?

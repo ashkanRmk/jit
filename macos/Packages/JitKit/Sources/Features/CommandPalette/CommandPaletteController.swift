@@ -1,5 +1,6 @@
 import AppKit
 import DesignSystem
+import GitCore
 import SwiftUI
 
 /// The ⌘K panel (design §3.1): a borderless child `NSPanel` of the main window, centered in its upper third,
@@ -17,7 +18,14 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         model = CommandPaletteModel(window: window)
         super.init()
         model.close = { [weak self] in self?.close() }
+        trimObserver = NotificationCenter.default.addObserver(
+            forName: CacheLimits.trimNotification, object: nil, queue: .main
+        ) { _ in MainActor.assumeIsolated { CommandPaletteModel.trimCaches() } }
     }
+
+    nonisolated(unsafe) private var trimObserver: (any NSObjectProtocol)?
+
+    deinit { trimObserver.map(NotificationCenter.default.removeObserver) }
 
     func open(over parent: NSWindow) {
         guard !isOpen else { return }
