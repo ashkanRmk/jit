@@ -73,6 +73,10 @@ These moves keep each phase a working vertical slice. They do not drop any requi
   and the global indicator/switcher. Phase 5 adds authentication, providers and networking to the same model.
 - **File history moves to Phase 2** — it is a path-filtered history view and reuses the graph.
 - **Blame lands in Phase 3** — it needs the native code renderer built there.
+- **Repository command bar starts in Phase 3** (P3.0, owner request 2026-11-09): one glass bar for location,
+  changes, sync, branch, stash, undo and terminal. It replaces the Phase 2 graph bar; each action appears in
+  the phase that implements it (Phase 4 sync/branch/stash, Phase 8 undo).
+- **Stash moves up to Phase 4** (owner decision 2026-11-09): the full stash manager plus "Stash and Switch".
 - **Checkout and all other branch mutations live in Phase 4** with the operation/confirmation framework.
   Phase 2's navigator is read-only plus copy actions.
 - **Clone from URL lands in Phase 4** (public HTTPS / agent-based SSH, with progress and cancellation).
@@ -165,7 +169,7 @@ Assigned across the phase designs; check here before adding one (Phase 6 audits 
 | ⌥⌘↓ / ⌥⌘↑, ⌘S, ⇧⌘R | Conflict resolver: next / previous block, save, mark resolved | P4 |
 | ⌃⌘P | Open profile switcher | P5 |
 | ⌘K | Command palette | P6 |
-| ⌥⌘S | Create stash | P8 |
+| ⌥⌘S | Create stash | P4 |
 
 ### Cross-cutting technical decisions and ADR backlog
 

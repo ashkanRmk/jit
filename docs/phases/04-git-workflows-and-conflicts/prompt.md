@@ -34,7 +34,7 @@ Do not paper over a missing precondition with stubs.
 
 Then create branch `phase/04-git-workflows-and-conflicts` from main.
 
-Work through milestones P4.1 → P4.15 in order. For each milestone:
+Work through milestones P4.1 → P4.17 in order. For each milestone:
 spec in docs/phases/04-git-workflows-and-conflicts/specs/P4.k-*.md (behavior, failure cases, tests) →
 write the tests → implement → build → run all tests → exercise the real workflow in the app →
 light and dark screenshots for new UI → measure where the plan says → commit with Conventional Commits

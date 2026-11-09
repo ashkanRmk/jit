@@ -183,7 +183,33 @@ tokens, non-interactive execution, progress and classified errors.
       suffix, percent-encoding); menu items only when mappable.
 - Tests: parameterized `@Test(arguments:)` `webLink*` cases including unknown hosts → `nil`.
 
-### P4.15 — Hardening, review, docs
+### P4.15 — Stash core (moved from Phase 8)
+- Goal: list, inspect, push, apply, pop, drop, clear in `GitCore` with revision validation.
+- Tasks:
+  - [ ] `GitCore/Stash/StashOperations.swift`: byte-level list parser (`-z` format), `StashEntry`, push/apply/pop/drop/branch.
+  - [ ] OID validation for index-addressed ops; `StaleState` on mismatch.
+  - [ ] Register operation kinds and risk classes on the per-repository actor; Services wrappers.
+- Tests: `stashListParsesMessagesWithNewlinesAndUnicode`, `stashPushIncludeUntrackedRoundtrip`,
+  `stashPushKeepIndexPreservesIndexBytes`, `stashPushPathsOnlyStashesSelected`,
+  `stashPopConflictKeepsStash`, `stashDropRejectsShiftedIndex`, `stashApplyUntrackedCollisionErrors`.
+- Verify: `swift test --filter StashTests` (in `macos/Packages/JitKit`).
+- Done when: all tests pass on real temp repos; unrelated files byte-identical after every op.
+
+### P4.16 — Stash UI, Stash and Switch, command bar buttons
+- Goal: sidebar section, create sheet, read-only stash diff, apply/pop/drop flows.
+- Tasks:
+  - [ ] `Features/Stash`: `StashStore` (lazy, FSEvents on `refs/stash`, `logs/refs/stash`), sidebar rows.
+  - [ ] Create sheet (⌥⌘S) with toggles gated on Git version (`--staged` needs ≥ 2.35).
+  - [ ] Inspector stash diff using the P3 renderer (staged / unstaged / untracked sections).
+  - [ ] Pop/apply → resolver on conflict; drop → destructive sheet with SHA copy.
+  - [ ] Optional graph toggle "Show stashes" (palette entries stay Phase 6).
+  - [ ] Command bar Stash / Pop (P3.0); "Stash and Switch" in the blocked-switch sheet (design §3.6).
+- Tests: `stashAndSwitchRestoresStashWhenSwitchFails`, `popDisabledWithoutStashes`, UI `testCreateStashFromWorkingDirectory`, `testPopWithConflictOpensResolver`,
+  `testDropShowsRecoverySha`; snapshot tests for sidebar/sheet in light and dark.
+- Verify: manual run on a repo with staged, unstaged and untracked changes; screenshots.
+- Done when: demo — stash part of a WD, switch branch, pop with a conflict, resolve, drop another stash.
+
+### P4.17 — Hardening, review, docs
 - [ ] Full integration matrix (§3 below) green; interrupted-operation tests; locked-index tests.
 - [ ] Strict self-review (§25 step 5): data-loss paths, races (profile switch, tab close mid-op, external
       edits), main-thread blocking, leaks (Instruments Leaks while running 50 fetch/merge cycles).

@@ -35,7 +35,7 @@ epic's "Done when" in `implementation.md`.
 
 | ID | Epic | Branch | Suggested order |
 |---|---|---|---|
-| `stash` | Stash manager | `epic/stash` | 1 |
+| `stash` | Stash manager — **moved to Phase 4** (P4.15–P4.16) | — | — |
 | `reflog` | Reflog explorer & recovery | `epic/reflog` | 2 |
 | `reset` | Reset soft / mixed / keep / hard | `epic/reset` | 3 |
 | `tags` | Create / delete / push lightweight & annotated tags | `epic/tags` | 4 |
@@ -50,8 +50,8 @@ epic's "Done when" in `implementation.md`.
 | `submodules` | Submodule management | `epic/submodules` | 13 |
 | `lfs` | Git LFS management | `epic/lfs` | 14 |
 
-**Why this order.** Stash first: it gives every later epic (reset, rebase, checkout with dirty trees) a
-safe "set my changes aside" path. Reflog second: a recovery surface must exist before Jit offers
+**Why this order.** Stash now ships in Phase 4, so every epic here (reset, rebase, checkout with dirty trees)
+already has a safe "set my changes aside" path. Reflog first: a recovery surface must exist before Jit offers
 history-rewriting tools. Reset and tags are small and high-value. Interactive rebase precedes commit
 surgery because surgery is a thin UI over the same engine. Signing, submodules and LFS depend on
 external tools and have the largest security surface, so they come last. The order is a
@@ -88,19 +88,10 @@ Shared UX rules for every epic:
 - **Accessibility:** every list keyboard navigable; reorderable lists support ⌥⌘↑/⌥⌘↓ as the
   keyboard equivalent of drag; VoiceOver announces action, position and risk.
 
-### 3.1 Stash manager (`stash`)
-- **Sidebar section "Stashes"** (shown once implemented, §4.3): `stash@{n}` rows with message, branch it
-  was created on, relative time, file count. Optional graph toggle "Show stashes" draws stash commits as
-  hollow square nodes attached to their base commit.
-- **Create (⌥⌘S):** sheet with message, toggles *Include untracked*, *Keep staged changes in index*
-  (`--keep-index`), *Stash only staged changes* (`--staged`, if Git version allows), and an optional
-  file subset (pre-filled from the WD selection).
-- **Inspect:** selecting a stash opens a read-only diff in the inspector with three sections — staged
-  part (`stash^2` vs base), unstaged part, untracked files (`stash^3`).
-- **Apply / Pop:** conflicts route to the resolver; on conflict, Pop never drops the stash (Git
-  semantics) and the UI states that explicitly. **Drop** is destructive: the sheet shows the stash SHA
-  and a "Copy SHA" button; recovery through reflog explorer's dangling-commit search.
-- Empty state: "No stashes. Stash changes to set them aside without committing."
+### 3.1 Stash manager (`stash`) — moved to Phase 4
+
+Moved to Phase 4 (§3.11 there, milestones P4.15–P4.16) at the owner's request (2026-11-09, P3.0 command bar).
+Stashing selected hunks (via the patch builder) stays here, in the `patches` epic.
 
 ### 3.2 Reflog explorer & recovery (`reflog`)
 - **View:** a workbench mode (⌘-mode switch or Repository ▸ Reflog) listing entries for a chosen ref
@@ -114,7 +105,7 @@ Shared UX rules for every epic:
 - **Find lost commits:** explicit button running `git fsck --unreachable --no-reflogs` with progress and
   cancel (can be slow on large repos; never automatic). Results list dangling commits including dropped
   stashes ("looks like a stash" heuristic: two/three parents with `index on`/`WIP on` subject).
-- **Undo last operation:** offered only for operations Jit itself ran in this session and recorded
+- **Undo last operation** (also the command bar's Undo/Redo, P3.0): offered only for operations Jit itself ran in this session and recorded
   (commit, amend, reset, rebase, merge, cherry-pick), presented as "Restore main to before ‹op›"
   through the reset confirmation sheet. Never a blind `reset --hard HEAD@{1}`.
 
@@ -323,11 +314,7 @@ ADR-0005; `IdentitySnapshot`, `RepoRevision`, `OpOutcome` and `RecoveryPoint` ar
 
 ### 4.3 Per-epic technical approach
 
-**Stash.** `git stash list -z --format=%gd%x00%H%x00%P%x00%ct%x00%gs`; content via `git diff` of the stash
-parents (never `stash show` text parsing). Push uses `git stash push -m <msg> [--include-untracked]
-[--keep-index] [--staged] -- <paths>`. Drop validates `expectedOid` against `stash@{n}` first, because
-indices shift — then `git stash drop stash@{n}`. Pop on conflict leaves the stash (Git) and the UI
-reflects `OpOutcome.conflicts`.
+**Stash.** Moved to Phase 4 §4.15.
 
 **Reflog.** `git reflog show --format=%H%x00%gd%x00%gs%x00%ct -z <ref>` paged with `--skip`/`-n` (reflogs
 are short; acceptable). The "unreachable" marker is computed on demand for the visible page only

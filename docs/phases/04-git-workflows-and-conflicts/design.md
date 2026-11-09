@@ -42,13 +42,15 @@ fails.
 - Conflict model and the visual three-way resolver, plus fallbacks for non-text conflicts.
 - Enabling the write actions deferred from Phase 2 (navigator checkout, graph context menu).
 - Copy remote commit/branch link for github.com and gitlab.com remotes.
+- Stash manager (moved from Phase 8, owner decision 2026-11-09): create, list, inspect, apply, pop, drop,
+  "Stash and Switch", and the command bar's Stash / Pop buttons (P3.0).
 
 **Out of scope (and where it lives)**
 - Stored credentials, PAT/OAuth, SSH key selection, passphrase prompts, unknown-host-key acceptance,
   custom CA, proxy → **Phase 5** (plugs into the `AuthPlan`/`NetworkPlan` hook defined here).
 - Provider repository browser and credentialed clone → **Phase 5**.
 - Web links for self-managed GitLab hosts → **Phase 5** (needs server configs).
-- Interactive rebase, reset modes, stash (including "stash and switch"), drop/reorder commits, reflog
+- Interactive rebase, reset modes, stashing selected hunks, drop/reorder commits, reflog
   explorer, tag creation, remote add/edit/remove, submodule conflict resolution → **Phase 8**.
 - Command palette entries for these operations → **Phase 6** (menus and context menus ship here).
 
@@ -120,9 +122,10 @@ bisect state, regardless of who started it (Jit or the terminal).
 
 ### 3.4 Remote operations
 
-- **Toolbar:** Fetch, Pull (split button: Pull — fast-forward only (default) / Pull with merge / Pull with
-  rebase), Push — standard toolbar items grouped into one system glass capsule (macOS 26 toolbar
-  grouping), SF Symbols, no custom chrome. Ahead/behind badges (↑2 ↓5) next to the branch name in the toolbar and in the navigator.
+- **Command bar** (placement amended by [P3.0](../03-working-directory-and-diff/specs/P3.0-command-bar.md)):
+  Fetch, Pull (split button: Pull — fast-forward only (default) / Pull with merge / Pull with
+  rebase), Push — one glass capsule in the repository command bar (not window toolbar items), SF Symbols.
+  Phase 4 also adds the bar's Branch button and branch switching from its breadcrumb popover. Ahead/behind badges (↑2 ↓5) next to the branch name in the toolbar and in the navigator.
 - **Fetch menu:** Fetch current remote, Fetch all remotes, "Prune deleted remote branches" toggle — its
   initial value mirrors the repository's effective `fetch.prune`; Jit passes `--prune`/`--no-prune`
   explicitly so the UI never lies about what happened.
@@ -158,7 +161,7 @@ Entry points: navigator context menu, graph commit/ref context menu, Branch menu
 | Action | UI | Behavior |
 |---|---|---|
 | New branch here… | sheet: name (live `check-ref-format` validation), start point (prefilled), "Switch to it" ✓ | `git branch` / `git switch -c` |
-| Switch / checkout | double-click local branch, menu | `git switch <b>`; dirty-tree conflict → "Can't switch: these files have changes that would be overwritten" list + [Cancel] [Discard These Changes…] (destructive). "Stash and switch" is Phase 8. |
+| Switch / checkout | double-click local branch, menu | `git switch <b>`; dirty-tree conflict → "Can't switch: these files have changes that would be overwritten" list + [Cancel] [Stash and Switch] [Discard These Changes…] (destructive). Stash and Switch stashes (including untracked), switches, and leaves the stash in place with a "Pop on this branch" action in the outcome. |
 | Check out remote branch | double-click `origin/x` | if no local `x`: create tracking branch `x` and switch; if local exists: switch to it and show ahead/behind |
 | Check out commit (detached) | graph menu | explanation sheet once per session about detached HEAD, then `git switch --detach <sha>` |
 | Rename… | inline edit in navigator or sheet | `git branch -m`; upstream config follows (Git's behavior); remote not renamed (stated) |
@@ -249,6 +252,23 @@ Every fallback choice goes through a confirmation describing the effect on the i
 Commit context menu "Copy Link to Commit on GitHub/GitLab", branch context menu "Copy Link to Branch".
 Shown only when the commit's remote (upstream's remote, else `origin`) maps to a known web host
 (github.com, gitlab.com in this phase). Never fetches anything.
+
+### 3.11 Stash (moved from Phase 8)
+- **Sidebar section "Stashes"** (shown once P4.16 ships): `stash@{n}` rows with message, branch it
+  was created on, relative time, file count. Optional graph toggle "Show stashes" draws stash commits as
+  hollow square nodes attached to their base commit.
+- **Create (⌥⌘S):** sheet with message, toggles *Include untracked*, *Keep staged changes in index*
+  (`--keep-index`), *Stash only staged changes* (`--staged`, if Git version allows), and an optional
+  file subset (pre-filled from the WD selection).
+- **Command bar (P3.0):** *Stash* opens the create sheet (⌥ click stashes immediately with an auto message
+  and *Include untracked*); *Pop* pops `stash@{0}`, disabled with a tooltip when there are no stashes.
+- **Stash and Switch:** offered when a switch is blocked by a dirty tree (§3.6).
+- **Inspect:** selecting a stash opens a read-only diff in the inspector with three sections — staged
+  part (`stash^2` vs base), unstaged part, untracked files (`stash^3`).
+- **Apply / Pop:** conflicts route to the resolver; on conflict, Pop never drops the stash (Git
+  semantics) and the UI states that explicitly. **Drop** is destructive: the sheet shows the stash SHA
+  and a "Copy SHA" button; recovery through reflog explorer's dangling-commit search.
+- Empty state: "No stashes. Stash changes to set them aside without committing."
 
 ## 4. Technical design
 
@@ -490,7 +510,7 @@ for these signatures; otherwise plain `throws` with `GitError` as the documented
 |---|---|---|
 | Invalid repository | `not a git repository`, missing path | "This folder is no longer a Git repository." → Locate…, Close Tab |
 | Detached HEAD | `HEAD` not a symbolic ref when an op needs a branch | "You're not on a branch." → Create Branch Here…, Switch Branch… |
-| Dirty working directory | `would be overwritten`, `Please commit your changes or stash them` | lists files → Cancel, Discard Changes… (destructive), open Working Directory |
+| Dirty working directory | `would be overwritten`, `Please commit your changes or stash them` | lists files → Cancel, Stash Changes, Discard Changes… (destructive), open Working Directory |
 | Unmerged index | `you need to resolve your current index first`, unmerged entries | → Resolve Conflicts, Abort… |
 | Invalid credentials | `Authentication failed`, HTTP 401/403 | "The remote rejected the credentials." → (Phase 5: Reconnect Account / Switch Profile) |
 | Expired token | provider-specific 401 wording (Phase 5 refines) | → Reconnect Account (Phase 5) |
@@ -542,6 +562,17 @@ Branch names are percent-encoded per path segment.
 - Temp files for conflict stages in a per-operation 0700 directory, removed on completion.
 - No credential prompts can appear in this phase; nothing is written to `~/.gitconfig`.
 
+### 4.15 Stash (moved from Phase 8)
+
+`git stash list -z --format=%gd%x00%H%x00%P%x00%ct%x00%gs`; content via `git diff` of the stash
+parents (never `stash show` text parsing). Push uses `git stash push -m <msg> [--include-untracked]
+[--keep-index] [--staged] -- <paths>`. Drop validates `expectedOid` against `stash@{n}` first, because
+indices shift — then `git stash drop stash@{n}`. Pop on conflict leaves the stash (Git) and the UI
+reflects `OpOutcome.conflicts`.
+"Stash and Switch" chains `StashPush` (include untracked) → `Switch` in one serialized operation; if the
+switch fails, the stash is popped back and the outcome says so. Stash operations register as Phase 4
+operation kinds (`StashPush`, `StashApply`, `StashPop` mutating; `StashDrop`, `StashClear` destructive).
+
 ## 5. Edge cases & failure modes
 
 - Operation started in Terminal while Jit has a sheet open → `StaleSnapshot` on confirm.
@@ -585,4 +616,4 @@ Branch names are percent-encoded per path segment.
 | Use `git merge-tree --write-tree` for conflict prediction | P4.9 | Accurate on fixture matrix, < 300 ms on 10k-commit repo, Git version available. Optional — ship without if not clean. |
 | Default for "Prune" toggle when config unset | P4.4 | Follow Git default (off) unless user feedback says otherwise. |
 | Stall detector threshold | P4.1 | Measured on slow-link simulation (`networkQuality`/Network Link Conditioner). |
-| Whether "Discard These Changes…" on blocked switch is worth shipping before stash exists | P4.8 review | If it tests safely (path-scoped `git restore`), keep; otherwise cancel-only. |
+| Whether "Discard These Changes…" on blocked switch is still worth shipping now that Stash and Switch exists | P4.8 review | If it tests safely (path-scoped `git restore`), keep; otherwise cancel-only. |

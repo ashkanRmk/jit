@@ -19,9 +19,8 @@
 
 | Epic | Requires |
 |---|---|
-| `stash` | — |
 | `reflog` | — |
-| `reset` | `reflog` recommended (recovery wording); `stash` optional ("Stash first") |
+| `reset` | `reflog` recommended (recovery wording); Phase 4 stash ("Stash first") |
 | `tags` | — (`signing` optional) |
 | `rebase-interactive` | `reflog`; helper binary from P5 (ADR-0016) |
 | `commit-surgery` | `rebase-interactive` |
@@ -41,32 +40,9 @@ follow the module layout established in Phase 0 (ADR-0004); names below are indi
 
 ## 2. Milestones by epic
 
-### Epic `stash` — Stash manager
+### Epic `stash` — moved to Phase 4
 
-**P8.stash.1 — Core stash operations**
-- Goal: list, inspect, push, apply, pop, drop, clear in `GitCore` with revision validation.
-- Tasks:
-  - [ ] `GitCore/Stash/StashOperations.swift`: byte-level list parser (`-z` format), `StashEntry`, push/apply/pop/drop/branch.
-  - [ ] OID validation for index-addressed ops; `StaleState` on mismatch.
-  - [ ] Register operation kinds and risk classes on the per-repository actor; Services wrappers.
-- Tests: `stashListParsesMessagesWithNewlinesAndUnicode`, `stashPushIncludeUntrackedRoundtrip`,
-  `stashPushKeepIndexPreservesIndexBytes`, `stashPushPathsOnlyStashesSelected`,
-  `stashPopConflictKeepsStash`, `stashDropRejectsShiftedIndex`, `stashApplyUntrackedCollisionErrors`.
-- Verify: `swift test --filter StashTests` (in `macos/Packages/JitKit`).
-- Done when: all tests pass on real temp repos; unrelated files byte-identical after every op.
-
-**P8.stash.2 — Stash UI**
-- Goal: sidebar section, create sheet, read-only stash diff, apply/pop/drop flows.
-- Tasks:
-  - [ ] `Features/Stash`: `StashStore` (lazy, FSEvents on `refs/stash`, `logs/refs/stash`), sidebar rows.
-  - [ ] Create sheet (⌥⌘S) with toggles gated on Git version (`--staged` needs ≥ 2.35).
-  - [ ] Inspector stash diff using the P3 renderer (staged / unstaged / untracked sections).
-  - [ ] Pop/apply → resolver on conflict; drop → destructive sheet with SHA copy.
-  - [ ] Optional graph toggle "Show stashes"; command palette entries.
-- Tests: UI `testCreateStashFromWorkingDirectory`, `testPopWithConflictOpensResolver`,
-  `testDropShowsRecoverySha`; snapshot tests for sidebar/sheet in light and dark.
-- Verify: manual run on a repo with staged, unstaged and untracked changes; screenshots.
-- Done when: demo — stash part of a WD, switch branch, pop with a conflict, resolve, drop another stash.
+Implemented as Phase 4 milestones P4.15 (core) and P4.16 (UI); see that phase's implementation plan.
 
 ### Epic `reflog` — Reflog explorer & recovery
 
