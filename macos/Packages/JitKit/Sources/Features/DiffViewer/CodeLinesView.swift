@@ -10,6 +10,8 @@ public struct CodeCell: Sendable, Equatable {
         case filler
         /// `@@ … @@` header, collapsed-context gap, or file header: one full-width row.
         case hunk, gap, file
+        /// Conflict resolver (P4.12): an unresolved block's line, a resolved block's line, a marker line.
+        case conflict, resolved, marker
     }
 
     public var kind: Kind
@@ -231,6 +233,8 @@ public final class CodeLinesView: NSView {
         case .deleted: ColorToken.diffDeleteBackground.nsColor
         case .filler: ColorToken.surfaceSunken.nsColor
         case .hunk, .gap, .file: ColorToken.surfaceSunken.nsColor
+        case .conflict, .marker: ColorToken.conflictBackground.nsColor
+        case .resolved: ColorToken.resolvedBackground.nsColor
         case .context: nil
         }
     }
@@ -255,6 +259,9 @@ public final class CodeLinesView: NSView {
         // Change bar at the gutter edge.
         if cell.kind == .added || cell.kind == .deleted {
             (cell.kind == .added ? ColorToken.diffAddMark : ColorToken.diffDeleteMark).nsColor.setFill()
+            NSRect(x: rect.minX + gutter - Space.s3, y: rect.minY, width: 3, height: rect.height).fill()
+        } else if cell.kind == .conflict || cell.kind == .marker || cell.kind == .resolved {
+            (cell.kind == .resolved ? ColorToken.accentBase : ColorToken.conflictMark).nsColor.setFill()
             NSRect(x: rect.minX + gutter - Space.s3, y: rect.minY, width: 3, height: rect.height).fill()
         }
         let baseline = rect.minY + (rowHeight - (font.ascender - font.descender)) / 2 + font.ascender

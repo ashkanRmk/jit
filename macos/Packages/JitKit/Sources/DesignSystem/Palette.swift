@@ -120,6 +120,10 @@ public enum ColorToken: String, CaseIterable, Sendable {
     case diffDeleteBackground = "diff.del.bg"
     case diffDeleteMark = "diff.del.mark"
 
+    case conflictBackground = "conflict.bg"
+    case conflictMark = "conflict.mark"
+    case resolvedBackground = "resolved.bg"
+
     public var spec: ColorSpec {
         switch self {
         case .surfaceCanvas: ColorSpec(light: RGBA(0xF5F4F1), dark: RGBA(0x161719))
@@ -165,6 +169,9 @@ public enum ColorToken: String, CaseIterable, Sendable {
         case .diffAddMark: ColorSpec(light: RGBA(0x2F7A4A), dark: RGBA(0x71BE8A))
         case .diffDeleteBackground: ColorSpec(light: RGBA(0xF7E5E3), dark: RGBA(0x2D1C1B))
         case .diffDeleteMark: ColorSpec(light: RGBA(0xAE3932), dark: RGBA(0xE57A70))
+        case .conflictBackground: ColorSpec(light: RGBA(0xF6ECD9), dark: RGBA(0x2E2616))
+        case .conflictMark: ColorSpec(light: RGBA(0xA3670F), dark: RGBA(0xE0A651))
+        case .resolvedBackground: ColorSpec(light: RGBA(0xE3EFF0), dark: RGBA(0x16282A))
         }
     }
 }
