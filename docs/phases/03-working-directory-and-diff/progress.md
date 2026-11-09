@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0 complete; P3.1 GitCore part complete, working-directory panel next)
+Status: **in progress** (P3.0 and P3.1 complete; P3.2 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -35,16 +35,36 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   `writeGateReportsPendingAndDropsCancelledWaiter`, `stageAndUnstageGoThroughTheGate`), `StatusModelTests` (5:
   rename staged, conflicts from a real merge, submodule modified, type change, Unicode/newline paths + untracked
   normal mode), `ProcessRunnerTests` stdin (3), `testStageAndUnstageRefreshStatusAndClearBusy`.
+- **P3.1 (panel)** — `Features/WorkingDirectory/`: the inspector shows the working-directory panel while the
+  WIP row is selected (replaces the Phase 2 path list). Header in a `safeAreaBar` (system scroll-edge effect):
+  branch, `N staged · N unstaged · N untracked`, filter (⌥⌘F, fuzzy on path), List/Tree, sort (Path, Name,
+  Status, Size of Change). Sections Conflicts (only when present, not stageable, tooltip), Staged (Unstage
+  All), Unstaged (Stage All; untracked marked `U`). Rows: coloured status letter, half-filled glyph for
+  partially staged files (listed in both sections), file-type symbol, name + dimmed directory, `old → new`
+  for renames, `+x`/`−x`, symlink and submodule badges, `+a −d` from lazy numstat, hover Stage/Unstage.
+  Native `List` (virtualized, multi-selection); Space toggles stage/unstage of the selection; drag between
+  Staged and Unstaged (selection-aware, drop highlight); context menu Stage/Unstage, Open in Editor (⇧⌘O),
+  Reveal in Finder, Copy Path, Copy Relative Path, Show File History; tree folders collapse and their menu
+  acts on all children. Clean state (check glyph, "Working tree clean", last commit subject), 2pt hairline
+  after 150 ms, inline error banner with Retry (index.lock message; lock files never removed). Rows are
+  rebuilt off the main actor; the model follows `session.status` through Observation (no polling).
+  GitCore: `RepositoryHandle.lineStats(staged:paths:)` (`git --literal-pathspecs diff [--cached -M]
+  --numstat -z`, read-only, chunked argv). ADR-0027 written.
+  Evidence: `LineStatsTests` (5), `WorkingDirectoryTests` (11, including
+  `stageAndUnstageByDragMoveRowsBetweenSections` driving the drag/drop path through a real session,
+  `lockedIndexShowsBannerAndRetryWorks`, `spaceTogglesAndStatsLoadLazily`); screenshots
+  `screenshots/working-directory-{normal,conflicts}-{light,dark}.png`.
 
 ## Verified
-- Tests: `scripts/build/test-core.sh` — **259 passed** (40 + 173 + 34 + 12 across the four test targets);
+- Tests: `scripts/build/test-core.sh` — **275 passed** (40 + 178 + 45 + 12 across the four test targets);
   skipped: none. Xcode app tests not run yet this phase. Lint clean (`scripts/build/lint.sh`).
 - Real workflow: debug app on a clone with an upstream (1 ahead), a second branch and staged/unstaged/untracked
   changes — breadcrumb, `3 changes`, Terminal and search render in both themes (screenshots above).
   Not yet exercised by pointer: branch popover, overflow at a narrow width, Show Labels toggle.
 
 ## Decisions
-- ADR-0027 (to be written with P3.1 completion): gate lives inside `RepositoryHandle`; reads never take it.
+- ADR-0027: FIFO write gate inside `RepositoryHandle`; reads never take it; every finished mutation bumps
+  `RepoRevision` and invalidates status.
 
 ## Deviations from plan
 - The command bar lives in the graph pane (where the Phase 2 bar was), constrained to the pane's safe area,
@@ -52,9 +72,23 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   bar already clears it. Spec to be updated when the working-directory panel lands.
 - Branch popover has no "Recent" section yet: Jit records no branch-switch history before Phase 4.
 - ⌃F6 focus for the bar is not wired yet.
+- The panel is a SwiftUI `List` (`WorkingDirectoryView` + `WorkingDirectoryModel`), not an
+  `NSViewController`: the inspector is SwiftUI, and `List` gives AppKit table virtualization, selection and
+  keyboard handling. Rows hold path `String`s (one per changed file) because filter, sort and tree need them;
+  status parsing itself stays byte-level (ADR-0005).
+- Drop highlight uses `accent.muted`; there is no `fill.dropTarget` token yet.
+- The composer action bar arrives with the composer in P3.10 (no placeholder now).
+- No XCUITest target exists in the project, so `StageAndUnstageFileByDrag` is a model-level test with a
+  real session (`stageAndUnstageByDragMoveRowsBetweenSections`); a pointer drag in the running app has not
+  been exercised.
 
 ## Known issues / carry-overs
 - `LiveProcessGroups.killAll` sends SIGTERM to every live group at app quit, write commands included; Phase 3
   writes (stage/unstage) are short, but quitting must wait for gated writes before P3.4 lands.
-- Narrow-window overflow screenshot and Reduce Transparency screenshot still to capture.
-- Next: P3.1 UI (`WorkingDirectoryViewController`, sections, drag between sections, context menu), then P3.2.
+- Narrow-window overflow screenshot and Reduce Transparency screenshots (bar and panel) still to capture.
+- Clean-state screenshot not captured: a clean tree has no WIP row, so the panel only shows its clean state
+  briefly when the tree becomes clean while selected (verified by `cleanTreeLoadsLastCommitSubject`).
+- Not yet exercised by pointer: drag between sections, context menu, Space, tree collapse, ⇧⌘O / ⌥⌘F.
+- Untracked directories (`scratch/`) are staged as a whole; on-demand expansion is not built.
+- Paths that are not valid UTF-8 are listed with replacement characters and cannot be staged from the panel.
+- Next: P3.2 file-level discard with recovery.

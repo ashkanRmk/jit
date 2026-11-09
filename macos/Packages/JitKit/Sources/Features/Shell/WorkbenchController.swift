@@ -85,6 +85,11 @@ final class WorkbenchController: NSSplitViewController {
     /// Graph ↔ navigator ↔ inspector (design §3.4–§3.5).
     private func connect(graph: GraphViewController, navigator: NavigatorViewController) {
         let inspector = inspectorModel
+        let workingDirectory = WorkingDirectoryModel(session: session)
+        inspector.workingDirectory = workingDirectory
+        workingDirectory.openFileHistory = { [weak graph] path in
+            graph?.showFileHistory(path: path, isDirectory: false)
+        }
         graph.actions.selectionChanged = { [weak self, weak graph] model in
             inspector.show(selection: graph?.compareOrder(model.selection) ?? model.selection, wip: model.wipSelected)
             self?.setInspectorCollapsed(model.selection.isEmpty && !model.wipSelected)

@@ -164,7 +164,7 @@ public struct StatusEntries: Sendable {
     }
 
     /// Submodule sub-states from the `S<c><m><u>` field.
-    public struct SubmoduleState: Sendable, Equatable {
+    public struct SubmoduleState: Sendable, Hashable {
         public var commitChanged: Bool
         public var hasTrackedChanges: Bool
         public var hasUntrackedChanges: Bool

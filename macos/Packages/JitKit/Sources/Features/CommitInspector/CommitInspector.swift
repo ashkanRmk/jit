@@ -16,20 +16,12 @@ final class InspectorModel {
         case compareWithWorkingDirectory(ObjectID)
     }
 
-    struct WIPEntry: Identifiable, Hashable {
-        let id: Int
-        let code: String
-        let path: String
-    }
-
     private(set) var mode: Mode = .nothing
     private(set) var details: CommitDetails?
     private(set) var files: [ChangedFile] = []
     /// Shown only after 120 ms of loading (design §3.4).
     private(set) var showsSpinner = false
     private(set) var error: String?
-    private(set) var wipEntries: [WIPEntry] = []
-    private(set) var wipTotal = 0
     var compareMode: CompareMode = .sinceMergeBase {
         didSet { if oldValue != compareMode { reload() } }
     }
@@ -37,7 +29,11 @@ final class InspectorModel {
     var format: ObjectFormat = .sha1
     var refs: RefSnapshot?
 
-    @ObservationIgnored var handle: RepositoryHandle?
+    @ObservationIgnored var handle: RepositoryHandle? {
+        didSet { workingDirectory?.handle = handle }
+    }
+    /// The working-directory panel (P3.1), shown while the WIP row is selected.
+    @ObservationIgnored var workingDirectory: WorkingDirectoryModel?
     @ObservationIgnored var selectCommit: (ObjectID) -> Void = { _ in }
     @ObservationIgnored var showFileHistory: (String, Bool) -> Void = { _, _ in }
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -63,10 +59,6 @@ final class InspectorModel {
         reload()
     }
 
-    func refreshWorkingDirectory() {
-        if mode == .workingDirectory { reload() }
-    }
-
     private func reload() {
         // Selecting something else cancels the previous request, which kills its Git process (ADR-0005).
         task?.cancel()
@@ -75,6 +67,12 @@ final class InspectorModel {
         files = []
         error = nil
         showsSpinner = false
+        // The panel follows status itself; the inspector only switches it on and off.
+        if mode == .workingDirectory {
+            workingDirectory?.activate()
+            return
+        }
+        workingDirectory?.deactivate()
         guard let handle, mode != .nothing else { return }
         spinnerTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
@@ -102,9 +100,7 @@ final class InspectorModel {
                     guard let self, !Task.isCancelled else { return }
                     self.files = files
                 case .workingDirectory:
-                    let snapshot = await handle.lastSnapshot()
-                    guard let self, !Task.isCancelled else { return }
-                    self.loadWIP(snapshot)
+                    return
                 }
                 self?.finish()
             } catch .cancelled {
@@ -120,30 +116,6 @@ final class InspectorModel {
     private func finish() {
         spinnerTask?.cancel()
         showsSpinner = false
-    }
-
-    private func loadWIP(_ snapshot: StatusSnapshot?) {
-        guard let entries = snapshot?.entries else {
-            wipEntries = []
-            wipTotal = 0
-            return
-        }
-        var result: [WIPEntry] = []
-        let limit = min(entries.count, 1000)
-        for index in 0..<entries.count where result.count < limit {
-            let kind = entries.kind(at: index)
-            if kind == .ignored { continue }
-            let codes = entries.statusCodes(at: index)
-            let code: String
-            switch kind {
-            case .untracked: code = "?"
-            case .unmerged: code = "U"
-            default: code = String(codes.index == "." ? codes.worktree : codes.index)
-            }
-            result.append(WIPEntry(id: index, code: code, path: entries.path(at: index)))
-        }
-        wipEntries = result
-        wipTotal = (0..<entries.count).reduce(0) { $0 + (entries.kind(at: $1) == .ignored ? 0 : 1) }
     }
 }
 
@@ -176,10 +148,8 @@ struct CommitInspectorView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             case .workingDirectory:
-                ScrollView {
-                    WorkingDirectorySummary(model: model)
-                        .padding(Space.s7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if let workingDirectory = model.workingDirectory {
+                    WorkingDirectoryView(model: workingDirectory)
                 }
             case .compare(let a, let b):
                 ScrollView {
@@ -585,42 +555,6 @@ private struct StatBar: View {
         if index < green { return ColorToken.diffAddMark.color }
         if index < filled { return ColorToken.diffDeleteMark.color }
         return ColorToken.borderSubtle.color
-    }
-}
-
-/// The WIP row's inspector: changed paths with status letters (the working-directory panel is Phase 3).
-private struct WorkingDirectorySummary: View {
-    let model: InspectorModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s5) {
-            Text("Uncommitted changes")
-                .typeStyle(.title)
-                .foregroundStyle(.token(.textPrimary))
-            Text("\(model.wipTotal) changed \(model.wipTotal == 1 ? "path" : "paths")")
-                .typeStyle(.callout)
-                .foregroundStyle(.token(.textSecondary))
-            LazyVStack(alignment: .leading, spacing: Space.s2) {
-                ForEach(model.wipEntries) { entry in
-                    HStack(spacing: Space.s4) {
-                        Text(entry.code)
-                            .typeStyle(.monoCaption)
-                            .foregroundStyle(.token(.textSecondary))
-                            .frame(width: 12)
-                        Text(DisplayText.sanitize(entry.path))
-                            .typeStyle(.monoCaption)
-                            .foregroundStyle(.token(.textPrimary))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-            }
-            if model.wipTotal > model.wipEntries.count {
-                Text("and \(model.wipTotal - model.wipEntries.count) more")
-                    .typeStyle(.caption)
-                    .foregroundStyle(.token(.textTertiary))
-            }
-        }
     }
 }
 
