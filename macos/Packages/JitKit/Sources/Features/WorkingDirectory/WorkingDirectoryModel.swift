@@ -26,7 +26,18 @@ final class WorkingDirectoryModel {
     var sort: WDSort = .path { didSet { if sort != oldValue { rebuildDisplay() } } }
     var showsTree = false { didSet { if showsTree != oldValue { rebuildDisplay() } } }
     private(set) var collapsed: Set<String> = []
-    var selection: Set<String> = []
+    var selection: Set<String> = [] {
+        didSet {
+            guard selection != oldValue else { return }
+            // One file selected → its diff; nothing or several → no diff (design §3.1 click selects → diff).
+            if selection.count == 1, let id = selection.first, let file = file(id: id) {
+                openDiff(file)
+            } else if selection.isEmpty {
+                openDiff(nil)
+            }
+        }
+    }
+    @ObservationIgnored var openDiff: (WDFile?) -> Void = { _ in }
     /// The section under a drag (drop highlight).
     var dropTarget: WDSection?
 
@@ -136,6 +147,14 @@ final class WorkingDirectoryModel {
         if newList.isClean { loadLastCommitSubject(branch) }
         #if DEBUG
             // `-JitDiscardSheet <path>`: opens the discard sheet for an unstaged path (screenshots).
+            // `-JitOpenDiff <path>`: selects that file so its diff opens (screenshots).
+            if let path = UserDefaults.standard.string(forKey: "JitOpenDiff"), !debugDiffOpened,
+                let file = newList.unstaged.first(where: { $0.path == path })
+                    ?? newList.staged.first(where: { $0.path == path })
+            {
+                debugDiffOpened = true
+                selection = [file.id]
+            }
             if let path = UserDefaults.standard.string(forKey: "JitDiscardSheet"), !debugSheetShown,
                 let file = newList.unstaged.first(where: { $0.path == path })
             {
@@ -146,6 +165,7 @@ final class WorkingDirectoryModel {
     }
 
     @ObservationIgnored private var debugSheetShown = false
+    @ObservationIgnored private var debugDiffOpened = false
 
     var allFiles: [WDFile] { list.conflicts + list.staged + list.unstaged }
 

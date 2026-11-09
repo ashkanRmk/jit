@@ -64,6 +64,14 @@ public final class DiffDocument: Sendable {
         self.init(storage: storage, target: target, options: options, token: token, gaps: gaps)
     }
 
+    /// A document over `storage` with explicit hidden ranges (keeps expansion across reloads).
+    public convenience init(
+        storage: PatchStorage, target: DiffTarget?, options: DiffOptions, token: SnapshotToken?,
+        gapsOverride: [ContextGap]
+    ) {
+        self.init(storage: storage, target: target, options: options, token: token, gaps: gapsOverride)
+    }
+
     init(storage: PatchStorage, target: DiffTarget?, options: DiffOptions, token: SnapshotToken?, gaps: [ContextGap]) {
         self.storage = storage
         self.target = target

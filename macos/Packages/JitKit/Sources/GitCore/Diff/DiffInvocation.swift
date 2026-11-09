@@ -8,15 +8,15 @@ public enum DiffTarget: Sendable, Hashable {
     case staged(path: String, renamedFrom: String? = nil)
     /// First parent (the empty tree for a root commit) → commit.
     case commit(ObjectID, path: String?)
-    /// `from` → `to` directly.
-    case commits(from: ObjectID, to: ObjectID, path: String?)
+    /// `from` → `to` directly, or (`sinceMergeBase`) their common ancestor → `to` (`from...to`).
+    case commits(from: ObjectID, to: ObjectID, path: String?, sinceMergeBase: Bool = false)
     /// Commit → working tree (tracked files).
     case commitToWorktree(ObjectID, path: String?)
 
     public var path: String? {
         switch self {
         case .unstaged(let path), .staged(let path, _): path
-        case .commit(_, let path), .commits(_, _, let path), .commitToWorktree(_, let path): path
+        case .commit(_, let path), .commits(_, _, let path, _), .commitToWorktree(_, let path): path
         }
     }
 }
@@ -76,8 +76,9 @@ public enum DiffInvocation {
             arguments.append("--cached")
         case .commit(let oid, _):
             arguments += [firstParent?.hex(format) ?? emptyTree(format), oid.hex(format)]
-        case .commits(let from, let to, _):
-            arguments += [from.hex(format), to.hex(format)]
+        case .commits(let from, let to, _, let sinceMergeBase):
+            arguments +=
+                sinceMergeBase ? ["\(from.hex(format))...\(to.hex(format))"] : [from.hex(format), to.hex(format)]
         case .commitToWorktree(let oid, _):
             arguments.append(oid.hex(format))
         }

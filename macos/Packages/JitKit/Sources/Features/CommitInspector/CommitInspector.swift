@@ -34,6 +34,25 @@ final class InspectorModel {
     }
     /// The working-directory panel (P3.1), shown while the WIP row is selected.
     @ObservationIgnored var workingDirectory: WorkingDirectoryModel?
+    /// The diff viewer below the file list (P3.6).
+    @ObservationIgnored var diff: DiffViewModel?
+    @ObservationIgnored var diffController: DiffViewController?
+    /// The file whose diff is open (commit / compare lists).
+    private(set) var openedFilePath: String?
+
+    /// Opens the diff of `file` for what the inspector shows.
+    func openDiff(_ file: ChangedFile) {
+        let target: DiffTarget
+        switch mode {
+        case .commit(let oid): target = .commit(oid, path: file.path)
+        case .compare(let a, let b):
+            target = .commits(from: a, to: b, path: file.path, sinceMergeBase: compareMode == .sinceMergeBase)
+        case .compareWithWorkingDirectory(let oid): target = .commitToWorktree(oid, path: file.path)
+        case .nothing, .workingDirectory: return
+        }
+        openedFilePath = file.path
+        diff?.open(target)
+    }
     @ObservationIgnored var selectCommit: (ObjectID) -> Void = { _ in }
     @ObservationIgnored var showFileHistory: (String, Bool) -> Void = { _, _ in }
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -50,12 +69,16 @@ final class InspectorModel {
         }
         guard next != mode else { return }
         mode = next
+        openedFilePath = nil
+        diff?.close()
         reload()
     }
 
     func swapComparison() {
         guard case .compare(let a, let b) = mode else { return }
         mode = .compare(b, a)
+        openedFilePath = nil
+        diff?.close()
         reload()
     }
 
@@ -178,6 +201,36 @@ struct CommitInspectorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ColorToken.surfacePanel.color.ignoresSafeArea())
+    }
+}
+
+/// The inspector: its content above, the diff viewer below once a file is chosen (design §3.3).
+struct InspectorWithDiff: View {
+    let model: InspectorModel
+    let diff: DiffViewModel
+    let controller: DiffViewController
+
+    var body: some View {
+        if diff.target == nil {
+            CommitInspectorView(model: model)
+        } else {
+            VSplitView {
+                CommitInspectorView(model: model)
+                    .frame(minHeight: 160, idealHeight: 260)
+                Group {
+                    if diff.isFocused {
+                        Text("Shown in Focused Diff — press Esc to return")
+                            .typeStyle(.callout)
+                            .foregroundStyle(.token(.textTertiary))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(ColorToken.surfacePanel.color)
+                    } else {
+                        DiffPane(controller: controller)
+                    }
+                }
+                .frame(minHeight: 200, idealHeight: 420)
+            }
+        }
     }
 }
 
@@ -467,8 +520,12 @@ private struct FileRow: View {
         }
         .padding(.vertical, Space.s2)
         .padding(.horizontal, Space.s3)
-        .background(RowBackground(isHovered ? .hover : .rest))
+        .background(RowBackground(model.openedFilePath == file.path ? .selected : isHovered ? .hover : .rest))
+        .contentShape(Rectangle())
+        .onTapGesture { model.openDiff(file) }
         .onHover { isHovered = $0 }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Shows the diff")
         .contextMenu {
             Button("Show File History") { model.showFileHistory(file.path, false) }
             Button("Show Folder History") {

@@ -25,6 +25,8 @@ final class WorkbenchController: NSSplitViewController {
     private(set) var graph: GraphViewController?
     private(set) var navigator: NavigatorViewController?
     let inspectorModel = InspectorModel()
+    lazy var diffModel = DiffViewModel(session: session)
+    lazy var diffController = DiffViewController(model: diffModel)
     private var needsWidthRestore = true
     private var isApplyingWidths = false
 
@@ -63,11 +65,14 @@ final class WorkbenchController: NSSplitViewController {
         sidebar.isCollapsed = tab.sidebarCollapsed
 
         let main = NSSplitViewItem(
-            viewController: MainPaneController(graph: graph, session: session, tab: tab, actions: actions))
+            viewController: MainPaneController(
+                graph: graph, session: session, tab: tab, actions: actions, diffModel: diffModel,
+                diffController: diffController))
         main.minimumThickness = PanelMetrics.contentColumnMax - 160
 
         let inspector = NSSplitViewItem(
-            inspectorWithViewController: Self.host(CommitInspectorView(model: inspectorModel)))
+            inspectorWithViewController: Self.host(
+                InspectorWithDiff(model: inspectorModel, diff: diffModel, controller: diffController)))
         inspector.minimumThickness = PanelMetrics.inspectorMin
         inspector.maximumThickness = PanelMetrics.inspectorMax
         inspector.canCollapse = true
@@ -87,6 +92,21 @@ final class WorkbenchController: NSSplitViewController {
         let inspector = inspectorModel
         let workingDirectory = WorkingDirectoryModel(session: session)
         inspector.workingDirectory = workingDirectory
+        inspector.diff = diffModel
+        inspector.diffController = diffController
+        let diff = diffModel
+        workingDirectory.openDiff = { file in
+            guard let file else {
+                diff.close()
+                return
+            }
+            switch file.section {
+            case .unstaged: diff.open(.unstaged(path: file.path))
+            case .staged:
+                diff.open(.staged(path: file.path, renamedFrom: file.change == .renamed ? file.originalPath : nil))
+            case .conflicts: diff.close()
+            }
+        }
         workingDirectory.openFileHistory = { [weak graph] path in
             graph?.showFileHistory(path: path, isDirectory: false)
         }
@@ -240,13 +260,58 @@ final class MainPaneController: NSViewController {
     let session: RepositorySession
     let tab: TabModel
     let actions: WorkbenchActions
+    let diffModel: DiffViewModel
+    let diffController: DiffViewController
+    private let focusContainer = NSView()
 
-    init(graph: GraphViewController, session: RepositorySession, tab: TabModel, actions: WorkbenchActions) {
+    init(
+        graph: GraphViewController, session: RepositorySession, tab: TabModel, actions: WorkbenchActions,
+        diffModel: DiffViewModel, diffController: DiffViewController
+    ) {
         self.graph = graph
         self.session = session
         self.tab = tab
         self.actions = actions
+        self.diffModel = diffModel
+        self.diffController = diffController
         super.init(nibName: nil, bundle: nil)
+    }
+
+    /// Focused Diff (design §3.3): the viewer covers the graph area; 200 ms fade, instant with Reduce Motion.
+    private func observeFocus() {
+        withObservationTracking {
+            _ = diffModel.isFocused
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.applyFocus()
+                self?.observeFocus()
+            }
+        }
+    }
+
+    private func applyFocus() {
+        let focused = diffModel.isFocused
+        let instant = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if focused {
+            let view = diffController.view
+            view.removeFromSuperview()
+            view.frame = focusContainer.bounds
+            view.autoresizingMask = [.width, .height]
+            focusContainer.addSubview(view)
+            focusContainer.isHidden = false
+            focusContainer.alphaValue = instant ? 1 : 0
+            if !instant {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = MotionToken.panel.duration
+                    focusContainer.animator().alphaValue = 1
+                }
+            }
+            diffController.focusBody()
+        } else {
+            focusContainer.isHidden = true
+            // The inspector's pane re-attaches the view on its next update.
+            if diffController.view.superview === focusContainer { diffController.view.removeFromSuperview() }
+        }
     }
 
     @available(*, unavailable)
@@ -261,6 +326,18 @@ final class MainPaneController: NSViewController {
         overlay.translatesAutoresizingMaskIntoConstraints = false
         overlay.sizingOptions = []
         root.addSubview(overlay)
+        focusContainer.translatesAutoresizingMaskIntoConstraints = false
+        focusContainer.isHidden = true
+        focusContainer.wantsLayer = true
+        root.addSubview(focusContainer)
+        observeFocus()
+        NSLayoutConstraint.activate([
+            focusContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            focusContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            // Below the window toolbar: the diff's own glass chrome must not sit under it.
+            focusContainer.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            focusContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
         for view in [graph.view, overlay] {
             NSLayoutConstraint.activate([
                 view.leadingAnchor.constraint(equalTo: root.leadingAnchor),

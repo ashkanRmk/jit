@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.5 complete; P3.6 next)
+Status: **in progress** (P3.0–P3.6 complete; P3.7 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -91,9 +91,24 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   Release numbers (M5 Pro): CodeLinesView 2,401 rows first paint 5.7 ms (28.2 ms cold), 60,001 rows 8.0 ms,
   0/400 frames over 16.7 ms, max 1.75 ms; TextKit 2 52.7 ms / 910.7 ms first paint, 18–19/400 slow frames,
   +102 MB at 60k rows.
+- **P3.6 Diff viewer** — `Features/DiffViewer/`: `DiffViewModel` (targets, layouts persisted, loading with
+  120 ms spinner, reload on status change keeping expansion when bytes are equal, binary / mode-only / empty /
+  too-large (64 MB) / failed states, gaps, change navigation, go to line, search with case option),
+  `DiffViewController` (opaque `CodeLinesView` body, floating glass chrome in one container with full and
+  compact forms via `ViewThatFits`: title, Unified / Side by Side / Full File, change navigator, find
+  capsule, options menu (show/ignore whitespace, go to line), Focus Diff). Opens below the file list in the
+  inspector (working directory: unstaged / staged incl. rename source; commit, compare (direct or since
+  merge base) and commit → working tree from the Phase 2 file lists). Focused Diff covers the graph pane
+  under the toolbar with a 200 ms fade (instant with Reduce Motion), Esc returns. Menus: Find ▸ Go to Line…
+  (⌘L), Find Next/Previous (⌘G/⇧⌘G) reach the diff through the responder chain, View ▸ Focus Diff (⌥⌘↩),
+  Next/Previous Change (⌥↓/⌥↑). Debug args `-JitOpenDiff <path>`, `-JitFocusDiff YES`, `-diffLayout`.
+  Evidence: `DiffViewerTests` (split filler rows, collapsed context expansion, change navigation + search +
+  go to line, renderer geometry/whitespace), contrast test for gutter/marks on diff backgrounds; screenshots
+  `diff-{unified,split,fullfile}-{light,dark}.png` (focused), `diff-unified-inspector-{light,dark}.png`,
+  `diff-no-newline-light.png`, `diff-binary-dark.png`.
 
 ## Verified
-- Tests: `scripts/build/test-core.sh` — **330 passed** (43 + 227 + 48 + 12 across the four test targets);
+- Tests: `scripts/build/test-core.sh` — **335 passed** (43 + 227 + 52 + 13 across the four test targets);
   skipped: none. Xcode app tests not run yet this phase. Lint clean (`scripts/build/lint.sh`).
 - Real workflow: debug app on a clone with an upstream (1 ahead), a second branch and staged/unstaged/untracked
   changes — breadcrumb, `3 changes`, Terminal and search render in both themes (screenshots above).
@@ -131,8 +146,9 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
 - Discard into the real Trash is not exercised by tests (it would fill the user's Trash); tests inject a
   trash hook, and `RecoveryStore.discardHooks` calls `FileManager.trashItem`.
 - Not yet exercised by pointer: Discard Changes… menu, confirming in the sheet, Recently Discarded menu.
-- Diff documents are not yet shown anywhere: selecting a file in the panel opens nothing until the
-  diff viewer lands (after the P3.5 renderer decision).
+- Diff viewer: no soft wrap (fixed rows, ADR-0011); search works in unified and full-file layouts only;
+  renamed files in commit diffs opened with a path filter show as add + delete pair-less (the path filter
+  hides the rename source); the commit-inspector diff path was exercised in tests only, not by pointer.
 - Copy detection (`-C`) is not part of the canonical command; the copy header is covered by parsing Git's
   own `-C` output.
 - Next: P3.4 patch builder and selection apply (safety core).

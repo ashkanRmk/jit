@@ -95,6 +95,8 @@ public enum MainMenu {
         findMenu.addItem(item("Find…", #selector(GraphViewController.jitFind(_:)), "f"))
         findMenu.addItem(item("Find Next", #selector(GraphViewController.jitFindNext(_:)), "g"))
         findMenu.addItem(item("Find Previous", #selector(GraphViewController.jitFindPrevious(_:)), "G", .command))
+        findMenu.addItem(.separator())
+        findMenu.addItem(item("Go to Line…", #selector(DiffViewController.diffGoToLine(_:)), "l"))
         find.submenu = findMenu
         menu.addItem(find)
         return menu
@@ -131,6 +133,16 @@ public enum MainMenu {
         commandBarMenu.addItem(item("Show Labels", #selector(GraphViewController.toggleCommandBarLabels(_:))))
         commandBar.submenu = commandBarMenu
         menu.addItem(commandBar)
+        menu.addItem(.separator())
+        menu.addItem(item("Focus Diff", #selector(DiffViewController.toggleFocusDiff(_:)), "\r", [.command, .option]))
+        menu.addItem(
+            item(
+                "Next Change", #selector(DiffViewController.diffNextChange(_:)),
+                "\u{F701}", .option))
+        menu.addItem(
+            item(
+                "Previous Change", #selector(DiffViewController.diffPreviousChange(_:)),
+                "\u{F700}", .option))
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu
