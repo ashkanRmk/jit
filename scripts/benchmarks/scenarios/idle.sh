@@ -27,4 +27,13 @@ print(f"scenario=idle-{t}tabs metric=cpu_percent value={r['cpu_percent_mean']:.3
 print(f"scenario=idle-{t}tabs metric=idle_wakeups_per_s value={r['idle_wakeups_per_sample_mean']:.3f} unit=1/s")
 print(f"scenario=idle-{t}tabs metric=footprint value={mb:.1f} unit=MB")
 print(f"scenario=idle-{t}tabs metric=threads value={r['threads_max']} unit=count")
+pm = r.get("powermetrics") or {}
+if "cpu_ms_per_s" in pm:
+    print(f"scenario=idle-{t}tabs metric=pm_cpu_ms_per_s value={pm['cpu_ms_per_s']:.3f} unit=ms/s")
+    print(f"scenario=idle-{t}tabs metric=pm_wakeups_per_s value={pm['interrupt_wakeups_per_s']:.3f} unit=1/s")
+    print(f"scenario=idle-{t}tabs metric=pm_gpu_ms_per_s value={pm['gpu_ms_per_s']:.3f} unit=ms/s")
+    print(f"scenario=idle-{t}tabs metric=pm_energy_impact value={pm['energy_impact']:.3f} unit=energy")
+net = r.get("network") or {}
+if "sockets" in net:
+    print(f"scenario=idle-{t}tabs metric=network_bytes value={net['bytes_in'] + net['bytes_out']} unit=bytes sockets={net['sockets']}")
 PY

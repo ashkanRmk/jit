@@ -41,13 +41,24 @@ extension View {
     }
 
     /// The single primary action of a surface: system prominent glass button tinted with `accent.tint`.
+    /// (`-JitOpaqueChrome`: the opaque bordered-prominent style, for glass-cost A/B.)
+    @ViewBuilder
     public func primaryGlassButton() -> some View {
-        buttonStyle(.glassProminent).tint(ColorToken.accentTint.color)
+        if GlassPolicy.opaqueChrome {
+            buttonStyle(.borderedProminent).tint(ColorToken.accentTint.color)
+        } else {
+            buttonStyle(.glassProminent).tint(ColorToken.accentTint.color)
+        }
     }
 
-    /// A secondary chrome action: untinted system glass button.
+    /// A secondary chrome action: untinted system glass button. (`-JitOpaqueChrome`: bordered.)
+    @ViewBuilder
     public func secondaryGlassButton() -> some View {
-        buttonStyle(.glass)
+        if GlassPolicy.opaqueChrome {
+            buttonStyle(.bordered)
+        } else {
+            buttonStyle(.glass)
+        }
     }
 }
 

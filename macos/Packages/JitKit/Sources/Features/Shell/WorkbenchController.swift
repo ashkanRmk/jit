@@ -193,11 +193,6 @@ final class WorkbenchController: NSSplitViewController {
         return host
     }
 
-    override func viewWillAppear() {
-        super.viewWillAppear()
-        needsWidthRestore = true
-    }
-
     /// Called when the tab is shown again (its view stays in the hierarchy while hidden); widths are shared
     /// with other tabs and may have changed.
     func willBecomeVisible() {
@@ -222,14 +217,21 @@ final class WorkbenchController: NSSplitViewController {
     }
 
     /// Applies the shared widths (another tab may have changed them).
+    /// Only dividers that are off move. Restoring on every show (it used to re-arm in `viewWillAppear`) called
+    /// `setPosition` on every tab switch: ≈ 190 main-thread samples over 40 switches in the multi-tab trace,
+    /// now 0 (switch latency itself is bound by toolbar/SwiftUI layout).
     private func applyWidths() {
         isApplyingWidths = true
         defer { isApplyingWidths = false }
         let divider = splitView.dividerThickness
-        if let sidebarItem, !sidebarItem.isCollapsed {
+        if let sidebarItem, !sidebarItem.isCollapsed,
+            abs(sidebarItem.viewController.view.frame.width - model.layout.sidebarWidth) > 0.5
+        {
             splitView.setPosition(model.layout.sidebarWidth, ofDividerAt: 0)
         }
-        if let inspectorItem, !inspectorItem.isCollapsed {
+        if let inspectorItem, !inspectorItem.isCollapsed,
+            abs(inspectorItem.viewController.view.frame.width - model.layout.inspectorWidth) > 0.5
+        {
             splitView.setPosition(splitView.bounds.width - model.layout.inspectorWidth - divider, ofDividerAt: 1)
         }
     }
@@ -262,7 +264,6 @@ final class WorkbenchController: NSSplitViewController {
         model.scheduleSave()
     }
 
-    /// System collapse animation; instant with Reduce Motion.
     /// The tab closed (or was suspended): detach hosted views that capture their controllers (P6.6).
     func tearDown() {
         graph?.tearDown()
@@ -306,6 +307,7 @@ final class WorkbenchController: NSSplitViewController {
         return nil
     }
 
+    /// System collapse animation; instant with Reduce Motion.
     override func toggleSidebar(_ sender: Any?) {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, let sidebarItem {
             sidebarItem.isCollapsed.toggle()

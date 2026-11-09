@@ -81,14 +81,17 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.onOpenFailure = { [weak self] url, error in self?.presentOpenFailure(url, error) }
         observeProfiles()
         ProfileMenu.shared.store = model.profiles
-        model.accounts.passphrasePrompt = { [weak self] keyPath, fingerprint in
-            await PassphrasePresenter.ask(on: self?.window, keyPath: keyPath, fingerprint: fingerprint)
-        }
-        model.accounts.publishedFingerprints = { [weak self] host in
-            guard host == "github.com", let accounts = await self?.model.accounts else { return [] }
-            let transport = await accounts.transport(for: .github)
-            let provider = GitHubProvider(instance: .github, transport: transport, token: { SecretBytes([]) })
-            return (try? await provider.publishedSSHFingerprints()) ?? []
+        // Not `model.accounts` here: that would create the accounts service (Keychain, path monitor) at launch.
+        model.configureAccounts = { [weak self] accounts in
+            accounts.passphrasePrompt = { [weak self] keyPath, fingerprint in
+                await PassphrasePresenter.ask(on: self?.window, keyPath: keyPath, fingerprint: fingerprint)
+            }
+            accounts.publishedFingerprints = { [weak accounts] host in
+                guard host == "github.com", let accounts else { return [] }
+                let transport = await accounts.transport(for: .github)
+                let provider = GitHubProvider(instance: .github, transport: transport, token: { SecretBytes([]) })
+                return (try? await provider.publishedSSHFingerprints()) ?? []
+            }
         }
         observeActivity()
         observeForeground()

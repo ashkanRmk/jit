@@ -30,8 +30,18 @@ public final class AppModel {
     public let preferences: PreferencesStore
     public let recents: RecentsStore
     public let profiles: ProfileStore
-    /// Profile authentication: exec contexts, Keychain, connectivity (Phase 5). No I/O until first used.
-    @ObservationIgnored public lazy var accounts = AccountsService(profiles: profiles)
+    /// Profile authentication: exec contexts, Keychain, connectivity (Phase 5). Created on first use — never at
+    /// launch (P6.4): `configureAccounts` runs once when it is created.
+    @ObservationIgnored public lazy var accounts: AccountsService = {
+        let service = AccountsService(profiles: profiles)
+        isAccountsLoaded = true
+        configureAccounts?(service)
+        return service
+    }()
+    /// Window-level hooks for the accounts service (passphrase / host-key prompts), applied when it is created.
+    @ObservationIgnored public var configureAccounts: ((AccountsService) -> Void)?
+    /// Whether `accounts` exists yet (tests: launch must not create it).
+    @ObservationIgnored public private(set) var isAccountsLoaded = false
     /// Unfinished commit messages per repository (P3.10).
     @ObservationIgnored public lazy var commitDrafts = CommitDrafts()
     public let layout: LayoutState

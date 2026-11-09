@@ -117,6 +117,12 @@ def threshold(metric, unit, loose):
         return ("rel", 0.10 * factor)
     if unit == "count":
         return ("abs", 2 * factor)
+    if unit == "ms/s":
+        return ("abs", 2.0 * factor)   # idle CPU: 2 ms/s = 0.2 % of one core
+    if unit == "energy":
+        return ("abs", 0.5 * factor)
+    if unit == "bytes":
+        return ("abs", 0)               # idle network must stay zero
     return ("rel", 0.10 * factor)  # ms: launch +10 %, etc.
 
 def compare(base_path, cand_path, loose=False):
