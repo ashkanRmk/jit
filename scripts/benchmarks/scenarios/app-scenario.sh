@@ -5,7 +5,7 @@
 #   scenarios/app-scenario.sh <scenario> <repo> [repo...]
 set -euo pipefail
 SCENARIO="${1:?usage: app-scenario.sh <scenario> <repo>...}"; shift
-BUNDLE="${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app"
+BUNDLE="${JIT_BENCH_APP:-${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app}"
 [[ -x "$BUNDLE/Contents/MacOS/Jit" ]] || { echo "error: build first: scripts/build/build-app.sh release" >&2; exit 1; }
 REPOS="$(IFS=:; echo "$*")"
 STATE="$(mktemp -d -t jit-scenario-state)"

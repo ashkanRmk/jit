@@ -19,7 +19,7 @@ for arg in "$@"; do
     esac
 done
 LABEL="${JIT_BENCH_LABEL:-$MODE}"  # output file suffix
-BUNDLE="${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app"
+BUNDLE="${JIT_BENCH_APP:-${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app}"
 [[ -d "$BUNDLE" ]] || { echo "error: build first: scripts/build/build-app.sh release" >&2; exit 1; }
 OUT_DIR="$(cd "$(dirname "$0")" && pwd)/out"; mkdir -p "$OUT_DIR"
 RESULT="$(mktemp -t jit-launch)"
