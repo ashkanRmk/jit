@@ -658,6 +658,21 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
 
     // MARK: Phase 6 actions (View menu, palette)
 
+    /// ⌘F / ⌘G / ⇧⌘G from anywhere in the window (sidebar, inspector): the graph's search when the focused view
+    /// has no search of its own (the diff keeps its own — it is earlier in the responder chain).
+    @objc public func jitFind(_ sender: Any?) { activeGraph?.jitFind(sender) }
+    @objc public func jitFindNext(_ sender: Any?) { activeGraph?.jitFindNext(sender) }
+    @objc public func jitFindPrevious(_ sender: Any?) { activeGraph?.jitFindPrevious(sender) }
+
+    /// Edit ▸ Find ▸ Find in Open Tabs… (⇧⌘F): the palette scoped to open tabs and recent repositories by name.
+    @objc public func findInOpenTabs(_ sender: Any?) {
+        guard let window else { return }
+        let controller = palette ?? CommandPaletteController(window: self)
+        palette = controller
+        if !controller.isOpen { controller.open(over: window) }
+        controller.setQuery("#")
+    }
+
     @objc public func focusNextPane(_ sender: Any?) { activeWorkbench?.cycleFocus(forward: true) }
     @objc public func focusPreviousPane(_ sender: Any?) { activeWorkbench?.cycleFocus(forward: false) }
 
@@ -670,10 +685,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         if let size = PreferencesStore.CodeTextSize(rawValue: next) { model.preferences.codeTextSize = size }
     }
 
-    #if DEBUG
-        /// Screenshots (`-JitPaletteQuery`): types into the open palette.
-        public func setPaletteQuery(_ query: String) { palette?.setQuery(query) }
-    #endif
+    /// Types into the open palette (⇧⌘F, `-JitPaletteQuery`).
+    public func setPaletteQuery(_ query: String) { palette?.setQuery(query) }
 
     /// View ▸ Command Palette… (⌘K): opens, or closes when open.
     @objc public func toggleCommandPalette(_ sender: Any?) {
@@ -741,6 +754,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             return (activeOperations?.session.operationState.conflicted ?? 0) > 0
         case #selector(continueOperation(_:)), #selector(abortOperation(_:)):
             return activeOperations?.session.operationState.isDrivable ?? false
+        case #selector(jitFind(_:)), #selector(jitFindNext(_:)), #selector(jitFindPrevious(_:)):
+            return activeGraph != nil
         case #selector(focusNextPane(_:)), #selector(focusPreviousPane(_:)):
             return activeWorkbench != nil
         case #selector(increaseCodeTextSize(_:)):

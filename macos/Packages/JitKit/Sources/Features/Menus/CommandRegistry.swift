@@ -180,6 +180,9 @@ public enum CommandRegistry {
                 "edit.findPrevious", "Find Previous", .edit, #selector(GraphViewController.jitFindPrevious(_:)),
                 key: "G", group: 2, submenu: ["Find"], symbol: "chevron.up"),
             C(
+                "edit.findInTabs", "Find in Open Tabs…", .edit, #selector(W.findInOpenTabs(_:)), key: "F", group: 2,
+                submenu: ["Find"], symbol: "rectangle.stack", keywords: "search tabs repositories switch"),
+            C(
                 "edit.goToLine", "Go to Line…", .edit, #selector(DiffViewController.diffGoToLine(_:)), key: "l",
                 group: 3, submenu: ["Find"], symbol: "arrow.right.to.line"),
             // View
@@ -189,6 +192,10 @@ public enum CommandRegistry {
             C(
                 "view.sidebar", "Show Sidebar", .view, #selector(W.toggleSidebar(_:)), key: "s", [.command, .control],
                 group: 1, symbol: "sidebar.left"),
+            // ⌘B as well (owner request): the menu shows the standard ⌃⌘S.
+            C(
+                "view.sidebarAlt", "Show Sidebar", .view, #selector(W.toggleSidebar(_:)), key: "b", group: 1,
+                hiddenAlternate: true),
             C(
                 "view.inspector", "Show Inspector", .view, #selector(W.toggleInspector(_:)), key: "0",
                 [.command, .option], group: 1, symbol: "sidebar.right"),

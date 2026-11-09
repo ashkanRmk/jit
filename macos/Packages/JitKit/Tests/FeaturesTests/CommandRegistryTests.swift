@@ -78,6 +78,18 @@ import Testing
         #expect(CommandRegistry.command("repo.fetch")?.shortcutGlyphs == "")
     }
 
+    /// Owner shortcuts: ⌘B toggles the sidebar (with ⌃⌘S), ⌘F finds in the repository, ⇧⌘F finds open tabs.
+    @Test func searchAndSidebarShortcuts() {
+        let byKey = { (key: String, modifiers: NSEvent.ModifierFlags) in
+            CommandRegistry.all.first { $0.key == key && $0.modifiers == modifiers }
+        }
+        #expect(byKey("b", .command)?.action == #selector(MainWindowController.toggleSidebar(_:)))
+        #expect(byKey("s", [.command, .control])?.action == #selector(MainWindowController.toggleSidebar(_:)))
+        #expect(byKey("f", .command)?.action == #selector(GraphViewController.jitFind(_:)))
+        #expect(byKey("F", .command)?.action == #selector(MainWindowController.findInOpenTabs(_:)))
+        #expect(CommandRegistry.command("edit.findInTabs")?.shortcutGlyphs == "⇧⌘F")
+    }
+
     @Test func paletteHidesSystemOnlyItems() {
         let palette = Set(CommandRegistry.all.filter(\.inPalette).map(\.id))
         #expect(!palette.contains("app.quit"))

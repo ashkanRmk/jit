@@ -174,6 +174,8 @@ Assigned across the phase designs; check here before adding one (Phase 6 audits 
 | ⌥⌘↓ / ⌥⌘↑, ⌘S, ⇧⌘R | Conflict resolver: next / previous block, save, mark resolved | P4 |
 | ⌃⌘P | Open profile switcher | P5 |
 | ⌘K | Command palette | P6 |
+| ⌘B | Toggle sidebar (alternate of ⌃⌘S, owner request) | P6 |
+| ⇧⌘F | Find in open tabs (palette scoped to `#`) | P6 |
 | ⌥⌘← / ⌥⌘→ | Focus previous / next pane | P6 |
 | ⌘+ / ⌘- / ⌘0 | Larger / smaller / default code text | P6 |
 | ⌥⌘S | Create stash | P4 |
