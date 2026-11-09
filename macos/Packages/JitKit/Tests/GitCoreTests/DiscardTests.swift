@@ -25,7 +25,7 @@ import Testing
 
     /// Hooks that copy into `<sandbox>/recovery` and "trash" into `<sandbox>/trash`, recording the order.
     final class Recorder: Sendable {
-        let events = Mutex<[String]>([])
+        let events = Locked<[String]>([])
         let root: String
         init(_ root: String) throws {
             self.root = root
@@ -79,7 +79,7 @@ import Testing
         let repo = try await committed(sandbox, ["a.txt": "one\n"])
         try repo.write("a.txt", "precious edit\n")
         let handle = try await open(repo)
-        let seen = Mutex<String?>(nil)
+        let seen = Locked<String?>(nil)
         let hooks = DiscardHooks(
             preserve: { _, url in
                 // At preserve time the working tree must still hold the user's bytes.
@@ -132,7 +132,8 @@ import Testing
         do {
             _ = try await handle.discard(chosen, hooks: recorder.hooks)
             Issue.record("expected staleSnapshot")
-        } catch let error as GitCoreError {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
             guard case .staleSnapshot(let summary) = error else { throw error }
             #expect(summary.contains("b.txt"))
         }

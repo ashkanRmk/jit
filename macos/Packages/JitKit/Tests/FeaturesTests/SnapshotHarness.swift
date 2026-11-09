@@ -73,10 +73,12 @@ enum Snapshot {
             view.displayIfNeeded()
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
-        let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
-            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
-            bytesPerRow: 0, bitsPerPixel: 32)!
+        guard
+            let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                bytesPerRow: 0, bitsPerPixel: 32)
+        else { preconditionFailure("could not allocate a \(size) bitmap for the snapshot") }
         rep.size = size
         NSAppearance.current = variant.appearance
         view.cacheDisplay(in: view.bounds, to: rep)

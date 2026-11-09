@@ -81,10 +81,10 @@ extension CodeLinesDelegate {
 /// caches `CTLine`s for recently drawn rows, gutters and backgrounds drawn directly. Content layer:
 /// opaque, no glass. Reused by blame (P3.9) and the Phase 4 conflict resolver.
 public final class CodeLinesView: NSView {
-    public weak var dataSource: any CodeLinesDataSource? {
+    public weak var dataSource: (any CodeLinesDataSource)? {
         didSet { reloadData() }
     }
-    public weak var delegate: any CodeLinesDelegate?
+    public weak var delegate: (any CodeLinesDelegate)?
 
     public private(set) var font = CodeTextScale.font(step: CodeLinesView.preferredTextSizeStep)
     /// View ▸ Larger / Smaller Code Text (P6.10). Follows the preference unless set explicitly.

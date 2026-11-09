@@ -42,8 +42,10 @@ jobs:
 
       - name: Core tests (swift test)
         # Latency assertions get 4x headroom on the shared runner (GitTestKit.TimingBudget).
+        # Serial on the shared runner: parallel suites starved the few vCPUs and timed out waits (Phase 7).
         env:
           JIT_TEST_TIMING_SCALE: "4"
+          JIT_TEST_SERIAL: "1"
         run: scripts/build/test-core.sh
 
       - name: Build app (debug)

@@ -1,8 +1,5 @@
 // Shared build settings for the Jit app target (ADR-0003, ADR-0006 Phase 0 addendum).
-// Placeholder until the owner supplies the real bundle identifier.
-PRODUCT_BUNDLE_IDENTIFIER = com.example.jit
-MARKETING_VERSION = 0.0.1
-CURRENT_PROJECT_VERSION = 1
+#include "Version.xcconfig"
 MACOSX_DEPLOYMENT_TARGET = 26.0
 SWIFT_VERSION = 6.0
 SWIFT_STRICT_CONCURRENCY = complete

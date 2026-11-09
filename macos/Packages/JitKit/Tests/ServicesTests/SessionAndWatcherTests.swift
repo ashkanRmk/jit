@@ -93,7 +93,7 @@ import Testing
 
     func waitUntil(_ timeout: Duration = .seconds(3), _ condition: () -> Bool) async throws -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now + timeout
+        let deadline = clock.now + TimingBudget.latency(timeout)
         while clock.now < deadline {
             if condition() { return true }
             try await Task.sleep(for: .milliseconds(20))
@@ -196,7 +196,7 @@ import Testing
         let start = clock.now
         try repo.write("a.txt", "edited elsewhere\n")
         #expect(try await waitUntil(.seconds(2)) { session.status?.summary?.unstaged == 1 })
-        #expect(clock.now - start < .seconds(1))
+        #expect(clock.now - start < TimingBudget.latency(.seconds(1)))
         #expect(session.statusDot == .changes)
         // A commit made outside Jit (Terminal) updates the header too.
         try await repo.commit("Outside")

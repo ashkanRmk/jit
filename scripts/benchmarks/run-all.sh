@@ -7,6 +7,7 @@
 #   scripts/benchmarks/run-all.sh [--quick] [--no-idle] [--ci] [--no-compare]
 #     --quick       3 runs per scenario, 20 s idle samples (smoke run; not for reported numbers)
 #     --no-idle     skip the idle scenarios (≈ 6 min)
+#   JIT_BENCH_APP=<Jit.app> measures that app instead of the DerivedData Release build (Phase 7 release check).
 #     --ci          non-UI only: micro-benchmarks; compare with loose thresholds
 # Conditions for reported numbers (ADR-0041): release build, reference Mac on AC power, Low Power Mode off,
 # nothing heavy running. Results contain metrics only — no paths, refs or repository content.
@@ -34,12 +35,13 @@ SUMMARY="$REPO_ROOT/benchmarks/results/$STAMP-summary.md"
 
 "$DIR/gen-repos.sh"
 info "JitBench micro"
-swift build -c release --package-path "$PACKAGE_DIR" --product JitBench >/dev/null
+build_jitbench
 "$(swift build -c release --package-path "$PACKAGE_DIR" --show-bin-path)/JitBench" micro --iterations $((RUNS * 3)) \
     --out "$DIR/out/micro-$STAMP.json"
 
 if [[ $CI_MODE -eq 0 ]]; then
-    [[ -x "${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app/Contents/MacOS/Jit" ]] \
+    # JIT_BENCH_APP=<path to Jit.app> measures another build (e.g. the release installed from the DMG).
+    [[ -x "${JIT_BENCH_APP:-${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app}/Contents/MacOS/Jit" ]] \
         || "$REPO_ROOT/scripts/build/build-app.sh" release
     B="$JIT_BENCH_DIR"
     run() { info "$*"; "$@" 2>&1 | tee -a "$LINES" || echo "scenario=$1 error=script-failed" >> "$LINES"; }

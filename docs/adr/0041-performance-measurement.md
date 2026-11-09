@@ -16,7 +16,7 @@ busy machine while `powermetrics` showed ≈ 0.1/s.
 - **Authority:** the reference Mac (MacBook Pro `Mac17,9`, M5 Pro, 24 GB, macOS 27.2) decides pass/fail.
   Release builds launched outside Xcode only; median and p90 over ≥ 10 runs after a warm-up; environment
   (model, chip, RAM, OS build, Git, power source, Low Power Mode, thermal state) recorded in every result.
-- **Instrumentation:** one `Signposts` registry in GitCore (Points of Interest, subsystem `com.example.jit`),
+- **Instrumentation:** one `Signposts` registry in GitCore (Points of Interest, subsystem `com.ashkanrmk.jit`),
   names `<category>.<what>`, details only counts or a Git subcommand. Scenario drivers measure through the
   same intervals (`-JitBenchmarkScenario`, inert unless passed).
 - **Harness:** `scripts/benchmarks/run-all.sh` → `benchmarks/results/<date>-<sha>.json` (schema 1:
@@ -27,7 +27,10 @@ busy machine while `powermetrics` showed ≈ 0.1/s.
   as a fallback and recorded, not used for pass/fail. Network from `nettop` + `lsof`.
 - **Thresholds** (`results.py compare`): times and memory +10 %; idle CPU +0.1 pt (`%`) or +2 ms/s;
   wakeups +1/s; threads +2; energy +0.5; idle network must stay 0 bytes. Missing metrics fail. `--loose`
-  multiplies by 2.5 for CI.
+  (CI) allows times and memory up to **2.5× the reference** and multiplies the absolute limits by 2.5.
+  *Amended 2026-11-10 (Phase 7):* it first multiplied the +10 % tolerance by 2.5 (+25 %), which can never pass
+  on the CI runner (a virtual M1, 1.6–2.1× slower than the reference Mac) — CI compares different hardware, so
+  only order-of-magnitude regressions are meaningful there.
 - **CI** (GitHub Actions, macOS arm64): release build, `JitBench micro` and the compare tool in loose mode —
   advisory; only large regressions fail. The reference-Mac run is required before the phase PR and releases.
 

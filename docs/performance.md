@@ -286,3 +286,29 @@ Recorded in `docs/phases/00-foundation/progress.md`.
 | Idle network | none | `nettop -p` |
 | Launch | no Keychain reads or network (lazy `AccountsService`) | code review |
 Release-build measurements for Phase 5 (credential overhead, browser memory) are carried over to Phase 6.
+
+## Release build — Phase 7 (1.0.0, installed from the DMG)
+
+Measured on 2026-11-10 on the reference Mac (MacBook Pro M5 Pro, macOS 27.2, busy desktop at load ≈ 2.5–3).
+App: `/Applications/Jit.app`, the ad-hoc-signed arm64 build installed from `Jit-1.0.0.dmg`, Hardened
+Runtime, **bundled Git 2.56.0** (Phase 6 used Homebrew Git 2.54.0). Command: `JIT_BENCH_APP=/Applications/Jit.app
+JIT_APP_SUPPORT=<tmp> scripts/benchmarks/run-all.sh`. Results: `benchmarks/results/20261110-000744-180ea82.json`.
+
+| Metric | Phase 6 final | Release 1.0.0 | Note |
+|---|---|---|---|
+| Warm launch (first window) | 259.3 ms | 270.2 ms (p90 273) | +4 %, within the Phase 6 threshold; bundle is in /Applications, Gatekeeper/syspolicy checks on first exec |
+| Cold launch (approx.) | 241.0 ms | 256.5 ms | not a true cold start (no purge) |
+| Open repo (branchy-10k) | — | 158.9 ms; first graph page 124.1 ms | compare: ok |
+| Graph scroll step (100k) | 1.63 / p95 1.92 ms | 1.45 / p95 1.66 ms, 0 > 16.7 ms | |
+| Diff switch (small files) | 51.9 ms | 47.4 ms | |
+| 5 MB-line diff footprint | 211 MB | 213.5 MB (minified) / 191 MB (table) | |
+| Tab switch | 17.4 / p90 31.6 ms | full run 19.6 / p90 28.3 ms; isolated reruns 14.2 and 13.2 ms (DerivedData build the same: 14.5, 13.8 ms) | compare flagged the full-run value; reruns show it is load noise, not a release regression |
+| Idle CPU 0/1/5 tabs | 0.00 % | 0.00 %; powermetrics 0.020 / 0.007 / 0.000 ms/s | |
+| Idle wakeups 0/1/5 tabs | — | 0.033 / 0 / 0 per s (powermetrics) | |
+| Idle network | 0 | 0 bytes, 0 sockets (0/1/5 tabs) | §19 |
+| Memory no repo / 1 repo / 5 tabs | 32 / 72 / 70 MB | 31 / 72 / 69 MB | |
+| Open/close ×50 | 157 peak / 66 MB settled | 156.5 / 65.8 MB | |
+| JitBench micro diff-parse-50k | 0.968 ms | full run 1.139 ms; rerun 0.98 ms | flagged once; rerun within noise |
+
+Verdict: no release regression beyond Phase 6 thresholds. The two `compare.sh` flags didn't reproduce in
+isolated reruns. The bundled Git (2.56, system libcurl) costs nothing measurable against Homebrew 2.54.

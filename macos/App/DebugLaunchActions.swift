@@ -8,7 +8,7 @@
     /// - `-JitShowGallery YES`: open the Design System gallery (`-JitGallerySection <name>` picks a section).
     /// - `-JitShowDropOverlay YES`: show the folder drop overlay.
     /// - `-JitShowCommandPalette YES` (+ `-JitPaletteQuery <text>`): open the ⌘K palette.
-    /// - `-JitShowSettings general|profiles|accounts|network`, `-JitShowProfilePopover YES`, `-JitShowRepositoryBrowser YES`, `-JitShowProfileEditor YES`: open those
+    /// - `-JitShowSettings general|profiles|accounts|network|git`, `-JitShowProfilePopover YES`, `-JitShowRepositoryBrowser YES`, `-JitShowProfileEditor YES`: open those
     ///   surfaces for screenshots.
     /// - `-JitSnapshot <file.png>` (+ optional `-JitSnapshotWindow <title or id>`): after the UI settles, render
     ///   the window's view hierarchy to a PNG and quit. This draws opaque content exactly; Liquid Glass is
@@ -28,6 +28,7 @@
                     case "profiles": Selector(("showSettingsProfiles:"))
                     case "accounts": Selector(("showSettingsAccounts:"))
                     case "network": Selector(("showSettingsNetwork:"))
+                    case "git": Selector(("showSettingsGit:"))
                     default: Selector(("showSettings:"))
                     }
                 NSApp.sendAction(selector, to: nil, from: nil)

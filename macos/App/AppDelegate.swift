@@ -38,8 +38,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     func applicationDidFinishLaunching(_ notification: Notification) {
         let location = StoreLocation.applicationSupport()
         let sessionStore = SessionStore(location: location)
+        // Git resolution (ADR-0019): custom (Settings ▸ Git) → bundled Contents/Resources/git → installed Apple
+        // developer tools; debug builds also honor JIT_GIT_PATH and Homebrew. Nothing runs until first use.
+        let engine = GitEngine(
+            configuration: .init(
+                locator: .init(
+                    allowsEnvironmentOverride: GitEngine.isDebugBuild,
+                    bundledGitPath: GitLocator.Configuration.bundledGitPath(in: .main),
+                    userOverridePath: preferences.customGitPath)))
         let model = AppModel(
-            engine: GitEngine(), preferences: preferences, recents: RecentsStore(location: location),
+            engine: engine, preferences: preferences, recents: RecentsStore(location: location),
             profiles: ProfileStore(location: location), sessionStore: sessionStore)
         let savedSession = sessionStore.load().value
         let controller = MainWindowController(model: model)
@@ -147,6 +155,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     @objc func showSettingsAccounts(_ sender: Any?) { settingsController().show(.accounts) }
 
     @objc func showSettingsNetwork(_ sender: Any?) { settingsController().show(.network) }
+
+    @objc func showSettingsGit(_ sender: Any?) { settingsController().show(.git) }
+
+    @objc func showAboutJit(_ sender: Any?) { AboutPanel.show() }
+
+    private var acknowledgements: AcknowledgementsWindowController?
+
+    @objc func showAcknowledgements(_ sender: Any?) {
+        let controller = acknowledgements ?? AcknowledgementsWindowController()
+        acknowledgements = controller
+        controller.show()
+    }
 
     private func settingsController() -> SettingsWindowController {
         if let settings { return settings }

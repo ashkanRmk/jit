@@ -113,6 +113,8 @@ public enum CommandRegistry {
     static let showSettings = Selector(("showSettings:"))
     static let setAppearance = Selector(("setAppearance:"))
     static let showHelp = Selector(("showJitHelp:"))
+    static let showAbout = Selector(("showAboutJit:"))
+    static let showAcknowledgements = Selector(("showAcknowledgements:"))
     static let toggleCommandPalette = Selector(("toggleCommandPalette:"))
 
     /// Every command, in menu order.
@@ -127,7 +129,7 @@ public enum CommandRegistry {
         var list: [C] = [
             // Jit
             C(
-                "app.about", "About Jit", .app, #selector(NSApplication.orderFrontStandardAboutPanel(_:)), group: 0,
+                "app.about", "About Jit", .app, showAbout, group: 0,
                 symbol: "info.circle"),
             C(
                 "app.settings", "Settings…", .app, showSettings, key: ",", group: 1, symbol: "gearshape",
@@ -332,6 +334,9 @@ public enum CommandRegistry {
                 group: 2, inPalette: false),
             // Help
             C("help.help", "Jit Help", .help, showHelp, key: "?", symbol: "questionmark.circle"),
+            C(
+                "help.acknowledgements", "Acknowledgements", .help, showAcknowledgements, group: 1,
+                symbol: "doc.text", keywords: "license gpl git source"),
         ]
         return list
     }

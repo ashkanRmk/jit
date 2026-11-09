@@ -69,7 +69,7 @@ final class FakeCredentialSource: CredentialSource {
 
     @Test func secretBufferWipedOnDeinit() {
         // The hook is process-wide and other suites create secrets in parallel: look for this buffer's wipe.
-        let observed = Mutex<[[UInt8]]>([])
+        let observed = Locked<[[UInt8]]>([])
         SecretBytes.wipeObserver = { buffer in observed.withLock { $0.append(Array(buffer)) } }
         defer { SecretBytes.wipeObserver = nil }
         do { _ = SecretBytes(utf8: "wipe-me-please") }
@@ -90,7 +90,7 @@ final class FakeCredentialSource: CredentialSource {
 
 /// Real login-keychain round trip under a throwaway service prefix (items deleted afterwards).
 @Suite(.serialized) struct KeychainStoreTests {
-    let store = KeychainStore(servicePrefix: "com.example.jit.tests.\(UUID().uuidString.prefix(8))")
+    let store = KeychainStore(servicePrefix: "com.ashkanrmk.jit.tests.\(UUID().uuidString.prefix(8))")
 
     @Test func roundTripOverwriteDeleteAndAttributes() async throws {
         let reference = SecretReference.account(.new())
@@ -238,7 +238,7 @@ final class FakeCredentialSource: CredentialSource {
 
     @Test func secretNeverInArgvOrEnv() async throws {
         let helper = try #require(HelperBinary.path)
-        let seen = Mutex<[String]>([])
+        let seen = Locked<[String]>([])
         ProcessRunner.spawnObserver.withLock { observer in
             observer = { spec in
                 seen.withLock {

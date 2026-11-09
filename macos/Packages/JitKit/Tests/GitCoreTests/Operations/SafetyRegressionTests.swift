@@ -120,7 +120,9 @@ import Testing
         do {
             try await handle.abortOperation(token: confirm(.abortOperation), expected: shown)
             Issue.record("abort of a different operation must be refused")
-        } catch .staleSnapshot {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
+            guard case .staleSnapshot = error else { throw error }
         }
         #expect(try await RepoFingerprint.capture(repo) == before)
     }

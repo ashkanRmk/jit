@@ -1,4 +1,5 @@
 import Foundation
+import GitTestKit
 
 /// Timing assertions in unit tests: the stated budgets are for release builds (implementation.md §4);
 /// unoptimized debug builds get 15× headroom so they still catch order-of-magnitude regressions.
@@ -16,10 +17,11 @@ enum PerfBudget {
     }
 
     static func limit(_ release: Duration) -> Duration {
+        // Shared CI runners add their own scheduling delay on top (`TimingBudget`, JIT_TEST_TIMING_SCALE).
         #if DEBUG
-            release * 15
+            TimingBudget.latency(release * 15)
         #else
-            release
+            TimingBudget.latency(release)
         #endif
     }
 }

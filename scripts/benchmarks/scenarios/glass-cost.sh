@@ -7,7 +7,7 @@
 set -euo pipefail
 REPO="${1:?usage: glass-cost.sh <repo>}"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BUNDLE="${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app"
+BUNDLE="${JIT_BENCH_APP:-${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app}"
 sudo -n true 2>/dev/null || { echo "scenario=glass-cost error=not-measured reason=needs-sudo-powermetrics"; exit 0; }
 pm() { "$DIR/powermetrics.sh" "$1" "$2" 500; }
 # "<WindowServer GPU ms/s> <Jit energy> <WindowServer energy>"

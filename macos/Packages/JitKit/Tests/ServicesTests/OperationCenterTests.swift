@@ -56,7 +56,7 @@ import Testing
 
     @Test func cancelStopsCancellableOperation() async throws {
         let center = OperationCenter()
-        let started = Mutex(false)
+        let started = Locked(false)
         let task = Task {
             await center.run("Long", cancellation: .cancellable, summarize: { (_: Void) in OperationSummary("done") }) {
                 _ throws(GitCoreError) in
@@ -77,7 +77,7 @@ import Testing
 
     @Test func notCancellableIgnoresCancel() async throws {
         let center = OperationCenter()
-        let started = Mutex(false)
+        let started = Locked(false)
         let task = Task {
             await center.run(
                 "Merge", cancellation: .notCancellable, summarize: { (_: Void) in OperationSummary("done") }
@@ -97,7 +97,7 @@ import Testing
 
     @Test func queuedOperationShowsWhatItWaitsFor() async throws {
         let center = OperationCenter()
-        let release = Mutex(false)
+        let release = Locked(false)
         let first = Task {
             await center.run("Fetch origin", summarize: { (_: Void) in OperationSummary("") }) {
                 _ throws(GitCoreError) in

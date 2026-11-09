@@ -29,6 +29,7 @@ public final class PreferencesStore {
     static let commandBarLabelsKey = "commandBarShowsLabels"
     static let cloneParentKey = "cloneParentDirectory"
     static let codeTextSizeKey = "codeTextSize"
+    static let customGitPathKey = "customGitPath"
 
     /// App-level text size step for code and diff views (P6.10): View ▸ Larger / Smaller Code Text.
     public enum CodeTextSize: Int, CaseIterable, Sendable {
@@ -78,6 +79,11 @@ public final class PreferencesStore {
         didSet { defaults.set(cloneParentDirectory, forKey: Self.cloneParentKey) }
     }
 
+    /// The Git chosen in Settings ▸ Git (validated when chosen); `nil` uses the bundled Git (ADR-0019).
+    public var customGitPath: String? {
+        didSet { defaults.set(customGitPath, forKey: Self.customGitPathKey) }
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         appearance = defaults.string(forKey: Self.appearanceKey).flatMap(Appearance.init(rawValue:)) ?? .system
@@ -86,6 +92,7 @@ public final class PreferencesStore {
         graphDensity =
             defaults.string(forKey: Self.graphDensityKey).flatMap(GraphDensity.init(rawValue:)) ?? .comfortable
         commandBarShowsLabels = defaults.object(forKey: Self.commandBarLabelsKey) as? Bool ?? true
+        customGitPath = defaults.string(forKey: Self.customGitPathKey).flatMap { $0.isEmpty ? nil : $0 }
         let developer = NSHomeDirectory() + "/Developer"
         cloneParentDirectory =
             defaults.string(forKey: Self.cloneParentKey)

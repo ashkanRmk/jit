@@ -61,7 +61,9 @@ import Testing
             let outcome = try await task.value
             now = try await world.a.git("rev-parse", "origin/main")
             if outcome.cancelled { #expect(outcome.changedRefs == (now == before ? 0 : 1)) }
-        } catch let error as GitCoreError where error == .cancelled {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
+            guard (error as? GitCoreError) == .cancelled else { throw error }
             // Cancelled before Git started: nothing ran.
             now = try await world.a.git("rev-parse", "origin/main")
             #expect(now == before)
@@ -324,7 +326,9 @@ import Testing
         do {
             outcome = try await task.value
             remote = try await world.sandbox.git(["rev-parse", "main"], in: world.origin)
-        } catch let error as GitCoreError where error == .cancelled {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
+            guard (error as? GitCoreError) == .cancelled else { throw error }
             // Cancelled before Git started: nothing was pushed.
             #expect(try await world.sandbox.git(["rev-parse", "main"], in: world.origin) != local)
             return
@@ -454,7 +458,9 @@ import Testing
             _ = try await cloneRepository(
                 CloneRequest(url: server.url, parentDirectory: sandbox.root, name: "x", allowInsecureHTTP: true),
                 engine: sandbox.engine)
-        } catch .failed(let failure) {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3's SILGen crashes on `catch .failed(let …)` here.
+            guard case .failed(let failure) = error else { throw error }
             #expect(failure.kind == .authenticationFailed)
         }
         #expect(ContinuousClock.now - start < PerfBudget.limit(.seconds(1)))

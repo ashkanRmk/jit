@@ -65,3 +65,26 @@ identity, the user's Git/SSH configuration.
   no insecure TLS setting anywhere (`InsecureSettingsLintTests`). Proxy passwords never in URLs or argv.
 - **Tests**: sentinel-secret scans of every spawned argv/env (`ProcessRunner.spawnObserver` test hook),
   redaction tests, rig integration tests (`JIT_RIG=1`). `~/.gitconfig` and `~/.ssh/*` are never written.
+
+## Phase 7 — release posture (ADR-0019, 0020, 0045–0049)
+- **Signing**: Hardened Runtime on every Mach-O (app, `jit-git-helper`, bundled Git), **no entitlements**,
+  App Sandbox off (ADR-0045). Inside-out signing, never `--deep` (ADR-0046). Signing identities and notary
+  credentials stay in the keychain; `.gitignore` blocks `*.p12 *.cer *.p8 AuthKey_*.p8 *.provisionprofile
+  release.local.env notary-*.json`. 1.0.0 is so far signed **ad-hoc only**: no Developer ID, not notarized.
+- **Credential broker peer**: in Developer ID builds the helper must also be valid code signed by Jit's team,
+  checked by audit token (`PeerCodeSignature`); ad-hoc builds keep the executable-path check.
+- **Bundled Git** (ADR-0019): Git 2.56.0 from the kernel.org tarball (SHA-256 pinned; PGP check available but not
+  run — gpg isn't installed on the release machine). It links only macOS system libraries (libcurl with Apple's
+  trust store, zlib, iconv) and has its own empty system config inside the signed bundle, so it can't inherit
+  another Git's `credential.helper`. Pruned to 16 files. Patch process: `docs/release.md`.
+- **Git resolution**: never runs the `/usr/bin/git` shim or `xcrun`. A custom Git is validated before use. The
+  CLT installer starts only from an explicit button.
+- **Updates**: none, and no update network traffic (ADR-0020).
+- **Dependency audit (2026-11-09)**: JitKit has no third-party Swift packages (no `Package.resolved`); build-time
+  tools are Xcode 27.2 and XcodeGen 2.46. The only bundled third-party component is Git 2.56.0 (GPLv2; license,
+  source location and written offer in the app). Git 2.56.0 is the newest release on kernel.org as of
+  2026-11-09.
+- **Binary audit** (`scripts/release/` output, 1.0.0): no development-only targets, Swift modules, dSYMs, key
+  files or `.DS_Store` in the app (`03-verify-archs.sh`). The `strings` scan results are in progress.md.
+- **OAuth**: no `OAuthClients.plist` is bundled, so GitHub/GitLab OAuth sign-in reports "not configured" in
+  1.0.0. Registering the public OAuth clients is an owner action (`docs/release.md`). PAT and SSH work.

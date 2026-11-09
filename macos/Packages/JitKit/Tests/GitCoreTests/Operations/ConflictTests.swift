@@ -246,7 +246,9 @@ import Testing
         do {
             _ = try await handle.saveResolution("a.txt", content: bytes("mine\n"), expected: document.workingTreeHash)
             Issue.record("save must refuse")
-        } catch .staleSnapshot {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
+            guard case .staleSnapshot = error else { throw error }
         }
         #expect(try Ops.read(repo, "a.txt") == "edited in another editor\n")
     }

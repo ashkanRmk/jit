@@ -12,7 +12,7 @@ LABEL="${1:-no-repo}"; shift || true
 [[ "$LABEL" == "-h" || "$LABEL" == "--help" ]] && { sed -n '2,9p' "$0"; exit 0; }
 [[ "${1:-}" == "--" ]] && shift
 SETTLE="${JIT_IDLE_SETTLE:-30}"; SAMPLES="${JIT_IDLE_SAMPLES:-60}"
-BUNDLE="${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app"
+BUNDLE="${JIT_BENCH_APP:-${JIT_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/Jit}/Build/Products/Release/Jit.app}"
 [[ -x "$BUNDLE/Contents/MacOS/Jit" ]] || { echo "error: build first: scripts/build/build-app.sh release" >&2; exit 1; }
 OUT_DIR="$(cd "$(dirname "$0")" && pwd)/out"; mkdir -p "$OUT_DIR"
 # Launched through LaunchServices (as a user launch is); the new instance's pid is looked up afterwards.

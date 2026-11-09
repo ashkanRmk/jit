@@ -93,7 +93,9 @@ import Testing
                 "unmerged", token: confirm(.deleteBranch(name: "unmerged", force: false)),
                 expected: try await handle.captureState())
             Issue.record("-d must refuse an unmerged branch")
-        } catch .failed(let failure) {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3's SILGen crashes on `catch .failed(let …)` here.
+            guard case .failed(let failure) = error else { throw error }
             #expect(failure.kind == .branchNotFullyMerged)
         }
         #expect(try await RepoFingerprint.capture(repo) == before)
@@ -143,7 +145,9 @@ import Testing
         do {
             _ = try await handle.switchTo(.branch("busy"), expected: nil)
             Issue.record("switch to a branch checked out elsewhere must fail")
-        } catch .failed(let failure) {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3's SILGen crashes on `catch .failed(let …)` here.
+            guard case .failed(let failure) = error else { throw error }
             #expect(failure.kind == .branchCheckedOutElsewhere)
             #expect(failure.detail.contains("wt"))
         }
@@ -159,7 +163,9 @@ import Testing
         do {
             _ = try await handle.switchTo(.branch("other"), expected: nil)
             Issue.record("switch with index.lock must fail")
-        } catch .indexLocked {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
+            guard case .indexLocked = error else { throw error }
         }
         await #expect(throws: GitCoreError.self) {
             _ = try await handle.merge(MergeRequest(source: "other"), context: Ops.context, expected: nil)

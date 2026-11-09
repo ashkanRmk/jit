@@ -163,7 +163,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(400))
         task.cancel()
         _ = await task.result
-        #expect(clock.now - started < .seconds(3))
+        #expect(clock.now - started < TimingBudget.latency(.seconds(3)))
         try await Task.sleep(for: .seconds(5))
         #expect(!FileManager.default.fileExists(atPath: marker), "the hook's process group was killed")
         #expect(try await repo.git("rev-list", "--count", "HEAD") == "1")

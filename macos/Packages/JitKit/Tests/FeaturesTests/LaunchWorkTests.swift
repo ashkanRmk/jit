@@ -17,7 +17,7 @@ import Testing
         let repo = try await sandbox.makeRepository("launch")
         try repo.write("a.txt", "a\n")
         try await repo.commit("Initial")
-        let spawned = Mutex<[String]>([])
+        let spawned = Locked<[String]>([])
         let root = sandbox.root
         ProcessRunner.spawnObserver.withLock { observer in
             observer = { spec in

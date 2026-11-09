@@ -79,7 +79,9 @@ import Testing
         do {
             try await handle.stashPush(StashPushRequest(), context: Ops.context)
             Issue.record("stashing a clean tree must be refused")
-        } catch .refused {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
+            guard case .refused = error else { throw error }
         }
         #expect(FileManager.default.fileExists(atPath: repo.path))
     }
@@ -105,7 +107,9 @@ import Testing
         do {
             try await handle.dropStash(index: 0, oid: first.oid, token: confirm(.dropStash(index: 0, oid: first.oid)))
             Issue.record("drop must refuse a shifted index")
-        } catch .staleSnapshot {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3 SILGen crashes on non-exhaustive typed catches (CI, Xcode 26).
+            guard case .staleSnapshot = error else { throw error }
         }
         #expect(try await handle.stashes().count == 2)
         try await handle.dropStash(index: 1, oid: first.oid, token: confirm(.dropStash(index: 1, oid: first.oid)))

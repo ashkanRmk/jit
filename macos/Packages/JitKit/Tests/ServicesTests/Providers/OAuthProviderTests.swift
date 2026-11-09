@@ -1,4 +1,5 @@
 import Foundation
+import GitTestKit
 import Synchronization
 import Testing
 
@@ -211,7 +212,7 @@ import Testing
             OAuthTokens(
                 access: SecretBytes(utf8: "old"), refresh: SecretBytes(utf8: "rt-old"),
                 expiresAt: clock.now.addingTimeInterval(30)))
-        let refreshes = Mutex(0)
+        let refreshes = Locked(0)
         let refresher = OAuthRefresher(now: clock.closure)
         let account = HostingAccountID(rawValue: "acct")
         let results = try await withThrowingTaskGroup(of: String.self) { group in

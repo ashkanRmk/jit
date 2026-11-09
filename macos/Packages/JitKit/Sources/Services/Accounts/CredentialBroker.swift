@@ -79,7 +79,7 @@ public struct BrokerPolicy: Sendable, Hashable {
 
 /// The operation-scoped credential broker (ADR-0016, channel B): a Unix socket in a fresh `0700` directory
 /// under `$TMPDIR`, a per-operation nonce, the peer verified to be the bundled helper (`LOCAL_PEERPID` →
-/// executable path), answers only for the policy's hosts/key, and a hard cap on requests. Serviced by Dispatch
+/// executable path, plus the signing team for Developer ID builds), answers only for the policy's hosts/key, and a hard cap on requests. Serviced by Dispatch
 /// sources on one serial queue — no thread waits between requests — and removed when the operation ends.
 public final class CredentialBroker: Sendable {
     public let endpoint: BrokerEndpoint
@@ -200,6 +200,14 @@ public final class CredentialBroker: Sendable {
             setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
             if let expectedPeer, Self.peerPath(client) != expectedPeer {
                 refuse("unexpected peer process")
+                close(client)
+                continue
+            }
+            // Developer ID builds: the helper must also be signed by Jit's own team (ADR-0046).
+            if expectedPeer != nil, let team = PeerCodeSignature.ownTeam,
+                !PeerCodeSignature.peer(client, isSignedByTeam: team)
+            {
+                refuse("peer is not signed by Jit's team")
                 close(client)
                 continue
             }

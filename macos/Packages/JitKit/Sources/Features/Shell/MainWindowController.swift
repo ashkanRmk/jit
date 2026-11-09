@@ -482,7 +482,14 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             profilePopover.performClose(nil)
             return
         }
-        guard let anchor = profileItem?.view else { return }
+        // In a narrow window the profile item lives in the toolbar overflow menu and has no on-screen view;
+        // the switcher then opens as Settings ▸ Profiles instead of silently doing nothing (P7.11 finding).
+        guard let anchor = profileItem?.view, anchor.window != nil, !anchor.isHiddenOrHasHiddenAncestor,
+            anchor.visibleRect.width > 0
+        else {
+            NSApp.sendAction(Selector(("showSettingsProfiles:")), to: nil, from: self)
+            return
+        }
         let popover = NSPopover()
         popover.behavior = .transient
         let host = NSHostingController(

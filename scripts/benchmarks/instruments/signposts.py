@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extracts Jit's signpost intervals (subsystem com.example.jit) from an xctrace recording.
+"""Extracts Jit's signpost intervals (subsystem com.ashkanrmk.jit) from an xctrace recording.
 
   signposts.py <file.trace>      → JSON {interval: {count, median_ms, p90_ms, max_ms}} on stdout
 
@@ -9,7 +9,7 @@ Verified with Xcode 27.2 (xctrace 27.2); the table schema may change across Xcod
 import json, statistics, subprocess, sys
 import xml.etree.ElementTree as ET
 
-SUBSYSTEM = "com.example.jit"
+SUBSYSTEM = "com.ashkanrmk.jit"
 
 def export(trace):
     xpath = '/trace-toc/run[@number="1"]/data/table[@schema="os-signpost"]'

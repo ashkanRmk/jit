@@ -194,7 +194,9 @@ import Testing
         do {
             _ = try await handle.rebase(onto: "main", context: Ops.context, expected: nil)
             Issue.record("rebase with a dirty tree must be refused")
-        } catch .failed(let failure) {
+        } catch {
+            // Exhaustive catch + explicit rethrow: Swift 6.3's SILGen crashes on `catch .failed(let …)` here.
+            guard case .failed(let failure) = error else { throw error }
             #expect(failure.kind == .dirtyWorkingTree)
         }
         #expect(try await RepoFingerprint.capture(repo) == before)

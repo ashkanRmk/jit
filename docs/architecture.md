@@ -188,7 +188,7 @@ cloneRepository(_:engine:) — free function (no repository yet)
 ## Phase 6 — performance, palette and accessibility
 
 - **Signposts** (`GitCore/Diagnostics/Signposts.swift`, ADR-0041): one registry, Points of Interest,
-  subsystem `com.example.jit`; app intervals (`launch.firstWindow`, `repo.open`, `graph.firstPage`,
+  subsystem `com.ashkanrmk.jit`; app intervals (`launch.firstWindow`, `repo.open`, `graph.firstPage`,
   `graph.page`, `diff.switch`, `tab.switch`, `ops.run`) and GitCore spans (`core.*`). Benchmark scenarios
   (`-JitBenchmarkScenario`, Features/Benchmark) measure through the same intervals.
 - **Tab lifecycle** (ADR-0042): only the visible tab of a foreground window watches and refreshes; closing or
@@ -205,3 +205,18 @@ cloneRepository(_:engine:) — free function (no repository yet)
   reasons via `CommandAvailability`; ranking off the main actor.
 - **Accessibility**: `CodeLinesView` row elements (headings, rotors, custom line actions through
   `CodeLinesDelegate`), `GraphTableView` rotors.
+
+## Phase 7 — packaging (ADR-0019, 0045–0049)
+- **Bundle layout**: `Jit.app/Contents/MacOS/Jit`, `Contents/Helpers/jit-git-helper`,
+  `Contents/Resources/{Assets.car, AppIcon.icns, git/}`. `git/` holds the relocatable Git runtime: `bin/git`,
+  `libexec/git-core` (symlinks plus `git-remote-http`, `git-http-fetch`, `git-sh-i18n--envsubst` and shell
+  helpers), templates, an empty `etc/gitconfig`, `LICENSE`, `VERSION`, `SOURCE.txt`. arm64 only.
+- **Git resolution** (`GitLocator`, file-existence only): `JIT_GIT_PATH` (debug) → custom Git
+  (`PreferencesStore.customGitPath`, validated by `GitEngine.validateGit(at:)`) → bundled
+  (`Configuration.bundledGitPath(in: .main)`) → Homebrew/`/usr/local` (debug) → Apple's Git in an installed
+  Xcode/CLT → `gitNotFound` (error card → Settings ▸ Git). `GitEngine.setUserGitPath(_:)` switches at run
+  time; a stale probe is never cached (generation counter).
+- **Release metadata**: `Version.xcconfig` is the single source of the bundle ID, version, build and copyright.
+  `JitSourceCommit` is stamped by `scripts/release/01-build-app.sh`, and `ReleaseInfo` (Features/About) feeds
+  the About panel and Acknowledgements.
+- **Release pipeline**: `scripts/release/01…09` + `release.sh` (`docs/release.md`).

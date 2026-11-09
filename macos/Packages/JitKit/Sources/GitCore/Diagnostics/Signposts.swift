@@ -9,7 +9,7 @@ import os
 /// path, branch name, URL or argument that could carry private repository content into an exported trace.
 public enum Signposts {
     /// The app's bundle identifier (placeholder until Phase 7 picks the real one).
-    public static let subsystem = "com.example.jit"
+    public static let subsystem = "com.ashkanrmk.jit"
 
     public enum Category: String, Sendable, CaseIterable {
         case launch, repo, graph, diff, tab, ops, core

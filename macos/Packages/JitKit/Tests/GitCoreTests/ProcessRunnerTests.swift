@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import GitTestKit
 import Testing
 
 @testable import GitCore
@@ -107,7 +108,7 @@ import Testing
             try await runner.run(
                 spec("/bin/sh", ["-c", "sleep 30 & echo $! > '\(pidFile)'; wait"], timeout: .milliseconds(400)))
         }
-        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(ContinuousClock.now - started < TimingBudget.latency(.seconds(3)))
         let grandchild = try await readPID(pidFile)
         #expect(await waitUntilGone(grandchild), "grandchild \(grandchild) survived the timeout")
     }
@@ -118,7 +119,7 @@ import Testing
             try await runner.run(
                 spec("/bin/sh", ["-c", "trap '' TERM; sleep 30 & wait; wait"], timeout: .milliseconds(200)))
         }
-        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(ContinuousClock.now - started < TimingBudget.latency(.seconds(3)))
     }
 
     @Test func taskCancellationKillsProcessGroup() async throws {
@@ -182,7 +183,7 @@ import Testing
         let started = ContinuousClock.now
         let output = try await runner.run(spec("/bin/sh", ["-c", "sleep 30 & echo $! > '\(pidFile)'; printf done"]))
         #expect(output.stdoutText == "done")
-        #expect(ContinuousClock.now - started < .seconds(3))
+        #expect(ContinuousClock.now - started < TimingBudget.latency(.seconds(3)))
         #expect(await waitUntilGone(try await readPID(pidFile)))
     }
 

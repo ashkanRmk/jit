@@ -107,8 +107,14 @@ def collect(out, summary, lines_path, micro=None):
     print(open(summary).read())
 
 # Thresholds (ADR-0041): relative for times/memory, absolute for idle CPU and wakeups.
+# Loose mode (CI): relative metrics may reach 2.5x the reference (the shared runner is different, slower
+# hardware than the reference Mac, so only order-of-magnitude regressions should fail); absolute limits x2.5.
+LOOSE_RATIO = 2.5
+
 def threshold(metric, unit, loose):
     factor = 2.5 if loose else 1.0
+    if loose and unit not in ("%", "1/s", "count", "ms/s", "energy", "bytes"):
+        return ("rel", LOOSE_RATIO - 1.0)
     if unit == "%":
         return ("abs", 0.1 * factor)
     if unit == "1/s":

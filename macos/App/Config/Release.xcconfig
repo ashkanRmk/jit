@@ -2,3 +2,9 @@
 ONLY_ACTIVE_ARCH = NO
 SWIFT_COMPILATION_MODE = wholemodule
 SWIFT_OPTIMIZATION_LEVEL = -O
+// Release hygiene (P7.1): strip dead code and symbols from shipped binaries; dSYMs are archived privately.
+DEAD_CODE_STRIPPING = YES
+DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+STRIP_INSTALLED_PRODUCT = YES
+STRIP_STYLE = all
+COPY_PHASE_STRIP = NO
