@@ -54,6 +54,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Jit
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        # Layered Liquid Glass icon authored as an Icon Composer document (App/AppIcon.icon, P7.5).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_NSHumanReadableCopyright: "$(JIT_COPYRIGHT)"
   JitAppTests:
     type: bundle.unit-test

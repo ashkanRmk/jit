@@ -158,6 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @objc func showSettingsGit(_ sender: Any?) { settingsController().show(.git) }
 
+    @objc func showAboutJit(_ sender: Any?) { AboutPanel.show() }
+
+    private var acknowledgements: AcknowledgementsWindowController?
+
+    @objc func showAcknowledgements(_ sender: Any?) {
+        let controller = acknowledgements ?? AcknowledgementsWindowController()
+        acknowledgements = controller
+        controller.show()
+    }
+
     private func settingsController() -> SettingsWindowController {
         if let settings { return settings }
         guard let model else { fatalError("Settings requested before launch finished") }
