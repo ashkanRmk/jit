@@ -3,19 +3,27 @@ import GitCore
 import Services
 import SwiftUI
 
-/// The graph's floating control bar (design §3.3): scope menu, search, match navigation, and transient
-/// chips — chrome, so Liquid Glass, all in one `GlassEffectContainer` (`GlassControlGroup`) so the pieces
+/// The repository command bar (P3.0, replacing the Phase 2 graph bar): location, changes and tools on the
+/// leading side (`CommandBarLeading`), then the find group — scope menu, search, match navigation and
+/// transient chips. Chrome, so Liquid Glass in `GlassEffectContainer`s (`GlassControlGroup`) so the pieces
 /// morph instead of stacking. Rows scroll underneath; nothing in the bar is a row.
 struct GraphBar: View {
     let controller: GraphViewController
     @FocusState private var searchFocused: Bool
     @State private var showsBranchPicker = false
+    @State private var barWidth: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var model: GraphViewModel { controller.viewModel }
 
     var body: some View {
+        let location = commandLocation
+        let changes = CommandBarChanges.count(controller.session.status?.summary)
+        let layout = commandLayout(location: location, changes: changes)
         HStack(spacing: Space.s4) {
+            CommandBarLeading(controller: controller, layout: layout, location: location, changes: changes)
+                .fixedSize()
+            Spacer(minLength: 0)
             GlassControlGroup(spacing: Space.s3) {
                 scopeMenu
                 searchField
@@ -40,6 +48,52 @@ struct GraphBar: View {
         .padding(.vertical, Space.s3)
         .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: chips.map(\.id))
         .onChange(of: model.focusSearchToken) { searchFocused = true }
+        .onGeometryChange(for: CGFloat.self) {
+            $0.size.width
+        } action: {
+            barWidth = $0
+        }
+    }
+
+    // MARK: Command bar layout
+
+    private var commandLocation: CommandBarLocation {
+        let path = controller.session.info?.topLevel ?? controller.session.path
+        let repository = (path as NSString).lastPathComponent
+        return CommandBarLocation(repository: repository, branch: controller.session.status?.branch ?? BranchHeader())
+    }
+
+    /// Labels drop first, then groups overflow (P3.0 spec). Widths are measured from the label strings with
+    /// the bar's font; the find group keeps its minimum search width.
+    private func commandLayout(location: CommandBarLocation, changes: Int?) -> CommandBarLayout {
+        var groups: [CommandBarGroup] = [.location]
+        if changes != nil { groups.append(.changes) }
+        groups.append(.terminal)
+        let font = TypeToken.callout.nsFont
+        func text(_ string: String) -> CGFloat { ceil((string as NSString).size(withAttributes: [.font: font]).width) }
+        let capsule = 2 * Space.s5  // horizontal padding of a glass capsule / button
+        let icon = IconSize.md + Space.s3
+        let tracking = location.tracking.map { text($0) + Space.s3 } ?? 0
+        let branch = min(text(location.branchTitle), 220) + tracking + icon + IconSize.sm + Space.s3
+        var widths: [CommandBarGroup: CommandBarLayout.GroupWidth] = [
+            .location: .init(
+                labelled: capsule + text(location.repository) + IconSize.sm + 2 * Space.s3 + branch,
+                iconOnly: capsule + branch),
+            .terminal: .init(labelled: capsule + icon + text("Terminal"), iconOnly: capsule + IconSize.md),
+        ]
+        if let changes {
+            widths[.changes] = .init(
+                labelled: capsule + icon + text(CommandBarChanges.title(changes, labels: true)),
+                iconOnly: capsule + icon + text(CommandBarChanges.title(changes, labels: false)))
+        }
+        // The find group (scope menu + search at its minimum width + chips) sits on the trailing side.
+        let find =
+            capsule + icon + text(scopeTitle) + 140 + 2 * capsule + icon + Space.s3
+            + CGFloat(chips.count) * 160
+        let available = max(barWidth - 2 * Space.s5 - Space.s4 - find, 0)
+        return CommandBarLayout.make(
+            available: available, groups: groups, widths: widths, spacing: Space.s4,
+            overflowButton: capsule + IconSize.md, labelsAllowed: controller.model.preferences.commandBarShowsLabels)
     }
 
     private var isDeepRunning: Bool {

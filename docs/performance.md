@@ -3,6 +3,32 @@
 Budget (§15.1, `docs/roadmap.md` §7) and measured results. Numbers are reported as measured; nothing
 here is estimated. Raw outputs are written to `scripts/benchmarks/out/` (git-ignored).
 
+## Phase 3 — 2026-11-09
+
+MacBook Pro `Mac17,9` (Apple M5 Pro, 24 GB), macOS 27.2, Git 2.54.0 (Homebrew), release builds unless noted.
+`swift run -c release --package-path macos/Packages/JitKit JitBench phase3` and `… JitBench renderer-spike`
+(offscreen 1000×800 window; generated repositories in a temporary sandbox).
+
+| Metric (implementation.md §4) | Target | Measured | Method |
+|---|---|---|---|
+| Diff open → first paint (2k-line file; Git read + token + parse + layout + draw) | < 50 ms | **p50 41.5 ms**, max 63.2 ms (n = 21) | `JitBench phase3` |
+| Renderer first paint, 2,401 / 60,001 rows (view only) | — | 5.7 ms (28.2 ms cold) / 8.0 ms | `JitBench renderer-spike` (ADR-0011) |
+| Diff scroll, 50k-line diff | 60 FPS, 0 hitches > 1 frame | full redraw per step: p50 0.83 ms, p99 1.05 ms, max 1.53 ms, 0 / 400 steps > 16.7 ms | `renderer-spike` (programmatic steps, not Instruments) |
+| Diff memory, 50k-line file (57,143 rows) | < 30 MB | +3.0 MB footprint (document 3.3 MB: 28 B/line beyond Git's output) | `phase3`, `diffDocumentMemory50kLines` |
+| Memory after 200 diff open/close cycles | no growth (± 2 MB) | 25.0 → 25.5 MB (Δ 0.5 MB) | `phase3` (`task_info` phys_footprint) |
+| Status refresh, 1k changed files | < 100 ms | p50 20.1 ms | `phase3` |
+| Stage one line end to end (token, patch, check, apply, verify), 300-line file | < 150 ms | p50 51.9 ms, max 55.5 ms | `phase3` |
+| Blame first lines, 5k-line file | < 200 ms | p50 5.1 ms (debug test: 6.1 ms) | `phase3`, `blameFirstLinesOf5kLineFile` |
+| Idle CPU, repository open (release app) | 0.0–0.2 % | 0.0 % mean and max, 1.0 wakeup/sample, 6 threads, 50 MB | `idle.sh phase3-diffdemo` (40 samples) |
+
+Renderer comparison (TextKit 2 on the same documents, now removed): 52.7 ms / 910.7 ms first paint, 18–19 of 400
+steps over 16.7 ms, +102 MB at 60k rows — see ADR-0011.
+
+Not measured: Instruments Animation Hitches during a real trackpad fling over the diff, GPU while idle with a
+diff open (`powermetrics` needs root), idle *after a commit made in the app* (the release app was measured with
+the repository open; commits were exercised in tests and the debug app), Allocations-instrument verification of
+inactive-tab release (verified by `DiffReleaseTests` instead).
+
 ## Phase 2 — 2026-11-09
 
 MacBook Pro `Mac17,9` (Apple M5 Pro, 24 GB), macOS 27.2, Git 2.54.0 (Homebrew), release builds. Repositories:

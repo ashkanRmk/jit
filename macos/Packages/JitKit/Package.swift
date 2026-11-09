@@ -24,9 +24,12 @@ let package = Package(
         // App state, persistence, sessions, file watching. Imports GitCore directly (no bridge layer); no UI.
         .target(name: "Services", dependencies: ["GitCore"], swiftSettings: strict),
         .target(name: "Features", dependencies: ["GitCore", "Services", "DesignSystem"], swiftSettings: strict),
-        .executableTarget(name: "JitBench", dependencies: ["GitCore", "GitTestKit"], swiftSettings: strict),
+        .executableTarget(
+            name: "JitBench", dependencies: ["GitCore", "GitTestKit", "Features", "DesignSystem"], swiftSettings: strict
+        ),
         .testTarget(
-            name: "GitCoreTests", dependencies: ["GitCore", "GitTestKit"], exclude: ["Resources"], swiftSettings: strict),
+            name: "GitCoreTests", dependencies: ["GitCore", "GitTestKit"], exclude: ["Resources"], swiftSettings: strict
+        ),
         .testTarget(name: "ServicesTests", dependencies: ["Services", "GitCore", "GitTestKit"], swiftSettings: strict),
         .testTarget(
             name: "FeaturesTests", dependencies: ["Features", "Services", "GitCore", "GitTestKit", "DesignSystem"],

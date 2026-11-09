@@ -40,6 +40,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
 
     public init(model: AppModel) {
         self.model = model
+        RecentlyDiscardedMenu.shared.repositoryPath = { [weak model] in
+            guard let tab = model?.activeTab else { return nil }
+            return tab.session?.info?.topLevel ?? tab.path
+        }
         let frame = Self.initialFrame(model.windowFrame)
         let window = NSWindow(
             contentRect: frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

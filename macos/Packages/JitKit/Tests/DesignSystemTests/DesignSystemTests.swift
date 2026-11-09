@@ -50,6 +50,27 @@ import Testing
         }
     }
 
+    /// Line numbers and change bars are drawn on the diff backgrounds (P3.6).
+    @Test(arguments: Variant.allCases)
+    func gutterAndMarksOnDiffBackgroundsMeetThreeToOne(_ variant: Variant) {
+        for background in [ColorToken.diffAddBackground, .diffDeleteBackground, .surfaceSunken] {
+            for token in [ColorToken.textTertiary, .diffAddMark, .diffDeleteMark] {
+                let ratio = token.spec.value(for: variant).contrast(against: background.spec.value(for: variant))
+                #expect(ratio >= 3, "\(token.rawValue) on \(background.rawValue) \(variant): \(ratio)")
+            }
+        }
+    }
+
+    @Test(arguments: Variant.allCases)
+    func syntaxColorsMeetAAOnCodeBackgrounds(_ variant: Variant) {
+        for color in SyntaxColor.allCases {
+            for background in [ColorToken.surfaceCanvas, .diffAddBackground, .diffDeleteBackground] {
+                let ratio = color.spec.value(for: variant).contrast(against: background.spec.value(for: variant))
+                #expect(ratio >= 4.5, "\(color.name) on \(background.rawValue) \(variant): \(ratio)")
+            }
+        }
+    }
+
     @Test(arguments: Variant.allCases)
     func textOnAccentMeetsAA(_ variant: Variant) {
         let ratio = ColorToken.accentOnAccent.spec.value(for: variant)

@@ -16,20 +16,12 @@ final class InspectorModel {
         case compareWithWorkingDirectory(ObjectID)
     }
 
-    struct WIPEntry: Identifiable, Hashable {
-        let id: Int
-        let code: String
-        let path: String
-    }
-
     private(set) var mode: Mode = .nothing
     private(set) var details: CommitDetails?
     private(set) var files: [ChangedFile] = []
     /// Shown only after 120 ms of loading (design §3.4).
     private(set) var showsSpinner = false
     private(set) var error: String?
-    private(set) var wipEntries: [WIPEntry] = []
-    private(set) var wipTotal = 0
     var compareMode: CompareMode = .sinceMergeBase {
         didSet { if oldValue != compareMode { reload() } }
     }
@@ -37,7 +29,31 @@ final class InspectorModel {
     var format: ObjectFormat = .sha1
     var refs: RefSnapshot?
 
-    @ObservationIgnored var handle: RepositoryHandle?
+    @ObservationIgnored var handle: RepositoryHandle? {
+        didSet { workingDirectory?.handle = handle }
+    }
+    /// The working-directory panel (P3.1), shown while the WIP row is selected.
+    @ObservationIgnored var workingDirectory: WorkingDirectoryModel?
+    /// The diff viewer below the file list (P3.6).
+    @ObservationIgnored var diff: DiffViewModel?
+    @ObservationIgnored var diffController: DiffViewController?
+    @ObservationIgnored var openBlame: (String, ObjectID?) -> Void = { _, _ in }
+    /// The file whose diff is open (commit / compare lists).
+    private(set) var openedFilePath: String?
+
+    /// Opens the diff of `file` for what the inspector shows.
+    func openDiff(_ file: ChangedFile) {
+        let target: DiffTarget
+        switch mode {
+        case .commit(let oid): target = .commit(oid, path: file.path)
+        case .compare(let a, let b):
+            target = .commits(from: a, to: b, path: file.path, sinceMergeBase: compareMode == .sinceMergeBase)
+        case .compareWithWorkingDirectory(let oid): target = .commitToWorktree(oid, path: file.path)
+        case .nothing, .workingDirectory: return
+        }
+        openedFilePath = file.path
+        diff?.open(target)
+    }
     @ObservationIgnored var selectCommit: (ObjectID) -> Void = { _ in }
     @ObservationIgnored var showFileHistory: (String, Bool) -> Void = { _, _ in }
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -54,17 +70,17 @@ final class InspectorModel {
         }
         guard next != mode else { return }
         mode = next
+        openedFilePath = nil
+        diff?.close()
         reload()
     }
 
     func swapComparison() {
         guard case .compare(let a, let b) = mode else { return }
         mode = .compare(b, a)
+        openedFilePath = nil
+        diff?.close()
         reload()
-    }
-
-    func refreshWorkingDirectory() {
-        if mode == .workingDirectory { reload() }
     }
 
     private func reload() {
@@ -75,6 +91,12 @@ final class InspectorModel {
         files = []
         error = nil
         showsSpinner = false
+        // The panel follows status itself; the inspector only switches it on and off.
+        if mode == .workingDirectory {
+            workingDirectory?.activate()
+            return
+        }
+        workingDirectory?.deactivate()
         guard let handle, mode != .nothing else { return }
         spinnerTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
@@ -102,9 +124,7 @@ final class InspectorModel {
                     guard let self, !Task.isCancelled else { return }
                     self.files = files
                 case .workingDirectory:
-                    let snapshot = await handle.lastSnapshot()
-                    guard let self, !Task.isCancelled else { return }
-                    self.loadWIP(snapshot)
+                    return
                 }
                 self?.finish()
             } catch .cancelled {
@@ -120,30 +140,6 @@ final class InspectorModel {
     private func finish() {
         spinnerTask?.cancel()
         showsSpinner = false
-    }
-
-    private func loadWIP(_ snapshot: StatusSnapshot?) {
-        guard let entries = snapshot?.entries else {
-            wipEntries = []
-            wipTotal = 0
-            return
-        }
-        var result: [WIPEntry] = []
-        let limit = min(entries.count, 1000)
-        for index in 0..<entries.count where result.count < limit {
-            let kind = entries.kind(at: index)
-            if kind == .ignored { continue }
-            let codes = entries.statusCodes(at: index)
-            let code: String
-            switch kind {
-            case .untracked: code = "?"
-            case .unmerged: code = "U"
-            default: code = String(codes.index == "." ? codes.worktree : codes.index)
-            }
-            result.append(WIPEntry(id: index, code: code, path: entries.path(at: index)))
-        }
-        wipEntries = result
-        wipTotal = (0..<entries.count).reduce(0) { $0 + (entries.kind(at: $1) == .ignored ? 0 : 1) }
     }
 }
 
@@ -176,10 +172,8 @@ struct CommitInspectorView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             case .workingDirectory:
-                ScrollView {
-                    WorkingDirectorySummary(model: model)
-                        .padding(Space.s7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                if let workingDirectory = model.workingDirectory {
+                    WorkingDirectoryView(model: workingDirectory)
                 }
             case .compare(let a, let b):
                 ScrollView {
@@ -208,6 +202,36 @@ struct CommitInspectorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ColorToken.surfacePanel.color.ignoresSafeArea())
+    }
+}
+
+/// The inspector: its content above, the diff viewer below once a file is chosen (design §3.3).
+struct InspectorWithDiff: View {
+    let model: InspectorModel
+    let diff: DiffViewModel
+    let controller: DiffViewController
+
+    var body: some View {
+        if diff.target == nil {
+            CommitInspectorView(model: model)
+        } else {
+            VSplitView {
+                CommitInspectorView(model: model)
+                    .frame(minHeight: 160, idealHeight: 260)
+                Group {
+                    if diff.isFocused {
+                        Text("Shown in Focused Diff — press Esc to return")
+                            .typeStyle(.callout)
+                            .foregroundStyle(.token(.textTertiary))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(ColorToken.surfacePanel.color)
+                    } else {
+                        DiffPane(controller: controller)
+                    }
+                }
+                .frame(minHeight: 200, idealHeight: 420)
+            }
+        }
     }
 }
 
@@ -497,8 +521,12 @@ private struct FileRow: View {
         }
         .padding(.vertical, Space.s2)
         .padding(.horizontal, Space.s3)
-        .background(RowBackground(isHovered ? .hover : .rest))
+        .background(RowBackground(model.openedFilePath == file.path ? .selected : isHovered ? .hover : .rest))
+        .contentShape(Rectangle())
+        .onTapGesture { model.openDiff(file) }
         .onHover { isHovered = $0 }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Shows the diff")
         .contextMenu {
             Button("Show File History") { model.showFileHistory(file.path, false) }
             Button("Show Folder History") {
@@ -506,6 +534,9 @@ private struct FileRow: View {
             }
             .disabled((file.path as NSString).deletingLastPathComponent.isEmpty)
             Button("Copy Path") { Pasteboard.copy(file.path) }
+            if case .commit(let oid) = model.mode, file.status != .deleted {
+                Button("Blame at This Commit") { model.openBlame(file.path, oid) }
+            }
         }
         .accessibilityElement(children: .combine)
     }
@@ -585,42 +616,6 @@ private struct StatBar: View {
         if index < green { return ColorToken.diffAddMark.color }
         if index < filled { return ColorToken.diffDeleteMark.color }
         return ColorToken.borderSubtle.color
-    }
-}
-
-/// The WIP row's inspector: changed paths with status letters (the working-directory panel is Phase 3).
-private struct WorkingDirectorySummary: View {
-    let model: InspectorModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s5) {
-            Text("Uncommitted changes")
-                .typeStyle(.title)
-                .foregroundStyle(.token(.textPrimary))
-            Text("\(model.wipTotal) changed \(model.wipTotal == 1 ? "path" : "paths")")
-                .typeStyle(.callout)
-                .foregroundStyle(.token(.textSecondary))
-            LazyVStack(alignment: .leading, spacing: Space.s2) {
-                ForEach(model.wipEntries) { entry in
-                    HStack(spacing: Space.s4) {
-                        Text(entry.code)
-                            .typeStyle(.monoCaption)
-                            .foregroundStyle(.token(.textSecondary))
-                            .frame(width: 12)
-                        Text(DisplayText.sanitize(entry.path))
-                            .typeStyle(.monoCaption)
-                            .foregroundStyle(.token(.textPrimary))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-            }
-            if model.wipTotal > model.wipEntries.count {
-                Text("and \(model.wipTotal - model.wipEntries.count) more")
-                    .typeStyle(.caption)
-                    .foregroundStyle(.token(.textTertiary))
-            }
-        }
     }
 }
 

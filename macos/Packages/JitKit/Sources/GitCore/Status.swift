@@ -41,13 +41,23 @@ public struct StatusSummary: Sendable, Equatable {
     public var untracked = 0
     public var conflicted = 0
     public var ignored = 0
+    /// Changed paths: staged, unstaged, untracked and conflicted entries, each path counted once (a
+    /// partially staged file is one path). Ignored files don't count.
+    public var changedFiles = 0
+    /// Files with both staged and unstaged changes.
+    public var partiallyStaged = 0
 
-    public init(staged: Int = 0, unstaged: Int = 0, untracked: Int = 0, conflicted: Int = 0, ignored: Int = 0) {
+    public init(
+        staged: Int = 0, unstaged: Int = 0, untracked: Int = 0, conflicted: Int = 0, ignored: Int = 0,
+        changedFiles: Int? = nil, partiallyStaged: Int = 0
+    ) {
         self.staged = staged
         self.unstaged = unstaged
         self.untracked = untracked
         self.conflicted = conflicted
         self.ignored = ignored
+        self.changedFiles = changedFiles ?? (staged + unstaged + untracked + conflicted - partiallyStaged)
+        self.partiallyStaged = partiallyStaged
     }
 
     /// No staged, unstaged, untracked or conflicted entries (ignored files don't count).
@@ -106,6 +116,101 @@ public struct StatusEntries: Sendable {
 
     private func string(_ range: Range<Int32>) -> String {
         String(decoding: bytes[Int(range.lowerBound)..<Int(range.upperBound)], as: UTF8.self)
+    }
+
+    /// The path as Git wrote it (bytes, not normalized); used to build argv without a lossy round trip.
+    public func pathBytes(at index: Int) -> ArraySlice<UInt8> {
+        bytes[Int(paths[index].lowerBound)..<Int(paths[index].upperBound)]
+    }
+
+    // MARK: Typed views (P3.1)
+
+    /// Staged and unstaged changes in one file.
+    public func isPartiallyStaged(at index: Int) -> Bool {
+        guard kinds[index] == .ordinary || kinds[index] == .renamedOrCopied else { return false }
+        let (x, y) = statusCodes(at: index)
+        return x != "." && y != "."
+    }
+
+    /// `true` when the index (`X`) side has a change.
+    public func hasStagedChange(at index: Int) -> Bool {
+        guard kinds[index] == .ordinary || kinds[index] == .renamedOrCopied else { return false }
+        return statusCodes(at: index).index != "."
+    }
+
+    /// `true` when the worktree (`Y`) side has a change, or the file is untracked.
+    public func hasUnstagedChange(at index: Int) -> Bool {
+        switch kinds[index] {
+        case .untracked: return true
+        case .ordinary, .renamedOrCopied: return statusCodes(at: index).worktree != "."
+        case .unmerged, .ignored: return false
+        }
+    }
+
+    /// File type changed (regular file ↔ symlink ↔ submodule) in the index or the worktree.
+    public func isTypeChange(at index: Int) -> Bool {
+        let (x, y) = statusCodes(at: index)
+        return x == "T" || y == "T"
+    }
+
+    public enum RenameKind: Sendable, Equatable { case renamed, copied }
+
+    /// For `2` records: renamed or copied, with Git's similarity score (0–100).
+    public func rename(at index: Int) -> (kind: RenameKind, score: Int)? {
+        guard kinds[index] == .renamedOrCopied, let field = metadataFields(at: index).last, let letter = field.first
+        else { return nil }
+        guard let score = Int(field.dropFirst()) else { return nil }
+        return (letter == "C" ? .copied : .renamed, score)
+    }
+
+    /// Submodule sub-states from the `S<c><m><u>` field.
+    public struct SubmoduleState: Sendable, Hashable {
+        public var commitChanged: Bool
+        public var hasTrackedChanges: Bool
+        public var hasUntrackedChanges: Bool
+    }
+
+    public func submoduleState(at index: Int) -> SubmoduleState? {
+        let flags = submodule[index]
+        guard flags & 1 != 0 else { return nil }
+        return SubmoduleState(
+            commitChanged: flags & 2 != 0, hasTrackedChanges: flags & 4 != 0, hasUntrackedChanges: flags & 8 != 0)
+    }
+
+    /// The seven unmerged combinations Git reports (`git status` "Unmerged paths").
+    public enum ConflictKind: String, Sendable, Equatable {
+        case bothDeleted = "DD", addedByUs = "AU", deletedByThem = "UD", addedByThem = "UA"
+        case deletedByUs = "DU", bothAdded = "AA", bothModified = "UU"
+
+        public var title: String {
+            switch self {
+            case .bothDeleted: "Both deleted"
+            case .addedByUs: "Added by us"
+            case .deletedByThem: "Deleted by them"
+            case .addedByThem: "Added by them"
+            case .deletedByUs: "Deleted by us"
+            case .bothAdded: "Both added"
+            case .bothModified: "Both modified"
+            }
+        }
+    }
+
+    public func conflict(at index: Int) -> ConflictKind? {
+        guard kinds[index] == .unmerged else { return nil }
+        let (x, y) = statusCodes(at: index)
+        return ConflictKind(rawValue: String([x, y]))
+    }
+
+    /// Octal file modes. Ordinary/renamed: HEAD, index, worktree. Unmerged: stage 1, 2, 3, worktree.
+    public func modes(at index: Int) -> [UInt32] {
+        let fields = metadataFields(at: index)
+        let count: Int
+        switch kinds[index] {
+        case .ordinary, .renamedOrCopied: count = 3
+        case .unmerged: count = 4
+        case .untracked, .ignored: return []
+        }
+        return fields.prefix(count).compactMap { UInt32($0, radix: 8) }
     }
 }
 
@@ -238,11 +343,14 @@ public enum StatusParser {
             paths.append(Int32(pathStart)..<Int32(end))
             originalPaths.append(0..<0)
 
+            summary.changedFiles += 1
             if kind == .unmerged {
                 summary.conflicted += 1
             } else {
-                if x != UInt8(ascii: ".") { summary.staged += 1 }
-                if y != UInt8(ascii: ".") { summary.unstaged += 1 }
+                let dot = UInt8(ascii: ".")
+                if x != dot { summary.staged += 1 }
+                if y != dot { summary.unstaged += 1 }
+                if x != dot, y != dot { summary.partiallyStaged += 1 }
             }
         }
 
@@ -254,7 +362,12 @@ public enum StatusParser {
             metadata.append(0..<0)
             paths.append(Int32(start + 2)..<Int32(end))
             originalPaths.append(0..<0)
-            if kind == .untracked { summary.untracked += 1 } else { summary.ignored += 1 }
+            if kind == .untracked {
+                summary.untracked += 1
+                summary.changedFiles += 1
+            } else {
+                summary.ignored += 1
+            }
         }
 
         /// `N...` or `S<c><m><u>`.

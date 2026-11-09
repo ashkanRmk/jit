@@ -30,6 +30,11 @@ public actor RepositoryHandle {
     private var inFlight: (generation: UInt64, task: Task<Result<Computed, GitCoreError>, Never>)?
     /// Number of status computations started (tests, diagnostics).
     public private(set) var computations = 0
+    /// Serializes every mutation of this repository (ADR-0027).
+    var gate = WriteGate()
+    /// Bumped after every mutation Jit runs (successful or not: a failed Git command may still have
+    /// changed something).
+    public private(set) var repoRevision = RepoRevision(0)
 
     struct Computed: Sendable {
         let status: RepositoryStatus
@@ -61,6 +66,12 @@ public actor RepositoryHandle {
         let format: ObjectFormat = output.stdoutText.hasPrefix("sha256") ? .sha256 : .sha1
         cachedObjectFormat = format
         return format
+    }
+
+    /// Records a finished mutation: new revision, and status recomputes on next read.
+    func mutationFinished(_ kinds: Set<InvalidationKind>) {
+        repoRevision = RepoRevision(repoRevision.value &+ 1)
+        invalidate(kinds)
     }
 
     public func invalidate(_ kinds: Set<InvalidationKind>) {

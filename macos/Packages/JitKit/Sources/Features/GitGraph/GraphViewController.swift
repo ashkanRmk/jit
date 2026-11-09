@@ -626,6 +626,10 @@ final class GraphViewController: NSViewController {
     @objc func jitFindNext(_ sender: Any?) { nextMatch(forward: true) }
     @objc func jitFindPrevious(_ sender: Any?) { nextMatch(forward: false) }
 
+    @objc func toggleCommandBarLabels(_ sender: Any?) {
+        model.preferences.commandBarShowsLabels.toggle()
+    }
+
     @objc func setGraphDensity(_ sender: Any?) {
         guard let raw = (sender as? NSMenuItem)?.representedObject as? String,
             let density = PreferencesStore.GraphDensity(rawValue: raw)
@@ -637,6 +641,9 @@ final class GraphViewController: NSViewController {
         switch item.action {
         case #selector(jitFindNext(_:)), #selector(jitFindPrevious(_:)):
             return !viewModel.matches.isEmpty
+        case #selector(toggleCommandBarLabels(_:)):
+            item.state = model.preferences.commandBarShowsLabels ? .on : .off
+            return true
         case #selector(setGraphDensity(_:)):
             item.state = (item.representedObject as? String) == model.preferences.graphDensity.rawValue ? .on : .off
             return true
@@ -795,6 +802,22 @@ final class GraphViewController: NSViewController {
     }
 
     // MARK: - Selection & navigation
+
+    /// Command bar ▸ changes: selects the working-directory row (scrolled to the top). Returns `false` when
+    /// the graph shows no WIP row (clean tree, or HEAD outside the current scope).
+    @discardableResult
+    func selectWorkingDirectory() -> Bool {
+        guard showsWIP, !isFlat else { return false }
+        viewModel.selection = []
+        viewModel.wipSelected = true
+        isSyncingSelection = true
+        tableView.selectRowIndexes([0], byExtendingSelection: false)
+        isSyncingSelection = false
+        scrollToRow(0)
+        view.window?.makeFirstResponder(tableView)
+        actions.selectionChanged(viewModel)
+        return true
+    }
 
     /// Selects a commit by id, loading pages until it appears (asks first beyond 50k rows).
     func select(oid: ObjectID) {

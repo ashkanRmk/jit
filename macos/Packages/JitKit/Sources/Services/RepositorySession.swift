@@ -58,6 +58,12 @@ public final class RepositorySession {
     /// the tab's persisted scope first).
     public private(set) var history: HistoryController?
 
+    /// Mutations this session started that have not finished (running or queued behind the write gate).
+    /// The UI disables conflicting actions while non-empty (design §4.7). Phase 4 lifts this into
+    /// OperationCenter.
+    public private(set) var pendingWrites: [String] = []
+    public var isBusy: Bool { !pendingWrites.isEmpty }
+
     /// Called on the main actor after `info`, `status` or `error` change (tab title/dot, recents).
     @ObservationIgnored public var onChange: (@MainActor (RepositorySession) -> Void)?
 
@@ -69,6 +75,7 @@ public final class RepositorySession {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingInvalidation: Set<InvalidationKind> = []
     @ObservationIgnored private var refreshQueued = false
+    @ObservationIgnored private var writeSequence: UInt64 = 0
 
     private static let log = Logger(subsystem: "jit.app", category: "session")
 
@@ -166,6 +173,86 @@ public final class RepositorySession {
             await task.value
             if loadTask == nil, refreshTask == nil { break }
         }
+    }
+
+    // MARK: - Mutations (P3.1)
+
+    /// Stages whole paths through the handle's write gate, then refreshes status.
+    public func stage(_ paths: [String]) async throws(GitCoreError) {
+        try await write("Stage") { handle throws(GitCoreError) in try await handle.stage(paths) }
+    }
+
+    /// Unstages whole paths through the handle's write gate, then refreshes status.
+    public func unstage(_ paths: [String]) async throws(GitCoreError) {
+        try await write("Unstage") { handle throws(GitCoreError) in try await handle.unstage(paths) }
+    }
+
+    /// Discards working-tree changes of whole files (P3.2). Tokens come from `discardToken(for:)` taken
+    /// when the user was shown what would be lost; `hooks` default to the recovery store and the Trash.
+    public func discard(_ items: [DiscardItem], hooks: DiscardHooks? = nil) async throws(GitCoreError)
+        -> DiscardOutcome
+    {
+        let repository = info?.topLevel ?? path
+        let hooks = hooks ?? RecoveryStore().discardHooks(repository: repository, branch: status?.branch.head)
+        return try await write("Discard") { handle throws(GitCoreError) in try await handle.discard(items, hooks: hooks)
+        }
+    }
+
+    /// Applies a line selection (P3.4). Discards keep a recovery copy in the recovery store first.
+    public func apply(_ request: SelectionRequest, recovery: RecoveryStore = RecoveryStore()) async throws(GitCoreError)
+        -> ApplyOutcome
+    {
+        let repository = info?.topLevel ?? path
+        let hooks = recovery.discardHooks(repository: repository, branch: status?.branch.head)
+        return try await write("Apply") { handle throws(GitCoreError) in try await handle.apply(request, hooks: hooks) }
+    }
+
+    /// Commits (P3.10). Refreshes status and history afterwards (refs moved).
+    public func commit(_ request: CommitRequest) async throws(GitCoreError) -> CommitOutcome {
+        defer { history?.refsMayHaveChanged() }
+        return try await write("Commit", refresh: Set(InvalidationKind.allCases)) { handle throws(GitCoreError) in
+            try await handle.commit(request)
+        }
+    }
+
+    /// Facts the composer shows (read-only).
+    public func commitContext() async -> CommitContext {
+        guard let handle else { return CommitContext() }
+        return CommitContext(
+            headMessage: try? await handle.headMessage(), headAuthor: try? await handle.headAuthor(),
+            headIsInUpstream: (try? await handle.headIsInUpstream()) ?? false,
+            configuredEmail: try? await handle.configuredEmail())
+    }
+
+    /// Reads a diff through the session's handle (read-only; never takes the write gate).
+    public func openDiff(_ target: DiffTarget, options: DiffOptions = DiffOptions()) async throws(GitCoreError)
+        -> DiffDocument
+    {
+        guard let handle else { throw .cancelled }
+        return try await handle.openDiff(target, options: options)
+    }
+
+    /// The current state of `path`, for a later `discard` (read-only).
+    public func discardToken(for path: String) async throws(GitCoreError) -> DiscardToken {
+        guard let handle else { throw .cancelled }
+        return try await handle.discardToken(for: path)
+    }
+
+    @discardableResult
+    private func write<T: Sendable>(
+        _ description: String, refresh: Set<InvalidationKind> = [.index, .worktree],
+        _ body: @Sendable (RepositoryHandle) async throws(GitCoreError) -> T
+    ) async throws(GitCoreError) -> T {
+        guard let handle, lifecycle != .closed else { throw .cancelled }
+        writeSequence &+= 1
+        let token = "\(description) #\(writeSequence)"
+        pendingWrites.append(token)
+        defer {
+            if let index = pendingWrites.firstIndex(of: token) { pendingWrites.remove(at: index) }
+            // Refresh whether or not Git succeeded: a failed command may still have changed something.
+            scheduleRefresh(refresh, reason: .user)
+        }
+        return try await body(handle)
     }
 
     // MARK: - Loading and refreshing
@@ -300,4 +387,22 @@ public final class MemoryPressureMonitor {
     }
 
     isolated deinit { source.cancel() }
+}
+
+/// What the commit composer needs to know about HEAD and configuration.
+public struct CommitContext: Sendable, Equatable {
+    public var headMessage: String?
+    public var headAuthor: GitIdentity?
+    public var headIsInUpstream = false
+    public var configuredEmail: String?
+
+    public init(
+        headMessage: String? = nil, headAuthor: GitIdentity? = nil, headIsInUpstream: Bool = false,
+        configuredEmail: String? = nil
+    ) {
+        self.headMessage = headMessage
+        self.headAuthor = headAuthor
+        self.headIsInUpstream = headIsInUpstream
+        self.configuredEmail = configuredEmail
+    }
 }

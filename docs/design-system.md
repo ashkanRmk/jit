@@ -97,10 +97,28 @@ adjacent lane's colour (ADR-0021).
 - Density: View ▸ Graph Density (Compact / Comfortable), default Comfortable (Q2: compact rows read
   cramped next to 13 pt subjects at the default window size).
 
+### Syntax colours (Phase 3 — `SyntaxColor`, `syntax.*`)
+keyword `#8A1F84` / `#F07CC0` · type, tag `#0B5577` / `#6FC9E8` · function `#2F6067` / `#7CC4B4` · string `#9A2A17` /
+`#F0937D` · number `#3B2CA8` / `#D6C477` · comment `#56606A` / `#98A3AD` · constant `#5E2F99` / `#B896EE` ·
+operator, punctuation `#3D4245` / `#C9CCCF` · property, variable `#255F86` / `#8DB9DA` · attribute `#725A12` /
+`#D9AE6C` · macro `#7A3E12` / `#F2A25E` (light / dark; Increase Contrast uses the same values).
+
+### Diff and code view (Phase 3 — `CodeLinesView`, ADR-0011)
+Opaque content: `surface.canvas` body; `diff.add.bg` / `diff.del.bg` row backgrounds; 3 pt change bar in
+`diff.*.mark` at the gutter edge; hunk headers, collapsed-context rows and side-by-side fillers on
+`surface.sunken`; line numbers `text.tertiary` in SF Mono (`type.mono.body`); selection = system accent at 28 %
+with a 2 pt accent bar; search matches `findHighlightColor` (current match opaque); word-diff emphasis =
+the side's mark colour at 28 %. Glass only on the floating capsules over the body (title, layout, change
+navigator, find, options, focus; selection actions at the bottom), each a separate hosting view sized to its
+content so the body keeps every click. Blame: 240 pt `surface.sunken` gutter, initials avatar in a lane colour,
+age ramp = `accent.base` at 15–90 % opacity on the gutter edge.
+
 ### Contrast guarantees (unit-tested, all four variants)
 Primary/secondary text ≥ 4.5:1 on canvas, panel, raised, sunken; tertiary text, accent, status and diff
-marks ≥ 3:1; lanes ≥ 3:1 on canvas; text on diff backgrounds and on accent ≥ 4.5:1; Increase Contrast
-values strictly stronger than regular for secondary/tertiary text and borders.
+marks ≥ 3:1; lanes ≥ 3:1 on canvas; text on diff backgrounds and on accent ≥ 4.5:1; line numbers and
+change bars ≥ 3:1 on both diff backgrounds and `surface.sunken`; every `syntax.*` colour ≥ 4.5:1 on the
+canvas and both diff backgrounds; Increase Contrast values strictly stronger than regular for
+secondary/tertiary text and borders.
 
 ## Typography (SF Pro / SF Mono — `TypeToken`, applied with `.typeStyle(_:)`)
 

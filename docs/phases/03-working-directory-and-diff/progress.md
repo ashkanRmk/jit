@@ -1,0 +1,225 @@
+# Phase 03 — Working directory & diff: progress report
+
+Status: **complete** (P3.0–P3.11); carry-overs below
+Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
+Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
+
+## Preconditions (implementation.md §1)
+Verified against the code: graph, inspector with changed files, compare, WIP row; `GitTestKit`; `RepositoryHandle`
+generation + `invalidate`; cancellation → `killpg`; identity-only profiles with an active profile; FSEvents
+watcher with worktree/index kinds; porcelain v2 status parser (renames, `u` records, submodule field already
+parsed); sanitized non-interactive Git environment. **Missing:** child stdin (needed for
+`--pathspec-from-file=-` and, in P3.10, `commit -F -`) — added as part of P3.0 (`ProcessSpec.stdin`, written
+with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
+
+## Implemented
+- **P3.0 Repository command bar** (`specs/P3.0-command-bar.md`) — replaces the Phase 2 graph bar: location
+  breadcrumb (repo menu: Reveal in Finder, Copy Path; branch with `↑A ↓B`, detached `HEAD 1a2b3c4`, unborn
+  `main — no commits`; branch popover with filter, Current/Local/Remote, selecting reveals the branch tip in the
+  graph), `N changes` (selects the WIP row; hidden when clean; a partially staged file counts once), Terminal,
+  then the unchanged scope menu and search. Labels drop first, then Terminal moves into a `⋯` menu
+  (`CommandBarLayout.make`); View ▸ Command Bar ▸ Show Labels. Sync/branch/stash/undo are absent (Phases 4/8).
+  Evidence: `CommandBarTests` (11), screenshots `screenshots/command-bar-{light,dark}.png`.
+- **P3.1 (GitCore part)** — status model: `changedFiles` / `partiallyStaged` counts; typed views on
+  `StatusEntries` (rename/copy + score, `ConflictKind` for all seven unmerged combinations, submodule
+  sub-states, type changes, modes, staged/unstaged sides, raw path bytes). FIFO write gate (`WriteGate`,
+  `RepositoryHandle.performExclusive`, ADR-0027) that serializes across suspension points, reports
+  current/pending operations and drops cancelled waiters; monotonic `RepoRevision`. File-level `stage`
+  (`git add --all`) and `unstage` (`restore --staged`; `rm --cached` on an unborn branch) with literal
+  pathspecs fed NUL-separated on stdin; `index.lock` refused up front and mapped from Git's error.
+  `RepositorySession.stage/unstage` with `pendingWrites` / `isBusy`.
+  Evidence: `StageTests` (12: `stagePathsNewDeletedRenamed`, `stageKeepsUnrelatedIndexEntriesAndWorktreeBytes`,
+  `stageTreatsPathsLiterally`, `stageDirectoryFromUntrackedNormalMode`, `unstageRestoresHeadVersionAndKeepsWorktree`,
+  `unstageStagedRenameNeedsBothPaths`, `unstagePathsOnUnbornHead`, `stageThenUnstageRestoresIndex`,
+  `indexLockPresentRefused`, `staleReadResultsDiscarded`, `writeGateSerializesAcrossAwaits`,
+  `writeGateReportsPendingAndDropsCancelledWaiter`, `stageAndUnstageGoThroughTheGate`), `StatusModelTests` (5:
+  rename staged, conflicts from a real merge, submodule modified, type change, Unicode/newline paths + untracked
+  normal mode), `ProcessRunnerTests` stdin (3), `testStageAndUnstageRefreshStatusAndClearBusy`.
+- **P3.1 (panel)** — `Features/WorkingDirectory/`: the inspector shows the working-directory panel while the
+  WIP row is selected (replaces the Phase 2 path list). Header in a `safeAreaBar` (system scroll-edge effect):
+  branch, `N staged · N unstaged · N untracked`, filter (⌥⌘F, fuzzy on path), List/Tree, sort (Path, Name,
+  Status, Size of Change). Sections Conflicts (only when present, not stageable, tooltip), Staged (Unstage
+  All), Unstaged (Stage All; untracked marked `U`). Rows: coloured status letter, half-filled glyph for
+  partially staged files (listed in both sections), file-type symbol, name + dimmed directory, `old → new`
+  for renames, `+x`/`−x`, symlink and submodule badges, `+a −d` from lazy numstat, hover Stage/Unstage.
+  Native `List` (virtualized, multi-selection); Space toggles stage/unstage of the selection; drag between
+  Staged and Unstaged (selection-aware, drop highlight); context menu Stage/Unstage, Open in Editor (⇧⌘O),
+  Reveal in Finder, Copy Path, Copy Relative Path, Show File History; tree folders collapse and their menu
+  acts on all children. Clean state (check glyph, "Working tree clean", last commit subject), 2pt hairline
+  after 150 ms, inline error banner with Retry (index.lock message; lock files never removed). Rows are
+  rebuilt off the main actor; the model follows `session.status` through Observation (no polling).
+  GitCore: `RepositoryHandle.lineStats(staged:paths:)` (`git --literal-pathspecs diff [--cached -M]
+  --numstat -z`, read-only, chunked argv). ADR-0027 written.
+  Evidence: `LineStatsTests` (5), `WorkingDirectoryTests` (11, including
+  `stageAndUnstageByDragMoveRowsBetweenSections` driving the drag/drop path through a real session,
+  `lockedIndexShowsBannerAndRetryWorks`, `spaceTogglesAndStatsLoadLazily`); screenshots
+  `screenshots/working-directory-{normal,conflicts}-{light,dark}.png`.
+- **P3.2 File-level discard with recovery** (ADR-0025) — GitCore `discardToken(for:)` (index record +
+  working-tree fingerprint), `discardPreview(for:)` (first 20 lost/restored lines, counts, binary),
+  `discard(_:hooks:)` inside the write gate: re-validate every token, recovery copy first, untracked to the
+  Trash, then `git restore --worktree`; staged changes kept. Services `RecoveryStore` (0700/0600, meta.json,
+  7 days / 500 MB pruning at launch) and `RepositorySession.discard`. Panel: "Discard Changes…" for unstaged
+  rows and folders (not submodules or conflicts), confirmation sheet per design §3.2 (title, repo · branch,
+  what changes / is lost / how to recover, line preview or file list; Cancel default, red Discard without a
+  shortcut), stale-token banner without Retry. Repository ▸ Recently Discarded (reveal copy, Show Recovery
+  Folder). Debug arg `-JitDiscardSheet <path>` opens the sheet for screenshots.
+  Evidence: `DiscardTests` (7), `RecoveryStoreTests` (3), `WorkingDirectoryTests` discard flow (3);
+  screenshots `screenshots/discard-sheet-{light,dark}.png`.
+- **P3.3 Byte-exact diff engine** (ADR-0026) — `GitCore/Diff/`: `DiffTarget` (unstaged, staged incl.
+  rename source, commit vs first parent / empty tree, commit range, commit → worktree), `DiffOptions`,
+  `DiffInvocation` (canonical argv), `PatchParser` (bytes in, 16-byte `LineRecord`s, C-unquoted paths,
+  extended headers, binary/submodule/symlink/mode flags, CRLF and no-newline per line), `PatchStorage.serialize`,
+  `DiffDocument` (immutable, `Sendable`; packed unified/split/full-file row tables, context gaps and
+  `expandingContext`, `search`, `LineID`/`HunkID`, `fileBytes(ofLine:)`), `SnapshotToken` and
+  `RepositoryHandle.openDiff` (token before/after, synthesized untracked patch). No UI yet (diff viewer
+  follows the renderer decision in P3.5).
+  Evidence: `DiffEngineTests` (13 tests, 23 cases with parameters); round trip holds for every fixture;
+  `diffDocumentMemory50kLines`: 100,000 lines → 51.8 B/line in total, 28.0 B/line beyond Git's output,
+  0.27 s read + parse + layout (debug build).
+- **P3.4 Patch builder & selection apply** (ADR-0013) — `GitCore/Patch/PatchBuilder.swift` (pure: selection
+  table, own headers, recomputed hunk positions, ambiguous-final-newline detection, independent expected
+  result by splicing the target's current bytes, reason codes) and `SelectionApplier.swift`
+  (`RepositoryHandle.apply`: token → filter check → patch → private `0600` file → `git apply --check` →
+  recovery copy → apply → verify → index rollback via `update-index --index-info`). New `GitCoreError`
+  cases `refused`, `verificationFailed`. `RepositorySession.apply/openDiff`. `GitTestKit.SplitMix64`.
+  Evidence: `ApplyTests` (28 incl. parameters — the §7.4 matrix; `renameStagedUnstageLines` is a refusal in
+  V1), mutation check (a broken builder fails 6 of them), `ApplyPropertyTests` (150 cases by default,
+  2,000 with `CI`; seed printed).
+- **P3.5 Renderer spike & decision** (ADR-0011) — `CodeLinesView` (virtualized fixed-row renderer, `CTLine`
+  cache, one or two columns, gutters, change bars, search highlights, row accessibility) and
+  `DiffRowsSource` built; TextKit 2 prototype measured in `JitBench renderer-spike` and then removed.
+  Release numbers (M5 Pro): CodeLinesView 2,401 rows first paint 5.7 ms (28.2 ms cold), 60,001 rows 8.0 ms,
+  0/400 frames over 16.7 ms, max 1.75 ms; TextKit 2 52.7 ms / 910.7 ms first paint, 18–19/400 slow frames,
+  +102 MB at 60k rows.
+- **P3.6 Diff viewer** — `Features/DiffViewer/`: `DiffViewModel` (targets, layouts persisted, loading with
+  120 ms spinner, reload on status change keeping expansion when bytes are equal, binary / mode-only / empty /
+  too-large (64 MB) / failed states, gaps, change navigation, go to line, search with case option),
+  `DiffViewController` (opaque `CodeLinesView` body, floating glass chrome in one container with full and
+  compact forms via `ViewThatFits`: title, Unified / Side by Side / Full File, change navigator, find
+  capsule, options menu (show/ignore whitespace, go to line), Focus Diff). Opens below the file list in the
+  inspector (working directory: unstaged / staged incl. rename source; commit, compare (direct or since
+  merge base) and commit → working tree from the Phase 2 file lists). Focused Diff covers the graph pane
+  under the toolbar with a 200 ms fade (instant with Reduce Motion), Esc returns. Menus: Find ▸ Go to Line…
+  (⌘L), Find Next/Previous (⌘G/⇧⌘G) reach the diff through the responder chain, View ▸ Focus Diff (⌥⌘↩),
+  Next/Previous Change (⌥↓/⌥↑). Debug args `-JitOpenDiff <path>`, `-JitFocusDiff YES`, `-diffLayout`.
+  Evidence: `DiffViewerTests` (split filler rows, collapsed context expansion, change navigation + search +
+  go to line, renderer geometry/whitespace), contrast test for gutter/marks on diff backgrounds; screenshots
+  `diff-{unified,split,fullfile}-{light,dark}.png` (focused), `diff-unified-inspector-{light,dark}.png`,
+  `diff-no-newline-light.png`, `diff-binary-dark.png`.
+- **P3.7 Syntax highlighting & word diff** (ADR-0012, ADR-0029) — hand-written lexers by language family,
+  off-main highlighting with limits and cancellation, `syntax.*` tokens (AA on canvas and diff backgrounds,
+  all variants), word diff via own Myers on tokens for paired lines; options menu toggles.
+  Evidence: `HighlightTests` (8); screenshots `diff-highlighted-{light,dark}.png`. Tree-sitter was not
+  prototyped (recorded in ADR-0012).
+- **P3.8 Line / hunk actions in the UI** — `LineSelection` (click, ⌘ toggle, ⇧ range over changed lines,
+  drag, hunk-header click selects/clears the hunk, ↑/↓ and ⇧↑/⇧↓, Space), `LineActions` availability (every
+  reason code → disabled with its explanation; busy while a write runs), floating glass selection capsule
+  (primary "Stage N Lines" / "Unstage N Lines", destructive "Discard N Lines…", "Keep Only Selected…"), keys
+  S / U / ⌫ on the diff body, `LineDiscardSheet` with the exact lost/restored lines (Cancel default),
+  stale → reload + selection cleared + banner, recovery copy for discards. The chrome is three hosting
+  views sized to content so body clicks are never swallowed (regression test). Debug arg `-JitDiffSelect`.
+  Evidence: `LineActionTests` — `lineSelectionModel`, `actionAvailability`, `scenarioCPartialStaging` (§24 C
+  end to end through the viewer model on a real repo: stage one line, others stay unstaged, unstage it,
+  discard another after confirmation, unrelated file preserved, recovery copy written),
+  `chromeDoesNotSwallowBodyClicks`; screenshots `diff-selection-{light,dark}.png`.
+- **P3.9 Blame** — GitCore `RepositoryHandle.blame` (`git blame --incremental [-w] [-M] [rev] -- path`,
+  pull-based `AsyncThrowingStream` so buffering is bounded; cancellation kills the child; Git applies
+  `blame.ignoreRevsFile`), `blameContent` (working file or `cat-file blob rev:path`). `BlameModel` +
+  `BlameViewController` on `CodeLinesView`: 240 pt gutter grouping runs from one commit (initials avatar,
+  author, relative date, subject), age ramp on the gutter edge, hover tooltip (SHA, author, date, subject),
+  click selects the commit in the graph, lines appear first and gutters fill as Git streams, options -w / -M,
+  Esc / close. Opens over the graph area from: working-directory menu "Blame", commit file list "Blame at
+  This Commit", diff options "Blame File" and View ▸ Blame File (⇧⌘B). Debug arg `-JitBlame <path>`.
+  Evidence: `BlameTests` (all lines attributed once, at a revision, cancel, `ignoreRevsFile`, 5k-line file:
+  first block 6.1 ms / all 7.5 ms in a debug build vs the 200 ms target), `BlameModelTests`; screenshots
+  `blame-{light,dark}.png`. Blame text is not syntax-highlighted yet.
+- **P3.10 Commit composer** (ADR-0014, ADR-0028) — GitCore `RepositoryHandle.commit` (`commit -F -`, write gate,
+  conflicts and "nothing to commit" refused up front, identity via `GitCommand.environment` only, amend /
+  reset-author / explicit no-verify, cancellation kills hooks), `headMessage/headAuthor/headIsInUpstream/
+  configuredEmail`. Services `RepositorySession.commit` (refreshes status and history), `CommitContext`,
+  `CommitDrafts` (`commit-drafts.json`, `0600`). Composer pinned under the file list: summary with counter
+  (> 50, warning > 72), description (2–8 lines), amend (loads HEAD message, restores draft, upstream
+  warning, reset-author checkbox when HEAD's author differs), error row, hook output disclosure, glass
+  action bar with identity line / "Choose a profile to commit", repo-config note, "Commit N Files" (⌘↩,
+  prominent glass, disabled with reason), "Commit Without Running Hooks…" with confirmation; success clears
+  the fields, shows a check for 600 ms and selects the new commit in the graph.
+  Evidence: `CommitTests` (11: identity env, no config modified, repo config vs profile, amend keeps
+  author / reset author / message only, unborn branch, hook failure output, no-verify only when asked,
+  cancel kills hook, conflicts block), `CommitComposerTests` (3 incl. `profileSwitchDuringCommitUsesSnapshot`,
+  drafts + amend), Scenario C now ends with a commit by the active profile; screenshots
+  `composer-{light,dark}.png`. Hook output appears when Git finishes (not streamed live).
+- **P3.11 Performance, memory & accessibility verification** — `JitBench phase3` (release): diff open →
+  first paint 41.5 ms p50, 50k-line diff +3.0 MB, 200 open/close cycles Δ 0.5 MB, status with 1k changed
+  files 20.1 ms, stage one line end to end 51.9 ms, blame first lines 5.1 ms; idle release app with the
+  repository open 0.0 % CPU (`docs/performance.md` Phase 3). Inactive tabs release diff documents, rows,
+  spans and blame text and reload on return (`DiffReleaseTests`). Diff rows expose spoken labels to
+  accessibility (`DiffAccessibilityTests`). Quitting now waits (event-driven, at most 10 s) for running
+  writes before Git children are killed. Docs: architecture, design system (syntax/diff/blame), security,
+  performance; ADRs 0011–0014, 0025–0029 written.
+
+## Verified
+- Tests: `scripts/build/test-core.sh` — **370 passed** (43 + 243 + 70 + 14 across the four test targets); skipped: none.
+  Xcode app tests (`scripts/build/test-app.sh`): **23 passed, 0 failed** (xcresult summary). Lint clean.
+- Property tests: 150 cases in every `test-core` run; 50,000-case local run: pending.
+- Real workflow (debug app, generated repositories, screenshots in `screenshots/`): command bar; working
+  directory panel (normal, conflicts); discard sheet; diffs in the inspector and in Focused Diff (unified,
+  side by side, full file, highlighted, selection capsule, no-newline note, binary); blame; composer.
+  Pointer interaction was not driven (the window opened behind the user's apps and driving their mouse was
+  declined): every flow is covered by model-level tests on real repositories instead, including Scenario C.
+
+- Independent review of the line-staging core (discard, patch builder, applier): no data-loss path on
+  the UI paths; three API-level hardening fixes applied — keep-only with an empty (or context-only)
+  selection is refused instead of discarding every change, line discards without recovery hooks are
+  refused, and index rollback writes a removal id of the repository's hash length (SHA-256 safe). Test
+  `keepOnlyWithoutSelectionAndDiscardWithoutRecoveryRefused`. Known limit: rollback of an intent-to-add
+  entry restores it as a normal empty entry.
+
+## Decisions
+- ADR-0027: FIFO write gate inside `RepositoryHandle`; reads never take it; every finished mutation bumps
+  `RepoRevision` and invalidates status.
+- ADR-0011: custom `CodeLinesView` over TextKit 2 (measured). ADR-0012: hand-written lexers (tree-sitter not
+  prototyped). ADR-0013: partial staging with token, check, verify, rollback. ADR-0014: hooks as Git runs
+  them. ADR-0025: recovery store. ADR-0026: canonical diff + byte model. ADR-0028: identity via env only.
+  ADR-0029: own Myers word diff.
+
+## Deviations from plan
+- The command bar lives in the graph pane (where the Phase 2 bar was), constrained to the pane's safe area,
+  rather than spanning graph + inspector: the macOS 26 inspector floats over the pane's trailing edge, so the
+  bar already clears it. Spec to be updated when the working-directory panel lands.
+- Branch popover has no "Recent" section yet: Jit records no branch-switch history before Phase 4.
+- ⌃F6 focus for the bar is not wired yet.
+- The panel is a SwiftUI `List` (`WorkingDirectoryView` + `WorkingDirectoryModel`), not an
+  `NSViewController`: the inspector is SwiftUI, and `List` gives AppKit table virtualization, selection and
+  keyboard handling. Rows hold path `String`s (one per changed file) because filter, sort and tree need them;
+  status parsing itself stays byte-level (ADR-0005).
+- Drop highlight uses `accent.muted`; there is no `fill.dropTarget` token yet.
+- The composer action bar arrives with the composer in P3.10 (no placeholder now).
+- No XCUITest target exists in the project, so `StageAndUnstageFileByDrag` is a model-level test with a
+  real session (`stageAndUnstageByDragMoveRowsBetweenSections`); a pointer drag in the running app has not
+  been exercised.
+
+## Known issues / carry-overs
+- Quitting waits up to 10 s for running writes, then kills remaining Git children (a hung hook cannot block
+  quitting); not covered by an automated test (needs the app lifecycle).
+- Reduce Transparency / Increase Contrast screenshots of the Phase 3 surfaces need the system setting turned
+  on by the user (`scripts/testing/capture-accessibility.sh`); not captured. A real VoiceOver pass and
+  Instruments (Hangs, Animation Hitches, Allocations, GPU) were not run.
+- Narrow-window overflow screenshot and Reduce Transparency screenshots (bar and panel) still to capture.
+- Clean-state screenshot not captured: a clean tree has no WIP row, so the panel only shows its clean state
+  briefly when the tree becomes clean while selected (verified by `cleanTreeLoadsLastCommitSubject`).
+- Not yet exercised by pointer: drag between sections, context menu, Space, tree collapse, ⇧⌘O / ⌥⌘F.
+- Untracked directories (`scratch/`) are staged as a whole; on-demand expansion is not built.
+- Paths that are not valid UTF-8 are listed with replacement characters and cannot be staged from the panel.
+- Discard into the real Trash is not exercised by tests (it would fill the user's Trash); tests inject a
+  trash hook, and `RecoveryStore.discardHooks` calls `FileManager.trashItem`.
+- Not yet exercised by pointer: Discard Changes… menu, confirming in the sheet, Recently Discarded menu.
+- P3.8: hunk header rows have no inline buttons; clicking the header selects the hunk and the capsule acts
+  (design asked for buttons on the row). Character-level text selection (⌥-drag) is not built; ⌘C copies
+  selected lines. Scenario C runs as a model-level test, not an XCUITest (no UI test target).
+- Diff viewer: no soft wrap (fixed rows, ADR-0011); search works in unified and full-file layouts only;
+  renamed files in commit diffs opened with a path filter show as add + delete pair-less (the path filter
+  hides the rename source); the commit-inspector diff path was exercised in tests only, not by pointer.
+- Copy detection (`-C`) is not part of the canonical command; the copy header is covered by parsing Git's
+  own `-C` output.
+- Hook output appears when Git finishes, not streamed live (ADR-0014). Blame text is not syntax-highlighted.
+- Next: Phase 4 (not started).
