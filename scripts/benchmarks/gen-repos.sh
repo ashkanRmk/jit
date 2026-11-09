@@ -16,7 +16,7 @@ for arg in "$@"; do
         *) NAMES+=("$arg") ;;
     esac
 done
-swift build -c release --package-path "$PACKAGE_DIR" --product JitBench >/dev/null
+build_jitbench
 BENCH="$(swift build -c release --package-path "$PACKAGE_DIR" --show-bin-path)/JitBench"
 [[ ${#NAMES[@]} -gt 0 ]] || read -r -a NAMES <<< "$("$BENCH" make-bench-repo --list)"
 mkdir -p "$BENCH_DIR"

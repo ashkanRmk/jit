@@ -35,7 +35,7 @@ SUMMARY="$REPO_ROOT/benchmarks/results/$STAMP-summary.md"
 
 "$DIR/gen-repos.sh"
 info "JitBench micro"
-swift build -c release --package-path "$PACKAGE_DIR" --product JitBench >/dev/null
+build_jitbench
 "$(swift build -c release --package-path "$PACKAGE_DIR" --show-bin-path)/JitBench" micro --iterations $((RUNS * 3)) \
     --out "$DIR/out/micro-$STAMP.json"
 

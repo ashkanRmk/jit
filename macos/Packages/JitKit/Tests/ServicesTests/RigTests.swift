@@ -53,8 +53,9 @@ struct RigIntegrationTests {
         {
             var ids: [String] = []
             if let ca { ids = [try caStore.importCA(try Data(contentsOf: URL(fileURLWithPath: ca))).id] }
+            let base = try #require(URL(string: "https://127.0.0.1:\(port)"))
             return ProviderInstance(
-                id: .new(), kind: .gitlab, name: "Rig", webBaseURL: URL(string: "https://127.0.0.1:\(port)")!,
+                id: .new(), kind: .gitlab, name: "Rig", webBaseURL: base,
                 sshHost: "127.0.0.1", sshPort: Rig.port("JIT_RIG_SSH_PORT"), caCertificateIDs: ids, proxy: proxy)
         }
 

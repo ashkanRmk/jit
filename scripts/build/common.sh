@@ -23,3 +23,17 @@ require_xcode() {
 require_xcodegen() {
     command -v xcodegen >/dev/null || die "XcodeGen is not installed. Install it with: brew install xcodegen"
 }
+
+# Builds the JitBench release product quietly; on failure prints the compiler output (SwiftPM writes errors to
+# stdout, so a plain `>/dev/null` used to hide them and CI failed without a message).
+build_jitbench() {
+    local log
+    log="$(mktemp "${TMPDIR:-/tmp}/jitbench-build.XXXXXX")"
+    if ! swift build -c release --package-path "$PACKAGE_DIR" --product JitBench >"$log" 2>&1; then
+        grep -E "error:|warning: unre" "$log" | sort -u | head -40 >&2 || true
+        tail -20 "$log" >&2
+        rm -f "$log"
+        die "JitBench release build failed"
+    fi
+    rm -f "$log"
+}
