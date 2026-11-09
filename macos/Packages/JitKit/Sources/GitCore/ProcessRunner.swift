@@ -15,6 +15,9 @@ public struct ProcessSpec: Sendable {
     public var acceptedExitCodes: Set<Int32>
     /// Bytes written to the child's stdin, then closed. `nil` connects stdin to `/dev/null`.
     public var stdin: [UInt8]?
+    /// Receives stderr bytes as they arrive (progress parsing, P4.1), on the child's serial queue. The
+    /// bytes are also kept for the final `ProcessOutput`.
+    public var stderrObserver: (@Sendable ([UInt8]) -> Void)?
 
     public init(
         executable: String,
@@ -24,8 +27,10 @@ public struct ProcessSpec: Sendable {
         timeout: Duration? = nil,
         stdoutLimit: Int = 16 * 1024 * 1024,
         acceptedExitCodes: Set<Int32> = [0],
-        stdin: [UInt8]? = nil
+        stdin: [UInt8]? = nil,
+        stderrObserver: (@Sendable ([UInt8]) -> Void)? = nil
     ) {
+        self.stderrObserver = stderrObserver
         self.executable = executable
         self.arguments = arguments
         self.workingDirectory = workingDirectory
@@ -235,6 +240,7 @@ private final class ChildProcess: @unchecked Sendable {
             }
             stdout.append(contentsOf: bytes)
         } else {
+            if let observer = spec.stderrObserver { observer(Array(bytes)) }
             stderr.append(contentsOf: bytes)
             if stderr.count > 2 * ProcessRunner.stderrLimit {
                 stderr.removeFirst(stderr.count - ProcessRunner.stderrLimit)

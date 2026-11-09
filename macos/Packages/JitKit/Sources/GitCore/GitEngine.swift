@@ -20,6 +20,8 @@ public struct GitCommand: Sendable {
     /// Invocation-scoped variables (identity: `GIT_AUTHOR_*` / `GIT_COMMITTER_*`), applied last. Never
     /// secrets (CLAUDE.md), never written anywhere.
     public var environment: [String: String] = [:]
+    /// Receives stderr bytes as Git writes them (`--progress` parsing). See `ProcessSpec.stderrObserver`.
+    public var stderrObserver: (@Sendable ([UInt8]) -> Void)?
 
     public init(
         _ arguments: [String],
@@ -156,7 +158,8 @@ public actor GitEngine {
             timeout: command.timeout,
             stdoutLimit: command.stdoutLimit,
             acceptedExitCodes: command.acceptedExitCodes,
-            stdin: command.stdin
+            stdin: command.stdin,
+            stderrObserver: command.stderrObserver
         )
         return try await runner.run(spec)
     }

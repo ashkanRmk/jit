@@ -83,7 +83,7 @@ extension RepositoryHandle {
 
     // MARK: Helpers
 
-    func requireWorkingTree() throws(GitCoreError) -> String {
+    nonisolated func requireWorkingTree() throws(GitCoreError) -> String {
         guard let topLevel = info.topLevel else {
             throw .internalError(summary: "This repository has no working tree.")
         }
