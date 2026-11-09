@@ -55,7 +55,10 @@ public struct HistorySearchQuery: Sendable, Hashable {
 extension HistorySnapshot {
     /// Rows of loaded history matching `query`, in row order (in-memory byte scan, no Git process).
     /// A bare hex token matches either an id prefix or the text (it may be a word like `cafe`).
-    public func search(_ query: HistorySearchQuery) -> [Int32] {
+    /// - Parameter refs: the current refs for `ref:` tokens (labels may have moved since this snapshot was
+    ///   read, ADR-0024); defaults to the snapshot's own.
+    public func search(_ query: HistorySearchQuery, refs currentRefs: RefSnapshot? = nil) -> [Int32] {
+        let refs = currentRefs ?? self.refs
         guard !query.isEmpty, count > 0 else { return [] }
         let needles = query.text.map { ByteNeedle($0) }
         let hexNeedles = query.hexPrefixes.map { Array($0.utf8) }

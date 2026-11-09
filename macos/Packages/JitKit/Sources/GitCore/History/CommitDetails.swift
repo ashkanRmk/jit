@@ -150,11 +150,20 @@ extension RepositoryHandle {
         return try ChangedFileParser.parse(output)
     }
 
-    /// The message of an annotated tag (`refs/tags/<name>`).
-    public func tagMessage(_ fullName: String) async throws(GitCoreError) -> String {
-        let output = try await runRead(
-            ["for-each-ref", "--format=%(contents)", fullName], limit: 4 * 1024 * 1024)
-        return String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    /// The message of an annotated tag object (`git cat-file tag <id>`: headers, a blank line, the message,
+    /// then an optional signature block, which is left out). Exact object, no ref-name pattern matching.
+    public func tagMessage(object: ObjectID) async throws(GitCoreError) -> String {
+        let format = try await objectFormat()
+        let output = try await runRead(["cat-file", "tag", object.hex(format)], limit: 4 * 1024 * 1024)
+        let text = String(decoding: output, as: UTF8.self)
+        guard let blank = text.range(of: "\n\n") else { return "" }
+        var message = String(text[blank.upperBound...])
+        for marker in [
+            "-----BEGIN PGP SIGNATURE-----", "-----BEGIN SSH SIGNATURE-----", "-----BEGIN SIGNED MESSAGE-----",
+        ] {
+            if let range = message.range(of: marker) { message = String(message[..<range.lowerBound]) }
+        }
+        return message.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func runRead(_ arguments: [String], limit: Int) async throws(GitCoreError) -> [UInt8] {

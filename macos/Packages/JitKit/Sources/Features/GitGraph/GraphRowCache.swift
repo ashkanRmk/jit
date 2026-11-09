@@ -98,7 +98,9 @@ struct GraphRowDisplay {
     }
 
     private func materialize(_ row: CommitRow) -> GraphRowDisplay {
-        let author = snapshot.author(of: row)
+        let rawAuthor = snapshot.author(of: row)
+        let author = CommitAuthor(
+            name: DisplayText.sanitize(rawAuthor.name), email: DisplayText.sanitize(rawAuthor.email))
         let subject = DisplayText.sanitize(row.subject)
         let date = Date(timeIntervalSince1970: TimeInterval(row.time))
         let dateText =
@@ -140,18 +142,20 @@ struct GraphRowDisplay {
                     labels.append(
                         RefLabel(
                             kind: .localWithUpstream(remote: remote.remoteName ?? "", isCurrent: local.isHead),
-                            text: local.shortName, fullName: local.fullName))
+                            text: DisplayText.sanitize(local.shortName), fullName: local.fullName))
                 } else {
                     labels.append(
                         RefLabel(
-                            kind: local.isHead ? .current : .local, text: local.shortName, fullName: local.fullName))
+                            kind: local.isHead ? .current : .local, text: DisplayText.sanitize(local.shortName),
+                            fullName: local.fullName))
                 }
             }
             for remote in list where remote.kind == .remote && !consumedRemotes.contains(remote.fullName) {
-                labels.append(RefLabel(kind: .remote, text: remote.shortName, fullName: remote.fullName))
+                labels.append(
+                    RefLabel(kind: .remote, text: DisplayText.sanitize(remote.shortName), fullName: remote.fullName))
             }
             for tag in list where tag.kind == .tag {
-                labels.append(RefLabel(kind: .tag, text: tag.shortName, fullName: tag.fullName))
+                labels.append(RefLabel(kind: .tag, text: DisplayText.sanitize(tag.shortName), fullName: tag.fullName))
             }
             result[commit] = labels
         }
@@ -166,11 +170,16 @@ struct GraphRowDisplay {
 /// symbols, bidi overrides are neutralised, and the whole string is isolated so RTL text can't reorder
 /// what follows it.
 enum DisplayText {
-    static func sanitize(_ text: String) -> String {
+    /// - Parameter keepNewlines: keep line breaks (commit bodies, tag messages); other controls still shown.
+    static func sanitize(_ text: String, keepNewlines: Bool = false) -> String {
         var scalars = String.UnicodeScalarView()
         var needsIsolation = false
         for scalar in text.unicodeScalars {
             switch scalar.value {
+            case 0x0A where keepNewlines:
+                scalars.append(scalar)
+            case 0x80...0x9F:
+                scalars.append("\u{FFFD}")  // C1 controls
             case 0x00...0x1F:
                 // U+2400 block: "control pictures" (␛ for ESC, ␉ for TAB …).
                 scalars.append(Unicode.Scalar(0x2400 + scalar.value) ?? "?")

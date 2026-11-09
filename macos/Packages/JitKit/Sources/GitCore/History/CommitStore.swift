@@ -44,6 +44,11 @@ public struct NodeFlags: OptionSet, Sendable, Hashable {
 public struct CommitAuthor: Sendable, Hashable {
     public let name: String
     public let email: String
+
+    public init(name: String, email: String) {
+        self.name = name
+        self.email = email
+    }
 }
 
 /// 4,096 rows of history in columns (ADR-0022). Immutable once built: one object per chunk, never per

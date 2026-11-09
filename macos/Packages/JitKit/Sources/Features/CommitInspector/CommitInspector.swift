@@ -246,7 +246,7 @@ private struct CommitHeader: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if !details.body.isEmpty {
-                    Text(MessageReflow.reflow(details.body))
+                    Text(DisplayText.sanitize(MessageReflow.reflow(details.body), keepNewlines: true))
                         .typeStyle(.body)
                         .foregroundStyle(.token(.textSecondary))
                         .textSelection(.enabled)
@@ -328,7 +328,7 @@ private struct CommitHeader: View {
     }
 
     private var refsHere: [String] {
-        (model.refs?.refs ?? []).filter { $0.commit == details.oid }.map(\.shortName)
+        (model.refs?.refs ?? []).filter { $0.commit == details.oid }.map { DisplayText.sanitize($0.shortName) }
     }
 
     static func date(_ time: Int64) -> String {
@@ -358,10 +358,10 @@ private struct PersonLine: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(name)
+            Text(DisplayText.sanitize(name))
                 .typeStyle(.callout)
                 .foregroundStyle(.token(.textPrimary))
-            Text(email)
+            Text(DisplayText.sanitize(email))
                 .typeStyle(.caption)
                 .foregroundStyle(.token(.textTertiary))
                 .textSelection(.enabled)
@@ -511,11 +511,12 @@ private struct FileRow: View {
     }
 
     private var pathText: Text {
-        let name = (file.path as NSString).lastPathComponent
-        let directory = (file.path as NSString).deletingLastPathComponent
+        let path = DisplayText.sanitize(file.path)
+        let name = (path as NSString).lastPathComponent
+        let directory = (path as NSString).deletingLastPathComponent
         var result = Text("")
         if let old = file.oldPath {
-            result = Text(old + " → ").foregroundStyle(.token(.textTertiary))
+            result = Text(DisplayText.sanitize(old) + " → ").foregroundStyle(.token(.textTertiary))
         }
         if !nameOnly, !directory.isEmpty {
             result = result + Text(directory + "/").foregroundStyle(.token(.textTertiary))
@@ -606,7 +607,7 @@ private struct WorkingDirectorySummary: View {
                             .typeStyle(.monoCaption)
                             .foregroundStyle(.token(.textSecondary))
                             .frame(width: 12)
-                        Text(entry.path)
+                        Text(DisplayText.sanitize(entry.path))
                             .typeStyle(.monoCaption)
                             .foregroundStyle(.token(.textPrimary))
                             .lineLimit(1)

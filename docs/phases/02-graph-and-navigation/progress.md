@@ -54,7 +54,7 @@ baseline. **Missing:** a suspendable stream API for backpressure — implemented
   row accessibility labels.
 
 ## Verified
-- Tests: `swift test` **215 passed** (GitCoreTests 150, ServicesTests 39, FeaturesTests 14, DesignSystemTests 12);
+- Tests: `swift test` **218 passed** (GitCoreTests 152, ServicesTests 39, FeaturesTests 15, DesignSystemTests 12);
   `xcodebuild test` (JitAppTests) **23 passed**; skipped: none. Lint clean (`scripts/build/lint.sh`).
 - Real workflow (debug and release app, real repositories): git/git clone (86k commits, 1,012 tags), 1k/10k/100k
   fixtures, a dirty copy of the 1k fixture, an empty repository. Exercised through real launches with debug hooks
@@ -131,7 +131,34 @@ Full table and methods: `docs/performance.md`.
 - **Phase 1 carry-overs** still open: Increase Contrast captures, VoiceOver pass, XCUITest suite, paths with newlines.
 
 ## Self-review findings
-(see below — filled after the strict review)
+A strict review by a separate reviewer (code read only, no shared conclusions) found two high-severity bugs and
+several medium ones. Fixed in `fix: address Phase 2 self-review findings`:
+- **High:** a background reload while a page was loading left a stale `pageTask` — pagination stopped and
+  `loadRows` could spin on the main actor. Page/refresh tasks now carry generation tokens; `replace()` drops the
+  old loader's page task; `loadRows` stops when a page makes no progress.
+- **High:** "Show Only Matches" + solo/file history could index past the new snapshot and hit a precondition.
+  Matches are recomputed before the table reloads; `displayRow` bounds-checks.
+- `select(oid:)` could spin when the tab closed mid-load → stops without progress.
+- `loadRows` could restart the reader on a hidden tab (defeating ADR-0010) → guarded by `isActive`.
+- `refreshTask` / cancelled `pageTask` could clobber their successors → identity tokens.
+- "Compare with Selected" never appeared for an unselected row → uses the selection from before the click.
+- Sanitization covered subjects only → now also author names/emails, bodies and tag messages (newlines kept),
+  file paths and rename sources, ref names in pills, navigator and inspector; C1 controls replaced.
+- `ref:` search used the snapshot's refs after label-only updates → uses the controller's current refs.
+- A read resolving after `suspendReader` could be parsed by the reset parser → discarded by reader generation.
+- File history treated paths as pathspecs (`a[1].txt`) → `--literal-pathspecs` (`fileHistoryPathIsLiteral`).
+- Tag message lookup by ref-name pattern → exact object via `git cat-file tag` (`annotatedTagMessageExactObject`).
+- A grace-period kill with unread output could look like a clean end of history → reported as an error.
+
+Logged, not changed:
+- `compareWithWorkingTree` and status honour a repository's `core.fsmonitor`: deliberate — Jit follows Git's
+  trust model for repositories the user opened (Phase 1 decision, `docs/security.md`; ADR-0023 neutralises
+  display-only programs). Revisit with the Phase 5/6 security review.
+- Deep search does not search bare hex words as text (loaded search matches them as id prefix or text). Low; Phase 6.
+
+Own findings during the phase (fixed): graph column too wide on git/git, columns under the floating inspector,
+skeleton not clearing, ragged commit bodies, WIP subject truncation, compare direction, accessibility labels built
+but not attached, hardcoded fonts in Features (lint), idle-script parser.
 
 ## Next
 - Phase 3 (`docs/phases/03-working-directory-and-diff`), P3.1. Preconditions: this PR merged.

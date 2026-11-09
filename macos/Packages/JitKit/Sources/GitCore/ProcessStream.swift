@@ -253,6 +253,10 @@ private final class StreamCore: @unchecked Sendable {
             schedule(after: grace) { [self] in
                 guard !finished else { return }
                 signalGroup(SIGKILL)
+                // Unread output is lost here: never let that look like a clean end of history.
+                if !stdoutEOF, failure == nil {
+                    failure = .internalError(summary: "Git's output was cut off by a process that did not exit.")
+                }
                 if stdoutSuspended {
                     stdoutSuspended = false
                     stdoutSource?.resume()

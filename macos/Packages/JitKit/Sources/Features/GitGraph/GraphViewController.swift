@@ -316,6 +316,11 @@ final class GraphViewController: NSViewController {
             if viewModel.isSearching { recomputeMatches(scroll: false) }
             appendRows()
         case .replaced:
+            // Match indices belong to the old history: recompute before the table reloads.
+            if viewModel.isSearching {
+                viewModel.matches = snapshot.search(HistorySearchQuery(viewModel.searchText), refs: history.refs)
+                matchSet = Set(viewModel.matches)
+            }
             maxLanes = 1
             scannedRows = 0
             scanLanes(from: 0)
@@ -380,7 +385,9 @@ final class GraphViewController: NSViewController {
 
     func displayRow(_ row: Int) -> DisplayRow? {
         if isFlat {
-            return row < viewModel.matches.count ? .commit(Int(viewModel.matches[row])) : nil
+            guard row < viewModel.matches.count else { return nil }
+            let index = Int(viewModel.matches[row])
+            return index < snapshot.count ? .commit(index) : nil
         }
         var index = row
         if showsWIP {
@@ -654,7 +661,7 @@ final class GraphViewController: NSViewController {
     private func recomputeMatches(scroll: Bool) {
         let query = HistorySearchQuery(viewModel.searchText)
         let started = ContinuousClock.now
-        viewModel.matches = query.isEmpty ? [] : snapshot.search(query)
+        viewModel.matches = query.isEmpty ? [] : snapshot.search(query, refs: history?.refs)
         Self.log.debug("search \(self.viewModel.matches.count) matches in \(ContinuousClock.now - started)")
         matchSet = Set(viewModel.matches)
         if viewModel.matches.isEmpty {
@@ -788,8 +795,10 @@ final class GraphViewController: NSViewController {
                     asked = true
                     guard self.confirmDeepLoad() else { return }
                 }
+                let before = self.snapshot.count
                 await history.loadRows(atLeast: self.snapshot.count + 10_000)
-                if Task.isCancelled { return }
+                // No progress (tab hidden or closed, reader failed): stop instead of spinning.
+                if Task.isCancelled || self.snapshot.count == before { return }
             }
             guard let self, self.snapshot.row(for: oid) != nil else { return }
             self.recomputeMatches(scroll: false)
@@ -1093,6 +1102,7 @@ extension GraphViewController: NSMenuDelegate {
         let row = tableView.clickedRow
         guard row >= 0, let kind = displayRow(row) else { return }
         guard case .commit(let index) = kind else { return }  // WIP row: no copy actions
+        let previousSelection = viewModel.selection
         if !tableView.selectedRowIndexes.contains(row) {
             tableView.selectRowIndexes([row], byExtendingSelection: false)
         }
@@ -1126,7 +1136,7 @@ extension GraphViewController: NSMenuDelegate {
                 self.actions.selectionChanged(self.viewModel)
             }
         }
-        if let other = viewModel.selection.first(where: { $0 != commit.oid }) {
+        if let other = previousSelection.last(where: { $0 != commit.oid }) {
             item("Compare with Selected") { [weak self] in
                 guard let self else { return }
                 self.viewModel.selection = [other, commit.oid]

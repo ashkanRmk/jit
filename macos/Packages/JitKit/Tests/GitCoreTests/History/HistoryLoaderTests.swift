@@ -261,3 +261,17 @@ enum LaneDump {
         await #expect(throws: GitCoreError.self) { try await loader.ensureLoaded(.max) }
     }
 }
+
+@Suite struct HistoryPathspecTests {
+    @Test func fileHistoryPathIsLiteral() async throws {
+        let repo = try await GitSandbox().makeRepository()
+        try repo.write("a[1].txt", "x\n")
+        try repo.write("a1.txt", "y\n")
+        try await repo.commit("both")
+        try repo.write("a1.txt", "changed\n")
+        try await repo.commit("only a1")
+        let snapshot = try await HistoryFixtures.loader(repo, HistoryQuery(scope: .current, path: "a[1].txt"))
+            .ensureLoaded(.max)
+        #expect((0..<snapshot.count).map { snapshot.row($0).subject } == ["both"])
+    }
+}

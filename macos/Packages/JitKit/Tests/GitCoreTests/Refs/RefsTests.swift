@@ -159,3 +159,17 @@ import Testing
         #expect(elapsed < PerfBudget.limit(.milliseconds(100)), "parse took \(elapsed)")
     }
 }
+
+@Suite struct TagMessageTests {
+    @Test func annotatedTagMessageExactObject() async throws {
+        let repo = try await GitSandbox().makeRepository()
+        var t = Topology()
+        t.linear(2, prefix: "A")
+        t.tag("v1", at: "A1", message: "First release\n\nNotes")
+        t.tag("v10", at: "A2", message: "Other")
+        try await t.write(to: repo)
+        let handle = try await repo.sandbox.engine.openRepository(at: URL(fileURLWithPath: repo.path))
+        let tag = try #require(try await handle.refs().tags.first { $0.shortName == "v1" })
+        #expect(try await handle.tagMessage(object: tag.object) == "First release\n\nNotes")
+    }
+}

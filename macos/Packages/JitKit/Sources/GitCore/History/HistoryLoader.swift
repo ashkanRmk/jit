@@ -55,8 +55,9 @@ public struct HistoryQuery: Sendable, Hashable {
         let options = revisions.filter { $0.hasPrefix("--") }
         let names = revisions.filter { !$0.hasPrefix("--") }
         guard !revisions.isEmpty else { return nil }
+        // `--literal-pathspecs`: a file named `a[1].txt` or `:x` is a path, not a glob or pathspec magic.
         var arguments =
-            ReadOnlyPolicy.configOverrides + [
+            ["--literal-pathspecs"] + ReadOnlyPolicy.configOverrides + [
                 "log", "--topo-order", "-z", "--format=\(LogParser.format)", "--no-color", "--no-decorate",
                 "--no-show-signature", "--no-ext-diff", "--no-textconv",
             ]
@@ -109,6 +110,8 @@ public actor HistoryLoader {
     /// Bytes per pipe read (tests vary it to move record boundaries across reads).
     var readSizes: [Int] = [256 * 1024]
     private var readIndex = 0
+    /// Bumped when the reader is suspended; a read that resolves afterwards is discarded, not parsed.
+    private var readerGeneration = 0
 
     private static let signposter = OSSignposter(subsystem: "jit.performance", category: "history")
 
@@ -168,6 +171,7 @@ public actor HistoryLoader {
     /// Kills the reader process (tab hidden, ADR-0010) but keeps loaded rows; the next `ensureLoaded`
     /// beyond them restarts it with `--skip`.
     public func suspendReader() {
+        readerGeneration &+= 1
         readTask?.cancel()
         stream?.terminate()
         stream = nil
@@ -193,6 +197,7 @@ public actor HistoryLoader {
         do throws(GitCoreError) {
             while builder.count < target && !complete && !closed {
                 let stream = try await currentStream()
+                let generation = readerGeneration
                 let size = readSizes[readIndex % readSizes.count]
                 readIndex += 1
                 guard let chunk = try await stream.read(maxBytes: size) else {
@@ -203,6 +208,7 @@ public actor HistoryLoader {
                     self.stream = nil
                     break
                 }
+                guard generation == readerGeneration, !Task.isCancelled else { break }
                 try ingest(chunk)
             }
         } catch {

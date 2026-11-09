@@ -39,6 +39,10 @@ public final class HistoryController {
     @ObservationIgnored private var loader: HistoryLoader?
     @ObservationIgnored private var pageTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    /// Identity of the current page/refresh task: a finishing task clears the handle only if it is still
+    /// the current one (a replaced or cancelled task must not clobber its successor).
+    @ObservationIgnored private var pageGeneration = 0
+    @ObservationIgnored private var refreshGeneration = 0
     @ObservationIgnored private var slowTask: Task<Void, Never>?
     @ObservationIgnored private var wanted = 0
     @ObservationIgnored private var isActive = true
@@ -68,7 +72,7 @@ public final class HistoryController {
 
     /// Ensures at least `count` rows are (being) loaded. Coalesced.
     public func requestRows(_ count: Int) {
-        guard let loader, error == nil, !snapshot.complete else { return }
+        guard isActive, let loader, error == nil, !snapshot.complete else { return }
         wanted = max(wanted, count)
         guard pageTask == nil, wanted > snapshot.count else { return }
         startPage(loader)
@@ -77,11 +81,14 @@ public final class HistoryController {
     /// Loads until at least `count` rows exist (or history ends / fails). Awaits page reads; no polling.
     public func loadRows(atLeast count: Int) async {
         wanted = max(wanted, count)
-        while snapshot.count < count, !snapshot.complete, error == nil, let loader {
+        while isActive, snapshot.count < count, !snapshot.complete, error == nil, let loader {
             if pageTask == nil { startPage(loader) }
             guard let task = pageTask else { break }
+            let before = snapshot.count
+            let currentLoader = self.loader
             await task.value
-            if Task.isCancelled { return }
+            // Stop when a page made no progress (cancelled, failed, loader replaced or closed): never spin.
+            if Task.isCancelled || self.loader !== currentLoader || snapshot.count == before { return }
         }
     }
 
@@ -93,19 +100,22 @@ public final class HistoryController {
     }
 
     private func startPage(_ loader: HistoryLoader) {
+        guard isActive else { return }
         isLoading = true
         let target = wanted
+        pageGeneration += 1
+        let generation = pageGeneration
         pageTask = Task { [weak self] in
             do throws(GitCoreError) {
                 let next = try await loader.ensureLoaded(target)
-                guard let self, self.loader === loader else { return }
+                guard let self, self.pageGeneration == generation, self.loader === loader else { return }
                 self.finishPage(next, loader: loader)
             } catch .cancelled {
-                guard let self, self.loader === loader else { return }
+                guard let self, self.pageGeneration == generation else { return }
                 self.pageTask = nil
                 self.isLoading = false
             } catch {
-                guard let self, self.loader === loader else { return }
+                guard let self, self.pageGeneration == generation, self.loader === loader else { return }
                 Self.log.error("History page failed: \(error.summary, privacy: .public)")
                 self.pageTask = nil
                 self.isLoading = false
@@ -149,9 +159,12 @@ public final class HistoryController {
             refreshQueued = true
             return
         }
+        refreshGeneration += 1
+        let generation = refreshGeneration
         refreshTask = Task { [weak self] in
             guard let self else { return }
             await self.refreshRefs()
+            guard self.refreshGeneration == generation else { return }
             self.refreshTask = nil
             if self.refreshQueued {
                 self.refreshQueued = false
@@ -195,6 +208,7 @@ public final class HistoryController {
     /// Tab hidden: stop the reader (no CPU, no memory in Git); keep loaded rows.
     public func deactivate() {
         isActive = false
+        pageGeneration += 1
         pageTask?.cancel()
         pageTask = nil
         isLoading = false
@@ -213,9 +227,12 @@ public final class HistoryController {
     // MARK: - Loading
 
     private func reload(minimumRows: Int) {
+        pageGeneration += 1
         pageTask?.cancel()
         pageTask = nil
         refreshTask?.cancel()
+        refreshGeneration += 1
+        let generation = refreshGeneration
         refreshTask = Task { [weak self] in
             guard let self else { return }
             let refs: RefSnapshot
@@ -224,12 +241,13 @@ public final class HistoryController {
             } catch .cancelled {
                 return
             } catch {
+                guard self.refreshGeneration == generation else { return }
                 self.error = error
                 self.refreshTask = nil
                 return
             }
             await self.replace(refs: refs, minimumRows: minimumRows)
-            self.refreshTask = nil
+            if self.refreshGeneration == generation { self.refreshTask = nil }
         }
     }
 
@@ -253,6 +271,10 @@ public final class HistoryController {
                 return
             }
             let old = loader
+            // A page in flight belongs to the old loader: drop it so pagination restarts on the new one.
+            pageGeneration += 1
+            pageTask?.cancel()
+            pageTask = nil
             loader = replacement
             refs = newRefs
             snapshot = first

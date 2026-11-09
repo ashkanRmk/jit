@@ -172,3 +172,11 @@ import Testing
         )
     }
 }
+
+@Suite struct DisplayTextMoreTests {
+    @Test func keepNewlinesAndC1() {
+        #expect(DisplayText.sanitize("a\nb", keepNewlines: true) == "a\nb")
+        #expect(DisplayText.sanitize("a\nb") == "a\u{240A}b")
+        #expect(DisplayText.sanitize("x\u{9B}y") == "x\u{FFFD}y")
+    }
+}

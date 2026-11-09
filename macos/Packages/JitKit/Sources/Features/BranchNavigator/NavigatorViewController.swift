@@ -202,14 +202,16 @@ final class NavigatorViewController: NSViewController {
         Task { [weak self] in
             let message: String
             do throws(GitCoreError) {
-                message = try await repository.tagMessage(ref.fullName)
+                message = try await repository.tagMessage(object: ref.object)
             } catch {
                 message = error.summary
             }
             guard let self, let rowView = self.outline.rowView(atRow: row, makeIfNecessary: false) else { return }
             let popover = NSPopover()
             popover.behavior = .transient
-            let label = NSTextField(wrappingLabelWithString: message.isEmpty ? "(empty message)" : message)
+            let label = NSTextField(
+                wrappingLabelWithString: message.isEmpty
+                    ? "(empty message)" : DisplayText.sanitize(message, keepNewlines: true))
             label.isSelectable = true
             label.font = TypeToken.body.nsFont
             label.textColor = ColorToken.textPrimary.nsColor
@@ -394,12 +396,12 @@ final class NavigatorCellView: NSTableCellView {
             icon.isHidden = true
             setAccessibilityLabel("\(section.rawValue), \(node.refCount) items")
         case .remote(let name):
-            title.stringValue = name
+            title.stringValue = DisplayText.sanitize(name)
             icon.image = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
             badge.stringValue = "\(node.refCount)"
             setAccessibilityLabel("Remote \(name)")
         case .folder:
-            title.stringValue = node.title
+            title.stringValue = DisplayText.sanitize(node.title)
             icon.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
             setAccessibilityLabel("Folder \(node.title)")
         case .note(let text):
@@ -408,8 +410,8 @@ final class NavigatorCellView: NSTableCellView {
             icon.isHidden = true
             setAccessibilityLabel(text)
         case .ref(let ref):
-            title.stringValue = node.title
-            toolTip = ref.shortName
+            title.stringValue = DisplayText.sanitize(node.title)
+            toolTip = DisplayText.sanitize(ref.shortName)
             var spoken = ref.kind == .tag ? "Tag \(ref.shortName)" : "Branch \(ref.shortName)"
             switch ref.kind {
             case .tag:
