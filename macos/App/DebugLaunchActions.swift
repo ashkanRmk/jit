@@ -7,7 +7,7 @@
     /// - `-JitAppearance light|dark` (AppDelegate) forces the appearance. (`-JitOpen <path>` works in all builds.)
     /// - `-JitShowGallery YES`: open the Design System gallery (`-JitGallerySection <name>` picks a section).
     /// - `-JitShowDropOverlay YES`: show the folder drop overlay.
-    /// - `-JitShowSettings general|profiles|accounts|network`, `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`: open those
+    /// - `-JitShowSettings general|profiles|accounts|network`, `-JitShowProfilePopover YES`, `-JitShowRepositoryBrowser YES`, `-JitShowProfileEditor YES`: open those
     ///   surfaces for screenshots.
     /// - `-JitSnapshot <file.png>` (+ optional `-JitSnapshotWindow <title or id>`): after the UI settles, render
     ///   the window's view hierarchy to a PNG and quit. This draws opaque content exactly; Liquid Glass is
@@ -30,6 +30,12 @@
                     default: Selector(("showSettings:"))
                     }
                 NSApp.sendAction(selector, to: nil, from: nil)
+            }
+            if defaults.bool(forKey: "JitShowRepositoryBrowser") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    NSApp.sendAction(
+                        #selector(MainWindowController.browseRemoteRepositories(_:)), to: nil, from: nil)
+                }
             }
             if defaults.bool(forKey: "JitShowProfilePopover") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {

@@ -212,3 +212,10 @@ Renders (real screen captures): `docs/phases/01-shell-and-tabs/screenshots/`.
 - Reduce Transparency is verified by real captures (`docs/phases/01-shell-and-tabs/screenshots/*-reducetransparency-*`).
   Increase Contrast captures still need the system setting toggled by a person
   (`scripts/testing/capture-accessibility.sh increasecontrast`).
+
+## Phase 5 additions
+- `TypeToken.monoTitle` (15 pt medium SF Mono) for fingerprints and device codes compared character by character.
+- Settings follow System Settings: system sidebar (glass by the system) + grouped forms; no custom chrome.
+- Profile switcher: system popover, plain rows with hover state, `AccountStatusDot` (success/warning/danger/
+  tertiary tokens), footer buttons in one `GlassControlGroup` with `secondaryGlassButton()`.
+- Repository browser list/detail and the diagnostics step list are opaque content (no glass on rows).

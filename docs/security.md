@@ -47,3 +47,21 @@ identity, the user's Git/SSH configuration.
 - `JIT_APP_SUPPORT` (all builds) redirects the state directory for tests and benchmarks; it only changes
   where Jit reads/writes its own files.
 - Dependencies: none (no third-party packages). Toolchain: Xcode 27.2, XcodeGen (build-time only).
+
+## Phase 5 — credentials, SSH, TLS and proxies (ADR-0016, 0018, 0035, 0036)
+- **Secrets** (tokens, OAuth token JSON, SSH passphrases, proxy passwords) live only in the Keychain:
+  generic passwords, service `<bundle id>.account|.ssh-passphrase|.proxy`, account = Jit ID,
+  `WhenUnlockedThisDeviceOnly`, never synchronized. In memory they are `SecretBytes` (wiped, redacted).
+- **Credential delivery**: every remote Git command gets `-c credential.helper=` (inherited osxkeychain/GCM
+  helpers can never answer); with an account, `jit-git-helper` is the only helper. It asks an operation-scoped
+  broker (Unix socket in a `0700` temp dir, 256-bit nonce, peer must be the bundled helper, ≤ 16 requests,
+  torn down when Git exits) that answers only for the operation's host:port, proxy or SSH key.
+- **No fallback**: credentials come strictly from the active profile's account ID; mismatches are explained with
+  explicit "Switch to '<profile>' and Retry" actions — never automatic.
+- **SSH**: `-F none` by default, the profile's key only (`IdentitiesOnly`), `StrictHostKeyChecking=yes`, user
+  known_hosts read-only, Jit's own hashed known_hosts written only through the trust sheet; changed keys are
+  hard errors. No password/keyboard-interactive auth; askpass answers only the expected key's passphrase.
+- **TLS/proxy**: custom CAs per server (CA certificates only), trust scoped to that host:port, system roots kept;
+  no insecure TLS setting anywhere (`InsecureSettingsLintTests`). Proxy passwords never in URLs or argv.
+- **Tests**: sentinel-secret scans of every spawned argv/env (`ProcessRunner.spawnObserver` test hook),
+  redaction tests, rig integration tests (`JIT_RIG=1`). `~/.gitconfig` and `~/.ssh/*` are never written.

@@ -69,3 +69,15 @@ submodules…) are parked in `docs/phases/08-post-v1`.
 Native-first, performance-first (near-zero idle cost), correctness-first (protect the user's data),
 simplicity-first. Glass on chrome only; content opaque and calm. No telemetry. No mock data or fake
 success in shipped UI — unbuilt features are absent or labelled "Planned".
+
+## Profiles & accounts (Phase 5)
+- One global profile, chosen manually (toolbar switcher, Repository ▸ Profile, ⌃⌘P). A profile = identity +
+  optional authentication (GitHub, GitLab.com or a self-managed GitLab; HTTPS account; SSH key or agent).
+- Supported auth: personal access tokens (GitHub, GitLab.com, self-managed), SSH keys/agent, and browser sign-in
+  where an OAuth client is configured (GitLab PKCE, GitHub device flow — not available in builds without
+  registered client IDs).
+- Self-managed GitLab: base URL with path prefix, custom CA certificates, proxy (System/PAC, Manual, Direct),
+  connectivity diagnostics with a copyable report.
+- Remote repository browser (File ▸ Browse Remote Repositories…) and clone with the active profile.
+- Known limitations: no proxy authentication for SSH; host-key scanning can't use a proxy; OAuth requires
+  registered client IDs; unsigned dev builds may ask for the login keychain password after a rebuild.

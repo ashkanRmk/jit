@@ -92,7 +92,7 @@ public enum AuthFailureExplainer {
             result.explanation =
                 account.method == .oauth
                 ? "Reconnect the account to sign in again."
-                : "Replace the token in Settings ▸ Accounts (it may have been revoked)."
+                : "Replace the token in Settings ▸ Accounts (it may have been revoked). If macOS asked for Keychain access and it was denied, Jit couldn't read the token — try again and allow access."
             result.actions = [.manageAccounts] + switchActions
         }
         return result

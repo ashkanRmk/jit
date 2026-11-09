@@ -357,3 +357,11 @@ import Testing
         #expect(try await RepoFingerprint.capture(repo) == before)
     }
 }
+
+@Suite struct Phase5ClassifierTests {
+    @Test func helperWithoutAnswerIsAuthFailure() {
+        let failure = GitErrorClassifier.classify(
+            exitCode: 128, stderr: "fatal: unable to get password from user\n")
+        #expect(failure.kind == .authenticationFailed)
+    }
+}

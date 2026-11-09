@@ -172,3 +172,15 @@ cloneRepository(_:engine:) — free function (no repository yet)
   the same buffer with `CodeLinesView`; choices render back to bytes identical to Git's `--ours/--theirs/--union`.
 - **Errors:** `GitErrorClassifier` (C-locale stderr) → `ClassifiedFailure` → `PresentableError` with recovery
   actions.
+
+## Phase 5 — profiles, authentication and networking
+- `ProfileStore` (v2) holds profiles, hosting accounts, self-managed instances and global network settings;
+  `AccountsService` (lazy, no I/O at launch) builds the `ExecContext` an operation captures at enqueue:
+  identity + `AuthPlan.profile(ProfileAccessProvider)` holding an immutable `ProfileSnapshot`.
+- GitCore asks the provider right before spawning Git (`ExecContext.prepareAccess(for: urls)`) and receives a
+  `RemoteAccess` (helper path, broker endpoint, SSH plan, per-origin CA/proxy) that `GitEnvironment` turns into
+  `-c` options and environment; the returned lease tears the broker down after Git exits.
+- `AccessResolver` is pure: URLs × snapshot → broker policy, SSH plan, scoped network, mismatch hints.
+- Provider API clients (`GitHubProvider`, `GitLabProvider`) use per-instance ephemeral URLSessions with
+  `ScopedTrustDelegate` and proxy dictionaries; OAuth refresh is single-flight and just in time.
+- `jit-git-helper` (Foundation-only executable) is embedded at `Contents/Helpers/`; `TestRig` is dev-only.

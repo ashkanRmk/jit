@@ -179,6 +179,19 @@ import Testing
         #expect(resolution.policy.https.first?.port == 8443)
     }
 
+    @Test func serverCAAppliesToProfilesWithoutAccountButNoCredentials() {
+        let instance = ProviderInstance(
+            id: .new(), kind: .gitlab, name: "Corp", webBaseURL: URL(string: "https://git.corp.example")!,
+            sshHost: "git.corp.example", caCertificateIDs: ["ca1"])
+        let profile = GitProfile(displayName: "Personal", colorIndex: 0, author: Self.ada)
+        let resolution = AccessResolver.resolve(
+            urls: ["https://git.corp.example/team/app.git"],
+            snapshot: ProfileSnapshot(profile, networkInstances: [instance]), environment: Self.env)
+        #expect(resolution.network.first?.caInfo == "/tmp/jit/ca/ca1.pem")
+        #expect(resolution.policy.https.isEmpty)
+        #expect(resolution.mismatches == [.noProfileAuth])
+    }
+
     @Test func manualProxyBecomesScopedProxyAndBrokerTarget() {
         let proxy = ManualProxy(kind: .http, host: "proxy.corp", port: 3128, username: "ada")
         let account = HostingAccount(instanceID: .github, login: "ada", userID: "1", method: .pat)

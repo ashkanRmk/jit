@@ -191,3 +191,11 @@ Recorded in `docs/phases/00-foundation/progress.md`.
   `f7f267864f778bf8e05824a9fd47c2521cac93a5`). Build time on the reference Mac: 0.5 s / 0.9 s / 6.2 s.
   Custom sizes: `make-history-fixture.sh <commits> <branches> <out>`. Real-world cross-check: a clone of
   `https://github.com/git/git` at `~/Code/git-src`.
+
+## Phase 5 (debug build, MacBook Pro M5 Pro, macOS 27.2, Git 2.54.0)
+| Metric | Result | Method |
+|---|---|---|
+| Idle CPU, repo open, account + custom CA configured | 0.0 %, ~1 idle wakeup / 20 s, 64 MB | `top -pid` |
+| Idle network | none | `nettop -p` |
+| Launch | no Keychain reads or network (lazy `AccountsService`) | code review |
+Release-build measurements for Phase 5 (credential overhead, browser memory) are carried over to Phase 6.

@@ -50,10 +50,13 @@ public struct ProfileSnapshot: Sendable, Equatable {
     public let account: HostingAccount?
     public let instance: ProviderInstance?
     public let globalNetwork: GlobalNetworkConfig
+    /// Every configured server at enqueue: CA and proxy are properties of the server, so they apply to any
+    /// profile reaching it. Credentials still come only from `account`.
+    public let networkInstances: [ProviderInstance]
 
     public init(
         _ profile: GitProfile, account: HostingAccount? = nil, instance: ProviderInstance? = nil,
-        globalNetwork: GlobalNetworkConfig = GlobalNetworkConfig()
+        globalNetwork: GlobalNetworkConfig = GlobalNetworkConfig(), networkInstances: [ProviderInstance] = []
     ) {
         profileID = profile.id
         profileName = profile.displayName
@@ -63,6 +66,7 @@ public struct ProfileSnapshot: Sendable, Equatable {
         self.account = account
         self.instance = instance
         self.globalNetwork = globalNetwork
+        self.networkInstances = networkInstances
     }
 
     public var identity: IdentitySnapshot { IdentitySnapshot(author: author, committer: committer) }
@@ -211,7 +215,7 @@ public final class ProfileStore {
     public func snapshot(of profile: GitProfile) -> ProfileSnapshot {
         ProfileSnapshot(
             profile, account: account(for: profile), instance: profile.auth.flatMap { instance($0.instanceID) },
-            globalNetwork: network)
+            globalNetwork: network, networkInstances: customInstances)
     }
 
     /// Adds a profile. The first profile becomes active; later ones only when `activate` is true.

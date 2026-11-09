@@ -119,11 +119,17 @@ public enum AccessResolver {
                 } else {
                     mismatches.append(.noAccountForHost(host: url.host))
                 }
-                // Network: CA (instance or global host-scoped) + proxy, scoped to this URL's origin.
+                // Network: the server's CA + proxy (whichever configured server matches, independent of the
+                // profile) plus global host-scoped CAs, scoped to this URL's origin.
                 let prefix = originPrefix(url)
-                let caIDs = (matchingInstance?.caCertificateIDs ?? []) + global.caCertificateIDs
+                let server =
+                    matchingInstance
+                    ?? snapshot?.networkInstances.first {
+                        $0.matchesHTTPS(host: url.host, port: url.port, path: url.path)
+                    }
+                let caIDs = (server?.caCertificateIDs ?? []) + global.caCertificateIDs
                 let caInfo = caIDs.first.map { _ in combinedCAPath(caIDs, environment: environment) }
-                let resolved = proxyFor(url, matchingInstance)
+                let resolved = proxyFor(url, server)
                 let proxy: ScopedNetwork.Proxy
                 if let manual = resolved.proxy, manual.isValid {
                     let scheme = manual.kind == .socks5 ? "socks5h" : (manual.kind == .https ? "https" : "http")

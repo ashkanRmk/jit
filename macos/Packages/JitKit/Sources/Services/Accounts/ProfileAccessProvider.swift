@@ -72,14 +72,14 @@ public final class ProfileAccessProvider: RemoteAccessProvider {
         if let proxies {
             let instance = snapshot?.instance
             let global = snapshot?.globalNetwork.proxy ?? .system
+            let servers = (instance.map { [$0] } ?? []) + (snapshot?.networkInstances ?? [])
             for url in parsed where url.scheme != .file {
-                let matches =
-                    instance.map {
-                        url.isHTTP
-                            ? $0.matchesHTTPS(host: url.host, port: url.port, path: url.path)
-                            : $0.matchesSSH(host: url.host, port: url.port)
-                    } ?? false
-                let mode = matches ? (instance?.proxy ?? .inheritGlobal) : .inheritGlobal
+                let server = servers.first {
+                    url.isHTTP
+                        ? $0.matchesHTTPS(host: url.host, port: url.port, path: url.path)
+                        : $0.matchesSSH(host: url.host, port: url.port)
+                }
+                let mode = server?.proxy ?? .inheritGlobal
                 proxyChoices[url] = await proxies.resolve(url, mode: mode, global: global)
             }
         }
