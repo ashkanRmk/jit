@@ -21,6 +21,10 @@ public enum GitCoreError: Error, Sendable, Equatable {
     case indexLocked(path: String)
     /// The repository changed after the action was prepared; nothing was modified.
     case staleSnapshot(summary: String)
+    /// A line action Jit will not attempt (unsupported case, or `git apply --check` refused it).
+    case refused(summary: String)
+    /// The result did not match the expected bytes; the target was rolled back where possible.
+    case verificationFailed(summary: String)
 
     public var summary: String {
         switch self {
@@ -50,7 +54,7 @@ public enum GitCoreError: Error, Sendable, Equatable {
             summary
         case .indexLocked:
             "Another Git process is using this repository (index.lock exists). Try again when it finishes."
-        case let .staleSnapshot(summary):
+        case let .staleSnapshot(summary), let .refused(summary), let .verificationFailed(summary):
             summary
         }
     }

@@ -198,6 +198,23 @@ public final class RepositorySession {
         }
     }
 
+    /// Applies a line selection (P3.4). Discards keep a recovery copy in the recovery store first.
+    public func apply(_ request: SelectionRequest, recovery: RecoveryStore = RecoveryStore()) async throws(GitCoreError)
+        -> ApplyOutcome
+    {
+        let repository = info?.topLevel ?? path
+        let hooks = recovery.discardHooks(repository: repository, branch: status?.branch.head)
+        return try await write("Apply") { handle throws(GitCoreError) in try await handle.apply(request, hooks: hooks) }
+    }
+
+    /// Reads a diff through the session's handle (read-only; never takes the write gate).
+    public func openDiff(_ target: DiffTarget, options: DiffOptions = DiffOptions()) async throws(GitCoreError)
+        -> DiffDocument
+    {
+        guard let handle else { throw .cancelled }
+        return try await handle.openDiff(target, options: options)
+    }
+
     /// The current state of `path`, for a later `discard` (read-only).
     public func discardToken(for path: String) async throws(GitCoreError) -> DiscardToken {
         guard let handle else { throw .cancelled }

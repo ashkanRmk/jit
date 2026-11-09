@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.3 complete; P3.4 next)
+Status: **in progress** (P3.0–P3.4 complete; P3.5 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -76,9 +76,18 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   Evidence: `DiffEngineTests` (13 tests, 23 cases with parameters); round trip holds for every fixture;
   `diffDocumentMemory50kLines`: 100,000 lines → 51.8 B/line in total, 28.0 B/line beyond Git's output,
   0.27 s read + parse + layout (debug build).
+- **P3.4 Patch builder & selection apply** (ADR-0013) — `GitCore/Patch/PatchBuilder.swift` (pure: selection
+  table, own headers, recomputed hunk positions, ambiguous-final-newline detection, independent expected
+  result by splicing the target's current bytes, reason codes) and `SelectionApplier.swift`
+  (`RepositoryHandle.apply`: token → filter check → patch → private `0600` file → `git apply --check` →
+  recovery copy → apply → verify → index rollback via `update-index --index-info`). New `GitCoreError`
+  cases `refused`, `verificationFailed`. `RepositorySession.apply/openDiff`. `GitTestKit.SplitMix64`.
+  Evidence: `ApplyTests` (28 incl. parameters — the §7.4 matrix; `renameStagedUnstageLines` is a refusal in
+  V1), mutation check (a broken builder fails 6 of them), `ApplyPropertyTests` (150 cases by default,
+  2,000 with `CI`; seed printed).
 
 ## Verified
-- Tests: `scripts/build/test-core.sh` — **301 passed** (43 + 198 + 48 + 12 across the four test targets);
+- Tests: `scripts/build/test-core.sh` — **330 passed** (43 + 227 + 48 + 12 across the four test targets);
   skipped: none. Xcode app tests not run yet this phase. Lint clean (`scripts/build/lint.sh`).
 - Real workflow: debug app on a clone with an upstream (1 ahead), a second branch and staged/unstaged/untracked
   changes — breadcrumb, `3 changes`, Terminal and search render in both themes (screenshots above).
