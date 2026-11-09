@@ -55,12 +55,15 @@ baseline. **Missing:** a suspendable stream API for backpressure — implemented
 
 ## Verified
 - Tests: `swift test` **218 passed** (GitCoreTests 152, ServicesTests 39, FeaturesTests 15, DesignSystemTests 12);
-  `xcodebuild test` (JitAppTests) **23 passed**; skipped: none. Lint clean (`scripts/build/lint.sh`).
+  `xcodebuild test` (JitAppTests) **23 passed**; skipped: none. Lint clean (`scripts/build/lint.sh`) — but CI's
+  swift-format flagged three test force unwraps that local swift-format 6.4.4 accepted; fixed after the PR opened.
 - Real workflow (debug and release app, real repositories): git/git clone (86k commits, 1,012 tags), 1k/10k/100k
   fixtures, a dirty copy of the 1k fixture, an empty repository. Exercised through real launches with debug hooks
   (row selection, compare, WIP selection, search, only-matches, density) and screenshots of each; one pointer
-  click selected a row before macOS asked to let Claude bypass the screen-capture picker — that permission was
-  left for the owner, and later checks used launch hooks instead of pointer automation. External commits /
+  click selected a row before macOS asked to let Claude bypass the screen-capture picker; the owner granted it
+  afterwards and a pointer pass on the 10k fixture followed: row click fills the inspector, the parent link jumps
+  to the parent row, a navigator folder expands, `author:hana` + Return moves to match 2 of 65, and a 200-tick
+  wheel scroll pages more history in (matches grew to 317 without re-searching). External commits /
   label moves verified through `HistoryControllerTests` against real repositories.
 - Screenshots: `docs/phases/02-graph-and-navigation/screenshots/` — 8 screens × light/dark (index in its README).
 - Visual review: lanes thin and muted with nodes as the only emphasis, hollow merge rings, accent HEAD ring,

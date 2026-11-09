@@ -5,11 +5,17 @@ import Testing
 
 @testable import Features
 
+/// A 40-hex-digit object id made of one repeated digit (no force unwrap: swift-format's NeverForceUnwrap).
+func testObjectID(_ digit: Character) -> ObjectID {
+    guard let id = ObjectID(hex: String(repeating: digit, count: 40)) else { preconditionFailure("invalid hex digit") }
+    return id
+}
+
 @Suite struct NavigatorTreeBuilderTests {
     static func ref(_ name: String, head: Bool = false, ahead: Int = 0, behind: Int = 0) -> GitRef {
         let kind: GitRef.Kind =
             name.hasPrefix("refs/heads/") ? .local : name.hasPrefix("refs/remotes/") ? .remote : .tag
-        let oid = ObjectID(hex: String(repeating: "a", count: 40))!
+        let oid = testObjectID("a")
         return GitRef(fullName: name, kind: kind, object: oid, commit: oid, ahead: ahead, behind: behind, isHead: head)
     }
 
@@ -138,7 +144,7 @@ import Testing
 
 @Suite struct RefLabelTests {
     @MainActor @Test func localAndUpstreamCombineCurrentFirst() {
-        let commit = ObjectID(hex: String(repeating: "b", count: 40))!
+        let commit = testObjectID("b")
         let refs = RefSnapshot(
             head: .branch(name: "main", commit: commit),
             refs: [
@@ -156,7 +162,7 @@ import Testing
     }
 
     @MainActor @Test func detachedHeadPill() {
-        let commit = ObjectID(hex: String(repeating: "c", count: 40))!
+        let commit = testObjectID("c")
         let refs = RefSnapshot(head: .detached(commit: commit), refs: [], format: .sha1, revision: 2)
         #expect(GraphRowCache.labels(for: refs)[commit]?.first?.kind == .detachedHead)
     }
