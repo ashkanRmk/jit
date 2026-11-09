@@ -546,6 +546,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         NewTabActions(
             open: { [weak self] in self?.chooseRepository() },
             clone: { [weak self] in self?.presentClone() },
+            browse: { [weak self] in self?.browseRemoteRepositories(nil) },
             openPath: { [weak self] path in self?.model.open(URL(fileURLWithPath: path)) },
             locate: { [weak self] path in
                 self?.chooseRepository { url in self?.model.open(url, forgettingRecent: path) }

@@ -5,13 +5,14 @@ import SwiftUI
 struct NewTabActions {
     var open: () -> Void
     var clone: () -> Void
+    var browse: () -> Void
     var openPath: (String) -> Void
     var locate: (String) -> Void
     var reveal: (String) -> Void
 }
 
 /// The new-tab page (design §3.2): opaque content under the glass toolbar. One primary glass action,
-/// a Clone action, an opaque recents list, and nothing that doesn't work yet (no provider browsing).
+/// Clone and Browse Remote Repositories actions, an opaque recents list, and nothing that doesn't work yet.
 struct NewTabView: View {
     let model: AppModel
     let actions: NewTabActions
@@ -33,6 +34,10 @@ struct NewTabView: View {
                             .secondaryGlassButton()
                             .controlSize(.extraLarge)
                             .help("Clone a repository from a URL (⇧⌘N)")
+                        Button("Browse Remote Repositories…", action: actions.browse)
+                            .secondaryGlassButton()
+                            .controlSize(.extraLarge)
+                            .help("Browse the repositories of your connected accounts")
                     }
                     Text("Choose a folder with a Git repository, or drag one onto this window.")
                         .typeStyle(.callout)
