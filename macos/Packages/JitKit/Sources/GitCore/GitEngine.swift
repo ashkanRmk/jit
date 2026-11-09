@@ -17,6 +17,9 @@ public struct GitCommand: Sendable {
     public var acceptedExitCodes: Set<Int32>
     /// Written to Git's stdin (`--pathspec-from-file=-`, `commit -F -`); `nil` means `/dev/null`.
     public var stdin: [UInt8]?
+    /// Invocation-scoped variables (identity: `GIT_AUTHOR_*` / `GIT_COMMITTER_*`), applied last. Never
+    /// secrets (CLAUDE.md), never written anywhere.
+    public var environment: [String: String] = [:]
 
     public init(
         _ arguments: [String],
@@ -148,7 +151,8 @@ public actor GitEngine {
             executable: git.path,
             arguments: GitCommand.globalOptions + command.arguments,
             workingDirectory: command.workingDirectory,
-            environment: Self.environment(for: git.path, kind: command.kind, configuration: configuration),
+            environment: Self.environment(for: git.path, kind: command.kind, configuration: configuration)
+                .merging(command.environment) { _, invocation in invocation },
             timeout: command.timeout,
             stdoutLimit: command.stdoutLimit,
             acceptedExitCodes: command.acceptedExitCodes,

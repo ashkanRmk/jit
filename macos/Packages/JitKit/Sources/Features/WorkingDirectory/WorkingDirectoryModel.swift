@@ -62,6 +62,9 @@ final class WorkingDirectoryModel {
     /// Paths of the files being dragged (set when a drag starts).
     @ObservationIgnored private var dragged: (section: WDSection, files: [WDFile])?
 
+    /// The commit composer pinned under the file list (P3.10); set by the workbench.
+    @ObservationIgnored var composer: CommitComposerModel?
+
     init(session: RepositorySession) {
         self.session = session
     }

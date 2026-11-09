@@ -23,6 +23,9 @@ struct WorkingDirectoryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ColorToken.surfacePanel.color.ignoresSafeArea())
         .safeAreaBar(edge: .top, spacing: 0) { header }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let composer = model.composer { CommitComposerView(model: composer) }
+        }
         .background { shortcuts }
         .sheet(
             item: Binding(get: { model.discardRequest }, set: { if $0 == nil { model.cancelDiscard() } })

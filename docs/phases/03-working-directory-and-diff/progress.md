@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.9 complete; P3.10 next)
+Status: **in progress** (P3.0–P3.10 complete; P3.11 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -133,9 +133,24 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   Evidence: `BlameTests` (all lines attributed once, at a revision, cancel, `ignoreRevsFile`, 5k-line file:
   first block 6.1 ms / all 7.5 ms in a debug build vs the 200 ms target), `BlameModelTests`; screenshots
   `blame-{light,dark}.png`. Blame text is not syntax-highlighted yet.
+- **P3.10 Commit composer** (ADR-0014, ADR-0028) — GitCore `RepositoryHandle.commit` (`commit -F -`, write gate,
+  conflicts and "nothing to commit" refused up front, identity via `GitCommand.environment` only, amend /
+  reset-author / explicit no-verify, cancellation kills hooks), `headMessage/headAuthor/headIsInUpstream/
+  configuredEmail`. Services `RepositorySession.commit` (refreshes status and history), `CommitContext`,
+  `CommitDrafts` (`commit-drafts.json`, `0600`). Composer pinned under the file list: summary with counter
+  (> 50, warning > 72), description (2–8 lines), amend (loads HEAD message, restores draft, upstream
+  warning, reset-author checkbox when HEAD's author differs), error row, hook output disclosure, glass
+  action bar with identity line / "Choose a profile to commit", repo-config note, "Commit N Files" (⌘↩,
+  prominent glass, disabled with reason), "Commit Without Running Hooks…" with confirmation; success clears
+  the fields, shows a check for 600 ms and selects the new commit in the graph.
+  Evidence: `CommitTests` (11: identity env, no config modified, repo config vs profile, amend keeps
+  author / reset author / message only, unborn branch, hook failure output, no-verify only when asked,
+  cancel kills hook, conflicts block), `CommitComposerTests` (3 incl. `profileSwitchDuringCommitUsesSnapshot`,
+  drafts + amend), Scenario C now ends with a commit by the active profile; screenshots
+  `composer-{light,dark}.png`. Hook output appears when Git finishes (not streamed live).
 
 ## Verified
-- Tests: `scripts/build/test-core.sh` — **335 passed** (43 + 227 + 52 + 13 across the four test targets);
+- Tests: `scripts/build/test-core.sh` — **367 passed** (43 + 242 + 68 + 14 across the four test targets);
   skipped: none. Xcode app tests not run yet this phase. Lint clean (`scripts/build/lint.sh`).
 - Real workflow: debug app on a clone with an upstream (1 ahead), a second branch and staged/unstaged/untracked
   changes — breadcrumb, `3 changes`, Terminal and search render in both themes (screenshots above).

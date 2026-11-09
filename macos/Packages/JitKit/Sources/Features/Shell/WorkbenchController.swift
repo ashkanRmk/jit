@@ -1,5 +1,6 @@
 import AppKit
 import DesignSystem
+import GitCore
 import Services
 import SwiftUI
 
@@ -94,6 +95,11 @@ final class WorkbenchController: NSSplitViewController {
         let inspector = inspectorModel
         let workingDirectory = WorkingDirectoryModel(session: session)
         inspector.workingDirectory = workingDirectory
+        let composer = CommitComposerModel(session: session, profiles: model.profiles, drafts: model.commitDrafts)
+        composer.onCommitted = { [weak graph] hex in
+            if let oid = ObjectID(hex: hex) { graph?.select(oid: oid) }
+        }
+        workingDirectory.composer = composer
         inspector.diff = diffModel
         inspector.diffController = diffController
         let diff = diffModel

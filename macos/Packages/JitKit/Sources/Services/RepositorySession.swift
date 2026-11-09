@@ -207,6 +207,23 @@ public final class RepositorySession {
         return try await write("Apply") { handle throws(GitCoreError) in try await handle.apply(request, hooks: hooks) }
     }
 
+    /// Commits (P3.10). Refreshes status and history afterwards (refs moved).
+    public func commit(_ request: CommitRequest) async throws(GitCoreError) -> CommitOutcome {
+        defer { history?.refsMayHaveChanged() }
+        return try await write("Commit", refresh: Set(InvalidationKind.allCases)) { handle throws(GitCoreError) in
+            try await handle.commit(request)
+        }
+    }
+
+    /// Facts the composer shows (read-only).
+    public func commitContext() async -> CommitContext {
+        guard let handle else { return CommitContext() }
+        return CommitContext(
+            headMessage: try? await handle.headMessage(), headAuthor: try? await handle.headAuthor(),
+            headIsInUpstream: (try? await handle.headIsInUpstream()) ?? false,
+            configuredEmail: try? await handle.configuredEmail())
+    }
+
     /// Reads a diff through the session's handle (read-only; never takes the write gate).
     public func openDiff(_ target: DiffTarget, options: DiffOptions = DiffOptions()) async throws(GitCoreError)
         -> DiffDocument
@@ -223,7 +240,8 @@ public final class RepositorySession {
 
     @discardableResult
     private func write<T: Sendable>(
-        _ description: String, _ body: @Sendable (RepositoryHandle) async throws(GitCoreError) -> T
+        _ description: String, refresh: Set<InvalidationKind> = [.index, .worktree],
+        _ body: @Sendable (RepositoryHandle) async throws(GitCoreError) -> T
     ) async throws(GitCoreError) -> T {
         guard let handle, lifecycle != .closed else { throw .cancelled }
         writeSequence &+= 1
@@ -232,7 +250,7 @@ public final class RepositorySession {
         defer {
             if let index = pendingWrites.firstIndex(of: token) { pendingWrites.remove(at: index) }
             // Refresh whether or not Git succeeded: a failed command may still have changed something.
-            scheduleRefresh([.index, .worktree], reason: .user)
+            scheduleRefresh(refresh, reason: .user)
         }
         return try await body(handle)
     }
@@ -369,4 +387,22 @@ public final class MemoryPressureMonitor {
     }
 
     isolated deinit { source.cancel() }
+}
+
+/// What the commit composer needs to know about HEAD and configuration.
+public struct CommitContext: Sendable, Equatable {
+    public var headMessage: String?
+    public var headAuthor: GitIdentity?
+    public var headIsInUpstream = false
+    public var configuredEmail: String?
+
+    public init(
+        headMessage: String? = nil, headAuthor: GitIdentity? = nil, headIsInUpstream: Bool = false,
+        configuredEmail: String? = nil
+    ) {
+        self.headMessage = headMessage
+        self.headAuthor = headAuthor
+        self.headIsInUpstream = headIsInUpstream
+        self.configuredEmail = configuredEmail
+    }
 }

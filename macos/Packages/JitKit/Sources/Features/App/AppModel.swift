@@ -30,6 +30,8 @@ public final class AppModel {
     public let preferences: PreferencesStore
     public let recents: RecentsStore
     public let profiles: ProfileStore
+    /// Unfinished commit messages per repository (P3.10).
+    @ObservationIgnored public lazy var commitDrafts = CommitDrafts()
     public let layout: LayoutState
 
     @ObservationIgnored public private(set) var recentlyClosed: [ClosedTab] = []

@@ -175,6 +175,36 @@ import Testing
         #expect(try String(contentsOfFile: repo.path + "/other.txt", encoding: .utf8) == "keep me\nunrelated edit\n")
         #expect(try index(repo) == original)
         #expect(model.recovery.entries().count == 1)
+
+        // Scenario C ends with a commit authored by the active profile (P3.10 exit criterion).
+        try await open(model, .unstaged(path: "f.txt"))
+        model.click(row: try row(model, text: "BETA", kind: .added), column: 0, modifiers: [])
+        model.click(row: try row(model, text: "beta", kind: .deleted), column: 0, modifiers: .command)
+        model.perform(.stage)
+        #expect(try await waitUntil { (try? self.index(repo)) == "alpha\nBETA\ngamma\ndelta\nepsilon\n" })
+        let location = StoreLocation(directory: URL(fileURLWithPath: repo.sandbox.root + "/AppSupport"))
+        let profiles = ProfileStore(location: location)
+        profiles.create(
+            GitProfile(
+                displayName: "Work", colorIndex: 0, author: GitIdentity(name: "Ana Ruiz", email: "ana@work.example")),
+            activate: true)
+        let composer = CommitComposerModel(
+            session: session, profiles: profiles, drafts: CommitDrafts(location: location))
+        var committed: String?
+        composer.onCommitted = { committed = $0 }
+        composer.summary = "Capitalise beta"
+        session.reload()
+        #expect(try await waitUntil { composer.disabledReason == nil })
+        composer.commit()
+        #expect(try await waitUntil { committed != nil })
+        #expect(
+            try await repo.git("log", "-1", "--format=%an <%ae>|%s") == "Ana Ruiz <ana@work.example>|Capitalise beta")
+        #expect(try await repo.git("show", "--format=", "--stat", "HEAD").contains("f.txt"))
+        // Unstaged work survives the commit.
+        #expect(
+            try String(contentsOfFile: repo.path + "/f.txt", encoding: .utf8)
+                == "alpha\nBETA\ngamma\ndelta\nepsilon\nzeta\n")
+        #expect(try String(contentsOfFile: repo.path + "/other.txt", encoding: .utf8) == "keep me\nunrelated edit\n")
         session.close()
     }
 
