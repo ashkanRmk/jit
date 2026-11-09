@@ -13,11 +13,13 @@ public enum TypeToken: String, CaseIterable, Sendable {
     case micro = "type.micro"
     case monoBody = "type.mono.body"
     case monoCaption = "type.mono.caption"
+    /// Fingerprints and other values read and compared character by character (SSH host-key sheet).
+    case monoTitle = "type.mono.title"
 
     public var size: CGFloat {
         switch self {
         case .display: 20
-        case .title: 15
+        case .title, .monoTitle: 15
         case .headline, .body: 13
         case .callout, .monoBody: 12
         case .caption, .monoCaption: 11
@@ -28,7 +30,7 @@ public enum TypeToken: String, CaseIterable, Sendable {
     public var lineHeight: CGFloat {
         switch self {
         case .display: 26
-        case .title: 20
+        case .title, .monoTitle: 20
         case .headline, .body, .monoBody: 18
         case .callout: 16
         case .caption, .monoCaption: 14
@@ -39,12 +41,12 @@ public enum TypeToken: String, CaseIterable, Sendable {
     public var weight: Font.Weight {
         switch self {
         case .display, .title, .headline, .micro: .semibold
-        case .caption: .medium
+        case .caption, .monoTitle: .medium
         case .body, .callout, .monoBody, .monoCaption: .regular
         }
     }
 
-    public var isMonospaced: Bool { self == .monoBody || self == .monoCaption }
+    public var isMonospaced: Bool { self == .monoBody || self == .monoCaption || self == .monoTitle }
     public var isUppercase: Bool { self == .micro }
     /// Tracking in points (+2 % of size for `micro`).
     public var tracking: CGFloat { self == .micro ? size * 0.02 : 0 }

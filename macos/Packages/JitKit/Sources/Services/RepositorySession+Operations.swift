@@ -70,11 +70,13 @@ extension RepositorySession {
 
     // MARK: Remote
 
-    public func fetch(_ request: FetchRequest) async -> Result<FetchOutcome, PresentableError> {
+    public func fetch(_ request: FetchRequest, context: ExecContext = .anonymous) async
+        -> Result<FetchOutcome, PresentableError>
+    {
         let title = request.remote.map { "Fetch \($0)" } ?? "Fetch all remotes"
         return await perform(title, cancellation: .cancellable, refresh: [.refs], summarize: OutcomeText.describe) {
             handle, progress throws(GitCoreError) in
-            try await handle.fetch(request, progress: progress)
+            try await handle.fetch(request, context: context, progress: progress)
         }
     }
 
@@ -91,23 +93,28 @@ extension RepositorySession {
         }
     }
 
-    public func push(_ request: PushRequest) async -> Result<PushOutcome, PresentableError> {
+    public func push(_ request: PushRequest, context: ExecContext = .anonymous) async
+        -> Result<PushOutcome, PresentableError>
+    {
         await perform(
             "Push \(request.localBranch) to \(request.remote)", cancellation: .cancellableWithWarning,
             refresh: [.refs, .config], summarize: OutcomeText.describe
         ) { handle, progress throws(GitCoreError) in
-            try await handle.push(request, progress: progress)
+            try await handle.push(request, context: context, progress: progress)
         }
     }
 
-    public func forcePushWithLease(_ request: PushRequest, expected: String, token: ConfirmationToken) async
+    public func forcePushWithLease(
+        _ request: PushRequest, expected: String, token: ConfirmationToken, context: ExecContext = .anonymous
+    ) async
         -> Result<PushOutcome, PresentableError>
     {
         await perform(
             "Force push \(request.localBranch) with lease", cancellation: .cancellableWithWarning, refresh: [.refs],
             summarize: OutcomeText.describe
         ) { handle, progress throws(GitCoreError) in
-            try await handle.forcePushWithLease(request, expected: expected, token: token, progress: progress)
+            try await handle.forcePushWithLease(
+                request, expected: expected, token: token, context: context, progress: progress)
         }
     }
 
@@ -161,12 +168,15 @@ extension RepositorySession {
         }
     }
 
-    public func deleteRemoteBranch(remote: String, branch: String, expectedTip: String, token: ConfirmationToken) async
+    public func deleteRemoteBranch(
+        remote: String, branch: String, expectedTip: String, token: ConfirmationToken, context: ExecContext = .anonymous
+    ) async
         -> Result<PushOutcome, PresentableError>
     {
         await perform("Delete \(remote)/\(branch)", refresh: [.refs], summarize: OutcomeText.describe) {
             handle, _ throws(GitCoreError) in
-            try await handle.deleteRemoteBranch(remote: remote, branch: branch, expectedTip: expectedTip, token: token)
+            try await handle.deleteRemoteBranch(
+                remote: remote, branch: branch, expectedTip: expectedTip, token: token, context: context)
         }
     }
 

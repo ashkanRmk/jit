@@ -30,6 +30,8 @@ public final class AppModel {
     public let preferences: PreferencesStore
     public let recents: RecentsStore
     public let profiles: ProfileStore
+    /// Profile authentication: exec contexts, Keychain, connectivity (Phase 5). No I/O until first used.
+    @ObservationIgnored public lazy var accounts = AccountsService(profiles: profiles)
     /// Unfinished commit messages per repository (P3.10).
     @ObservationIgnored public lazy var commitDrafts = CommitDrafts()
     public let layout: LayoutState

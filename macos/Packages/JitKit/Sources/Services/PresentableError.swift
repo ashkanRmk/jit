@@ -18,6 +18,34 @@ public enum RecoveryAction: String, Sendable, Hashable {
     case unsetUpstream
     case publishBranch
     case createBranch
+    // Phase 5 — accounts (design §3.4). Never automatic: each is an explicit click.
+    case editProfile
+    case manageAccounts
+    case trustHostKey
+    case showDiagnostics
+    case switchProfileAndRetry
+}
+
+/// "Switch to '<profile>' and Retry" (design §3.4): retry uses a fresh snapshot of that profile.
+public struct ProfileSwitch: Sendable, Hashable {
+    public var profileID: UUID
+    public var name: String
+
+    public init(profileID: UUID, name: String) {
+        self.profileID = profileID
+        self.name = name
+    }
+}
+
+/// The SSH host an unknown-host-key failure was about (opens the trust sheet).
+public struct HostKeyTarget: Sendable, Hashable {
+    public var host: String
+    public var port: Int
+
+    public init(host: String, port: Int) {
+        self.host = host
+        self.port = port
+    }
 }
 
 /// A Git failure in Jit's words: a title, a plain explanation, recovery actions and sanitized technical
@@ -31,6 +59,9 @@ public struct PresentableError: Sendable, Equatable, Error {
     public var remoteLines: [String]
     public var isCancellation: Bool
     public var kind: FailureKind?
+    /// Profiles whose account or SSH host matches the remote (explicit switch actions).
+    public var profileSwitches: [ProfileSwitch] = []
+    public var hostKey: HostKeyTarget?
 
     public init(
         title: String, explanation: String, actions: [RecoveryAction] = [], technicalDetail: String? = nil,
@@ -111,22 +142,21 @@ public struct PresentableError: Sendable, Equatable, Error {
         case .authenticationFailed:
             return error(
                 "This remote needs credentials.",
-                "Jit runs Git without prompts. Public HTTPS and SSH keys loaded in ssh-agent work today; account and SSH key setup arrives with profiles & accounts.",
-                [.openInTerminal])
+                "The active profile has no account that this server accepted. Connect an account to the profile, or switch to a profile that has one. Jit never falls back to other credentials.",
+                [.editProfile])
         case .expiredToken:
             return error(
-                "The access token has expired.",
-                "The remote rejected the token. Account setup arrives with profiles & accounts.", [.openInTerminal])
+                "The access token has expired.", "Replace the token or reconnect the account.", [.manageAccounts])
         case .sshPublicKeyDenied:
             return error(
                 "The server refused your SSH key.",
-                "Jit uses the keys loaded in ssh-agent (ssh-add). Check that the right key is loaded and registered with the server.",
-                [.openInTerminal])
+                "Check that the profile's SSH key (or the key loaded in ssh-agent) is registered with this server.",
+                [.editProfile])
         case .sshHostKeyUnknown:
             return error(
                 "This SSH host isn't trusted yet.",
-                "Its host key isn't in ~/.ssh/known_hosts. Connect once from Terminal (ssh -T git@host) to verify and accept it — Jit never accepts host keys silently.",
-                [.openInTerminal])
+                "Jit never accepts host keys silently. Verify the server's fingerprint to trust it.",
+                [.trustHostKey])
         case .sshHostKeyChanged:
             return error(
                 "Warning: the server's SSH host key has changed.",
@@ -135,7 +165,8 @@ public struct PresentableError: Sendable, Equatable, Error {
         case .tlsFailure:
             return error(
                 "The server's certificate couldn't be verified.",
-                "The connection was stopped to protect you. Custom certificate authorities arrive with profiles & accounts; Jit never disables verification."
+                "The connection was stopped to protect you. If this is a company server with its own certificate authority, import that CA for the server in Settings ▸ Servers & Network. Jit never disables verification.",
+                [.showDiagnostics]
             )
         case .proxyFailure:
             return error("The proxy refused or couldn't be reached.", "Check your network's proxy settings.", [.retry])

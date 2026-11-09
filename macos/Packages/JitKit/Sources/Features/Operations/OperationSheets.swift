@@ -22,7 +22,9 @@ struct OperationSheetsHost: View {
         case .confirm(let request):
             ConfirmationSheet(request: request, cancel: controller.cancelSheet) { controller.confirmed(request) }
         case .error(let error):
-            ErrorSheet(error: error, perform: controller.perform, dismiss: controller.cancelSheet)
+            ErrorSheet(
+                error: error, perform: controller.perform, dismiss: controller.cancelSheet,
+                switchTo: controller.switchProfileAndRetry)
         case .newBranch(let start, let label):
             NewBranchSheet(controller: controller, start: start, label: label)
         case .rename(let branch):
@@ -53,6 +55,13 @@ struct OperationSheetsHost: View {
             UnmergedBranchSheet(controller: controller, branch: branch, commits: commits, tip: tip, expected: expected)
         case .insecureClone:
             EmptyView()
+        case .hostKey(let target):
+            HostKeySheet(
+                model: HostKeyModel(
+                    target: target,
+                    knownHosts: KnownHostsStore(path: controller.model.accounts.environment.jitKnownHosts),
+                    publishedFingerprints: controller.model.accounts.publishedFingerprints),
+                dismiss: controller.cancelSheet, trusted: controller.retryAfterTrust)
         }
     }
 }

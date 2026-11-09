@@ -581,10 +581,12 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     @objc public func cloneRepository(_ sender: Any?) { presentClone() }
 
     /// File ▸ Clone… (⇧⌘N) and the new-tab page: a standard sheet; the clone opens in a new tab.
-    public func presentClone() {
+    public func presentClone(url: String = "") {
         guard let window, window.attachedSheet == nil else { return }
         let host = NSHostingController(rootView: AnyView(EmptyView()))
-        let clone = CloneModel(engine: model.engine, preferences: model.preferences)
+        let clone = CloneModel(engine: model.engine, preferences: model.preferences, url: url) { [weak self] in
+            self?.model.accounts.execContext() ?? .anonymous
+        }
         clone.finish = { [weak self, weak host] path in
             if let host { self?.window?.endSheet(host.view.window ?? NSWindow()) }
             if let path { self?.model.open(URL(fileURLWithPath: path)) }

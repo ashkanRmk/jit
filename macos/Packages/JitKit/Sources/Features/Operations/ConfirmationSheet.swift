@@ -93,6 +93,8 @@ struct ErrorSheet: View {
     let error: PresentableError
     let perform: (RecoveryAction) -> Void
     let dismiss: () -> Void
+    /// "Switch to '<profile>' and Retry" (design §3.4) — explicit, one button per matching profile.
+    var switchTo: ((UUID) -> Void)?
     @State private var showsDetail = false
 
     var body: some View {
@@ -148,7 +150,13 @@ struct ErrorSheet: View {
             HStack {
                 Spacer()
                 ForEach(error.actions, id: \.self) { action in
-                    Button(Self.title(action)) { perform(action) }
+                    if action == .switchProfileAndRetry {
+                        ForEach(error.profileSwitches, id: \.profileID) { candidate in
+                            Button("Switch to “\(candidate.name)” and Retry") { switchTo?(candidate.profileID) }
+                        }
+                    } else {
+                        Button(Self.title(action)) { perform(action) }
+                    }
                 }
                 Button("OK", action: dismiss)
                     .keyboardShortcut(.defaultAction)
@@ -177,6 +185,11 @@ struct ErrorSheet: View {
         case .unsetUpstream: "Unset Upstream"
         case .publishBranch: "Publish Branch…"
         case .createBranch: "Create Branch Here…"
+        case .editProfile: "Edit Profile…"
+        case .manageAccounts: "Manage Accounts…"
+        case .trustHostKey: "Verify Host Key…"
+        case .showDiagnostics: "Test Connection…"
+        case .switchProfileAndRetry: "Switch Profile and Retry"
         }
     }
 }
