@@ -67,6 +67,14 @@ extension CodeLinesDataSource {
     func codeLines(_ view: CodeLinesView, keyDown event: NSEvent) -> Bool
     func codeLinesCopyText(_ view: CodeLinesView) -> String?
     func codeLines(_ view: CodeLinesView, accessibilityLabelFor row: Int) -> String
+    /// VoiceOver actions for a row (P6.10: select, extend, stage/unstage/discard selected lines).
+    func codeLines(_ view: CodeLinesView, accessibilityActionsFor row: Int) -> [NSAccessibilityCustomAction]
+}
+
+extension CodeLinesDelegate {
+    public func codeLines(_ view: CodeLinesView, accessibilityActionsFor row: Int) -> [NSAccessibilityCustomAction] {
+        []
+    }
 }
 
 /// A virtualized code/diff renderer (ADR-0011): fixed row height, draws only the rows in the dirty rect,
@@ -93,6 +101,7 @@ public final class CodeLinesView: NSView {
     static var preferredTextSizeStep: Int { UserDefaults.standard.integer(forKey: "codeTextSize") }
     nonisolated(unsafe) private var textSizeObserver: (any NSObjectProtocol)?
     nonisolated(unsafe) private var trimObserver: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var displayOptionsObserver: (any NSObjectProtocol)?
     /// Cached `CTLine`s (tests: bounded by `CacheLimits.codeLines`).
     var cachedLineCount: Int { cache.count }
     public private(set) var rowHeight: CGFloat = TypeToken.monoBody.lineHeight
@@ -118,7 +127,7 @@ public final class CodeLinesView: NSView {
     private var cache: [CacheKey: CTLine] = [:]
     private var cacheOrder: [CacheKey] = []
     private static let cacheLimit = CacheLimits.codeLines
-    private var accessibilityRows: [Int: NSAccessibilityElement] = [:]
+    private var accessibilityRows: [Int: CodeRowElement] = [:]
 
     private struct CacheKey: Hashable {
         let row: Int
@@ -135,6 +144,11 @@ public final class CodeLinesView: NSView {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.textSizeStep = Self.preferredTextSizeStep }
         }
+        displayOptionsObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.needsDisplay = true }
+        }
         trimObserver = NotificationCenter.default.addObserver(
             forName: CacheLimits.trimNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -150,6 +164,7 @@ public final class CodeLinesView: NSView {
     deinit {
         textSizeObserver.map(NotificationCenter.default.removeObserver)
         trimObserver.map(NotificationCenter.default.removeObserver)
+        displayOptionsObserver.map(NSWorkspace.shared.notificationCenter.removeObserver)
     }
 
     public override var isFlipped: Bool { true }
@@ -296,10 +311,23 @@ public final class CodeLinesView: NSView {
         if let drawLeadingGutter, leadingGutter > 0 {
             drawLeadingGutter(row, NSRect(x: rect.minX, y: rect.minY, width: leadingGutter, height: rect.height))
         }
-        // Change bar at the gutter edge.
+        // Change bar at the gutter edge; with Differentiate Without Color, a +/− glyph instead (design §3.6).
         if cell.kind == .added || cell.kind == .deleted {
-            (cell.kind == .added ? ColorToken.diffAddMark : ColorToken.diffDeleteMark).nsColor.setFill()
-            NSRect(x: rect.minX + gutter - Space.s3, y: rect.minY, width: 3, height: rect.height).fill()
+            let mark = (cell.kind == .added ? ColorToken.diffAddMark : ColorToken.diffDeleteMark).nsColor
+            if NSWorkspace.shared.accessibilityDisplayShouldDifferentiateWithoutColor {
+                let glyph = CTLineCreateWithAttributedString(
+                    NSAttributedString(
+                        string: cell.kind == .added ? "+" : "−",
+                        attributes: [.font: font, .foregroundColor: mark]))
+                let context = NSGraphicsContext.current?.cgContext
+                let baseline = rect.minY + (rowHeight - (font.ascender - font.descender)) / 2 + font.ascender
+                context?.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+                context?.textPosition = CGPoint(x: rect.minX + gutter - Space.s3 - characterWidth, y: baseline)
+                if let context { CTLineDraw(glyph, context) }
+            } else {
+                mark.setFill()
+                NSRect(x: rect.minX + gutter - Space.s3, y: rect.minY, width: 3, height: rect.height).fill()
+            }
         } else if cell.kind == .conflict || cell.kind == .marker || cell.kind == .resolved {
             (cell.kind == .resolved ? ColorToken.accentBase : ColorToken.conflictMark).nsColor.setFill()
             NSRect(x: rect.minX + gutter - Space.s3, y: rect.minY, width: 3, height: rect.height).fill()
@@ -515,21 +543,79 @@ public final class CodeLinesView: NSView {
         let first = max(0, Int(visible.minY / rowHeight))
         let last = min(source.rowCount - 1, Int(visible.maxY / rowHeight))
         guard first <= last else { return [] }
-        var result: [NSAccessibilityElement] = []
-        for row in first...last {
-            let element = accessibilityRows[row] ?? NSAccessibilityElement()
-            element.setAccessibilityRole(.row)
-            element.setAccessibilityParent(self)
-            element.setAccessibilityLabel(delegate?.codeLines(self, accessibilityLabelFor: row) ?? "")
-            element.setAccessibilityFrameInParentSpace(rowRect(row))
-            element.setAccessibilitySelected(source.isSelected(row: row, column: 0))
-            accessibilityRows[row] = element
-            result.append(element)
-        }
+        let result = (first...last).map { accessibilityElement(forRow: $0) }
         if accessibilityRows.count > 400 {
             accessibilityRows = accessibilityRows.filter { (first...last).contains($0.key) }
         }
         return result
+    }
+
+    /// One element per row: hunk and file rows are headings (VoiceOver's heading navigation and the Hunks
+    /// rotor), changed lines carry the line actions.
+    func accessibilityElement(forRow row: Int) -> CodeRowElement {
+        let element = accessibilityRows[row] ?? CodeRowElement()
+        let kind = dataSource?.cell(row: row, column: 0).kind
+        if kind == .hunk || kind == .file {
+            element.setAccessibilityRole(NSAccessibility.Role(rawValue: "AXHeading"))
+            element.setAccessibilityRoleDescription("heading")
+        } else {
+            element.setAccessibilityRole(.row)
+        }
+        element.setAccessibilityParent(self)
+        element.setAccessibilityIdentifier("row-\(row)")
+        element.setAccessibilityLabel(delegate?.codeLines(self, accessibilityLabelFor: row) ?? "")
+        element.setAccessibilityFrameInParentSpace(rowRect(row))
+        element.setAccessibilitySelected(dataSource?.isSelected(row: row, column: 0) ?? false)
+        element.setAccessibilityCustomActions(delegate?.codeLines(self, accessibilityActionsFor: row) ?? [])
+        accessibilityRows[row] = element
+        return element
+    }
+
+    // MARK: Rotors (Changes, Hunks)
+
+    public override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        guard dataSource != nil else { return [] }
+        return [
+            NSAccessibilityCustomRotor(label: "Changes", itemSearchDelegate: self),
+            NSAccessibilityCustomRotor(label: "Hunks", itemSearchDelegate: self),
+        ]
+    }
+
+    /// Next row (in `forward` direction from `row`) that starts a change block or is a hunk header.
+    func rotorTarget(_ label: String, from row: Int?, forward: Bool) -> Int? {
+        guard let source = dataSource, source.rowCount > 0 else { return nil }
+        func isChange(_ r: Int) -> Bool {
+            (0..<source.columnCount).contains { [.added, .deleted].contains(source.cell(row: r, column: $0).kind) }
+        }
+        func matches(_ r: Int) -> Bool {
+            label == "Hunks"
+                ? source.cell(row: r, column: 0).kind == .hunk : isChange(r) && (r == 0 || !isChange(r - 1))
+        }
+        var r = row.map { forward ? $0 + 1 : $0 - 1 } ?? (forward ? 0 : source.rowCount - 1)
+        while r >= 0, r < source.rowCount {
+            if matches(r) { return r }
+            r += forward ? 1 : -1
+        }
+        return nil
+    }
+}
+
+/// A row's accessibility element (also a rotor result target).
+public final class CodeRowElement: NSAccessibilityElement, NSAccessibilityElementProtocol {
+    public override func accessibilityIdentifier() -> String { super.accessibilityIdentifier() ?? "" }
+}
+
+extension CodeLinesView: @MainActor NSAccessibilityCustomRotorItemSearchDelegate {
+    public func rotor(
+        _ rotor: NSAccessibilityCustomRotor, resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters
+    ) -> NSAccessibilityCustomRotor.ItemResult? {
+        let current = (searchParameters.currentItem?.targetElement as? CodeRowElement)?
+            .accessibilityIdentifier().dropFirst(4).description
+        let currentRow = current.flatMap { Int($0) }
+        let forward = searchParameters.searchDirection == .next
+        guard let row = rotorTarget(rotor.label, from: currentRow, forward: forward) else { return nil }
+        scrollToRow(row, center: true)
+        return NSAccessibilityCustomRotor.ItemResult(targetElement: accessibilityElement(forRow: row))
     }
 }
 

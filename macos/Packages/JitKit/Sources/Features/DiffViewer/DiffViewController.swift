@@ -195,6 +195,49 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         return parts.joined(separator: "; ")
     }
 
+    /// VoiceOver line staging (design §3.6): select a line, extend the selection, then act on it — the same
+    /// paths as clicks and the selection capsule.
+    public func codeLines(_ view: CodeLinesView, accessibilityActionsFor row: Int) -> [NSAccessibilityCustomAction] {
+        guard let source = model.source, source.cell(row: row, column: 0).kind != .hunk else { return [] }
+        let changed = (0..<source.columnCount).contains {
+            [.added, .deleted].contains(source.cell(row: row, column: $0).kind)
+        }
+        guard changed else { return [] }
+        var actions = [
+            NSAccessibilityCustomAction(name: "Select line") { [weak self] in
+                self?.model.click(row: row, column: 0, modifiers: [])
+                return true
+            },
+            NSAccessibilityCustomAction(name: "Extend selection to this line") { [weak self] in
+                self?.model.click(row: row, column: 0, modifiers: .shift)
+                return true
+            },
+        ]
+        guard !model.selection.lines.isEmpty, case .some(let target) = model.target else { return actions }
+        switch target {
+        case .unstaged:
+            actions.append(
+                NSAccessibilityCustomAction(name: "Stage selected lines") { [weak self] in
+                    self?.model.perform(.stage)
+                    return true
+                })
+            actions.append(
+                NSAccessibilityCustomAction(name: "Discard selected lines…") { [weak self] in
+                    self?.model.perform(.discard)
+                    return true
+                })
+        case .staged:
+            actions.append(
+                NSAccessibilityCustomAction(name: "Unstage selected lines") { [weak self] in
+                    self?.model.perform(.unstage)
+                    return true
+                })
+        default:
+            break
+        }
+        return actions
+    }
+
     // MARK: Menu actions
 
     @objc public func jitFind(_ sender: Any?) {
