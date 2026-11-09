@@ -73,9 +73,8 @@ struct TabStripView: View {
             }
         }
         .animation(reduceMotion ? nil : MotionToken.select.animation, value: drag?.destination)
-        .animation(
-            reduceMotion ? .linear(duration: MotionToken.select.duration) : MotionToken.glassMorph.animation,
-            value: model.activeTabID)
+        // Glass morph on selection only with motion; Reduce Motion switches instantly (no morph).
+        .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: model.activeTabID)
     }
 
     private func offset(for index: Int, tab: TabModel, layout: TabOrdering.Layout) -> CGFloat {

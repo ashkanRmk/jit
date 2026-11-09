@@ -51,6 +51,11 @@ extension View {
         }
     }
 
+    /// Untinted system prominent glass (Design System gallery comparison only).
+    public func untintedProminentGlassButton() -> some View {
+        buttonStyle(.glassProminent)
+    }
+
     /// A secondary chrome action: untinted system glass button. (`-JitOpaqueChrome`: bordered.)
     @ViewBuilder
     public func secondaryGlassButton() -> some View {

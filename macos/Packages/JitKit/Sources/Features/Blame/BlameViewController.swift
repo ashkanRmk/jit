@@ -364,7 +364,7 @@ struct BlameChrome: View {
             }
             .menuStyle(.button)
             .menuIndicator(.hidden)
-            .buttonStyle(.glass)
+            .secondaryGlassButton()
             .fixedSize()
             .help("Blame Options (blame.ignoreRevsFile is applied when configured)")
             .accessibilityLabel("Blame options")
@@ -373,7 +373,7 @@ struct BlameChrome: View {
             } label: {
                 Image(systemName: "xmark")
             }
-            .buttonStyle(.glass)
+            .secondaryGlassButton()
             .help("Close Blame (Esc)")
             .accessibilityLabel("Close blame")
         }

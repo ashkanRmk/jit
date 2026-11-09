@@ -30,22 +30,22 @@ struct OperationBanner: View {
                                 .primaryGlassButton()
                         }
                         Button("Continue") { controller.continueOperation() }
-                            .buttonStyle(.glass)
+                            .secondaryGlassButton()
                             .disabled(state.conflicted > 0)
                             .help(
                                 state.conflicted > 0 ? "Resolve the conflicted files first." : "Continue the operation")
                         if state.canSkip {
                             Button("Skip Commit…") { controller.skip() }
-                                .buttonStyle(.glass)
+                                .secondaryGlassButton()
                         }
                         Button("Abort…") { controller.abort() }
-                            .buttonStyle(.glass)
+                            .secondaryGlassButton()
                     }
                 } else {
                     Button("Open in Terminal") {
                         RepositoryActions.openInTerminal(controller.session.info?.topLevel ?? controller.session.path)
                     }
-                    .buttonStyle(.glass)
+                    .secondaryGlassButton()
                 }
             }
             .controlSize(.small)

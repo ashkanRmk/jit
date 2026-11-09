@@ -138,7 +138,7 @@ struct GraphBar: View {
                 .typeStyle(.callout)
         }
         .menuStyle(.button)
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .fixedSize()
         .help("Which branches the graph shows")
         .popover(isPresented: $showsBranchPicker, arrowEdge: .bottom) {

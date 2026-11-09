@@ -414,7 +414,7 @@ struct DiffChromeView: View {
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .fixedSize()
         .help("Layout and Options")
         .accessibilityLabel("Layout and options")
@@ -525,7 +525,7 @@ struct DiffChromeView: View {
             } label: {
                 Image(systemName: "magnifyingglass")
             }
-            .buttonStyle(.glass)
+            .secondaryGlassButton()
             .help("Find in Diff (⌘F)")
             .accessibilityLabel("Find in diff")
         }
@@ -545,7 +545,7 @@ struct DiffChromeView: View {
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .fixedSize()
         .help("Diff Options")
         .accessibilityLabel("Diff options")
@@ -559,7 +559,7 @@ struct DiffChromeView: View {
                 systemName: model.isFocused
                     ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
         }
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .help(model.isFocused ? "Exit Focused Diff (Esc)" : "Focus Diff (⌥⌘↩)")
         .accessibilityLabel(model.isFocused ? "Exit focused diff" : "Focus diff")
     }

@@ -109,7 +109,7 @@ struct CommandBarLeading: View {
             Label(CommandBarChanges.title(count, labels: true), systemImage: "circle.dashed")
                 .monospacedDigit()
         }
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .help("\(CommandBarChanges.title(count, labels: true)) in the working directory")
         .accessibilityLabel("\(CommandBarChanges.title(count, labels: true)), show working directory")
     }
@@ -120,7 +120,7 @@ struct CommandBarLeading: View {
         } label: {
             Label("Branch", systemImage: "plus.circle")
         }
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .help("New branch from HEAD")
     }
 
@@ -130,7 +130,7 @@ struct CommandBarLeading: View {
         } label: {
             Label("Terminal", systemImage: "apple.terminal")
         }
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .help("Open in Terminal (⌥⌘T)")
     }
 
@@ -154,7 +154,7 @@ struct CommandBarLeading: View {
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .fixedSize()
         .help("More actions")
         .accessibilityLabel("More actions")
@@ -207,7 +207,7 @@ struct SyncGroup: View {
             .disabled(branch?.isDetached ?? true)
             .help(branch?.upstream == nil ? "Publish this branch" : "Push to \(branch?.upstream ?? "upstream")")
         }
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
     }
 
     private var defaultRemoteLabel: String {
@@ -253,7 +253,7 @@ struct StashGroup: View {
             .disabled(operations.session.stashes?.isEmpty ?? true)
             .help((operations.session.stashes?.isEmpty ?? true) ? "No stashes" : "Pop the latest stash")
         }
-        .buttonStyle(.glass)
+        .secondaryGlassButton()
         .onAppear { if operations.session.stashes == nil { operations.session.loadStashes() } }
     }
 }
