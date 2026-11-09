@@ -75,7 +75,12 @@ system scroll-edge effect; text is never drawn on glass over busy content. With 
 system renders these surfaces opaque; custom capsules must follow (verify the exact SwiftUI/AppKit
 glass API names against the macOS 26 SDK during P2.4).
 
-### 3.2 Graph — visual design spec (original identity)
+### 3.2 Graph — visual design spec
+
+> **Superseded in part by [P2.13](specs/P2.13-graph-visual-style.md)** (owner request, 2026-11-09): avatar
+> nodes in a lane-coloured ring, solid merge dots, rounded-elbow lane changes, a lane-tinted row band and a
+> separate "Branch / Tag" column with connectors replace the node, curve and in-subject pill rules below.
+> Palette, rows, states and budgets here still apply.
 
 Design intent: quiet, precise, "drafting-table" graph. Lanes are thin and calm; nodes are the only
 emphasis; colour is muted and used to separate, not decorate.

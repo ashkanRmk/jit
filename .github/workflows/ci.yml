@@ -41,6 +41,9 @@ jobs:
         run: scripts/build/lint.sh
 
       - name: Core tests (swift test)
+        # Latency assertions get 4x headroom on the shared runner (GitTestKit.TimingBudget).
+        env:
+          JIT_TEST_TIMING_SCALE: "4"
         run: scripts/build/test-core.sh
 
       - name: Build app (debug)

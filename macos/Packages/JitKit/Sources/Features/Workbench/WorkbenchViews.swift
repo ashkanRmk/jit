@@ -3,9 +3,9 @@ import GitCore
 import Services
 import SwiftUI
 
-/// Main region: repository header + status summary (opaque content). Phase 1 shows only what works —
-/// no history or branch placeholders.
-struct WorkbenchMainView: View {
+/// Over the graph: the repository's error, or the first-load placeholder; nothing (and no hit
+/// testing) once the repository is open.
+struct SessionStateOverlay: View {
     let session: RepositorySession
     let tab: TabModel
     let actions: WorkbenchActions
@@ -20,108 +20,17 @@ struct WorkbenchMainView: View {
                         .padding(Space.s9)
                         .frame(maxWidth: .infinity)
                 }
+                .background(ColorToken.surfaceCanvas.color.ignoresSafeArea())
                 .transition(RevealTransition.transition(reduceMotion: reduceMotion))
-            } else if let info = session.info, let status = session.status {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Space.s8) {
-                        RepositoryHeader(info: info, status: status)
-                        if let summary = status.summary {
-                            StatusSummaryBlock(summary: summary)
-                        } else {
-                            BareRepositoryNote()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, Space.s9)
-                    .padding(.vertical, Space.s8)
-                }
-                .scrollEdgeEffectStyle(.soft, for: .top)
-            } else {
+            } else if session.info == nil || session.status == nil {
                 DelayedLoadingPlaceholder(title: tab.title, isLoading: session.lifecycle == .loading)
+                    .background(ColorToken.surfaceCanvas.color.ignoresSafeArea())
+            } else {
+                Color.clear.allowsHitTesting(false)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ColorToken.surfaceCanvas.color.ignoresSafeArea())
         .animation(MotionToken.panel.animation, value: session.error != nil)
-    }
-}
-
-/// Name, HEAD, upstream and operation chip (design §3.3).
-struct RepositoryHeader: View {
-    let info: RepositoryInfo
-    let status: RepositoryStatus
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s3) {
-            HStack(alignment: .firstTextBaseline, spacing: Space.s5) {
-                Text(info.displayName)
-                    .typeStyle(.display)
-                    .foregroundStyle(.token(.textPrimary))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if let chip = OperationChip.title(for: status.operation) {
-                    OperationChip(title: chip)
-                }
-            }
-            HStack(spacing: Space.s6) {
-                Label {
-                    Text(headText)
-                        .typeStyle(.callout)
-                        .foregroundStyle(.token(.textSecondary))
-                } icon: {
-                    Image(systemName: status.branch.isDetached ? "smallcircle.filled.circle" : "arrow.triangle.branch")
-                        .foregroundStyle(.token(.textTertiary))
-                }
-                .accessibilityLabel(headAccessibility)
-                if let upstream = status.branch.upstream {
-                    UpstreamLabel(upstream: upstream, ahead: status.branch.ahead, behind: status.branch.behind)
-                }
-            }
-        }
-        .accessibilityElement(children: .contain)
-    }
-
-    private var headText: String {
-        if status.branch.isUnborn { return "\(status.branch.head ?? "") — No commits yet" }
-        return BranchLabel.text(for: status.branch)
-    }
-
-    private var headAccessibility: String {
-        status.branch.isDetached ? headText : "Branch \(headText)"
-    }
-}
-
-private struct UpstreamLabel: View {
-    let upstream: String
-    let ahead: Int?
-    let behind: Int?
-
-    var body: some View {
-        HStack(spacing: Space.s3) {
-            Image(systemName: "arrow.up.arrow.down")
-                .foregroundStyle(.token(.textTertiary))
-                .accessibilityHidden(true)
-            Text(upstream)
-                .typeStyle(.callout)
-                .foregroundStyle(.token(.textSecondary))
-            if let ahead, let behind {
-                Text("↑\(ahead)  ↓\(behind)")
-                    .typeStyle(.callout)
-                    .monospacedDigit()
-                    .foregroundStyle(.token(ahead + behind > 0 ? .textPrimary : .textTertiary))
-            } else {
-                Text("upstream gone")
-                    .typeStyle(.callout)
-                    .foregroundStyle(.token(.textTertiary))
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
-    }
-
-    private var accessibilityText: String {
-        guard let ahead, let behind else { return "Upstream \(upstream) no longer exists" }
-        return "Upstream \(upstream), \(ahead) ahead, \(behind) behind"
     }
 }
 
@@ -150,73 +59,6 @@ struct OperationChip: View {
             .background(ColorToken.statusWarning.color.opacity(0.14), in: Capsule())
             .overlay(Capsule().strokeBorder(ColorToken.statusWarning.color.opacity(0.4), lineWidth: Border.hairline))
             .accessibilityLabel("Operation in progress: \(title)")
-    }
-}
-
-/// Staged / unstaged / untracked / conflicted counts.
-struct StatusSummaryBlock: View {
-    let summary: StatusSummary
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s5) {
-            Text("Working directory")
-                .typeStyle(.micro)
-                .foregroundStyle(.token(.textTertiary))
-            HStack(spacing: Space.s5) {
-                StatCell(value: summary.staged, label: "Staged", symbol: "checkmark.circle", tint: .statusSuccess)
-                StatCell(value: summary.unstaged, label: "Unstaged", symbol: "pencil.circle", tint: .accentBase)
-                StatCell(value: summary.untracked, label: "Untracked", symbol: "plus.circle", tint: .statusInfo)
-                StatCell(
-                    value: summary.conflicted, label: "Conflicted", symbol: "exclamationmark.triangle",
-                    tint: .statusDanger)
-            }
-            if summary.isClean {
-                Text("No local changes.")
-                    .typeStyle(.callout)
-                    .foregroundStyle(.token(.textSecondary))
-            }
-        }
-    }
-}
-
-private struct StatCell: View {
-    let value: Int
-    let label: String
-    let symbol: String
-    let tint: ColorToken
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s3) {
-            Image(systemName: symbol)
-                .symbolSize(IconSize.md)
-                .foregroundStyle(.token(value > 0 ? tint : .textTertiary))
-            Text("\(value)")
-                .typeStyle(.display)
-                .monospacedDigit()
-                .foregroundStyle(.token(value > 0 ? .textPrimary : .textTertiary))
-            Text(label)
-                .typeStyle(.caption)
-                .foregroundStyle(.token(.textSecondary))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentCard(padding: Space.s6)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(value) \(label.lowercased())")
-    }
-}
-
-private struct BareRepositoryNote: View {
-    var body: some View {
-        HStack(spacing: Space.s4) {
-            Image(systemName: "shippingbox")
-                .symbolSize(IconSize.md)
-                .foregroundStyle(.token(.textTertiary))
-            Text("Bare repository — no working tree")
-                .typeStyle(.body)
-                .foregroundStyle(.token(.textSecondary))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentCard(padding: Space.s6)
     }
 }
 
@@ -302,117 +144,6 @@ struct RepositoryErrorView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentCard()
         .onAppear { AccessibilityNotification.Announcement(error.summary).post() }
-    }
-}
-
-/// System glass sidebar: repository summary only (branch lists arrive in Phase 2).
-struct SidebarView: View {
-    let session: RepositorySession
-
-    var body: some View {
-        List {
-            Section("Repository") {
-                if let info = session.info {
-                    Label(info.displayName, systemImage: "folder")
-                        .help(info.topLevel ?? info.gitDirectory)
-                    Text(info.topLevel ?? info.gitDirectory)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                    Label(kindTitle(info), systemImage: kindSymbol(info))
-                    if info.kind == .linkedWorktree {
-                        Text("Main repository: \((info.commonDirectory as NSString).deletingLastPathComponent)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.middle)
-                    }
-                } else {
-                    Label((session.path as NSString).lastPathComponent, systemImage: "folder")
-                }
-            }
-        }
-        .listStyle(.sidebar)
-    }
-
-    private func kindTitle(_ info: RepositoryInfo) -> String {
-        switch info.kind {
-        case .regular: "Standard repository"
-        case .bare: "Bare repository"
-        case .linkedWorktree: "Linked worktree"
-        }
-    }
-
-    private func kindSymbol(_ info: RepositoryInfo) -> String {
-        switch info.kind {
-        case .regular: "externaldrive"
-        case .bare: "shippingbox"
-        case .linkedWorktree: "square.on.square"
-        }
-    }
-}
-
-/// Inspector (opaque content): working-directory summary and Finder/Terminal actions.
-struct InspectorView: View {
-    let session: RepositorySession
-    let actions: WorkbenchActions
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.s6) {
-                Text("Working directory")
-                    .typeStyle(.headline)
-                    .foregroundStyle(.token(.textPrimary))
-                if let status = session.status {
-                    if let summary = status.summary {
-                        Grid(alignment: .leading, horizontalSpacing: Space.s6, verticalSpacing: Space.s3) {
-                            row("Staged", summary.staged)
-                            row("Unstaged", summary.unstaged)
-                            row("Untracked", summary.untracked)
-                            row("Conflicted", summary.conflicted)
-                        }
-                    } else {
-                        Text("Bare repository — no working tree")
-                            .typeStyle(.callout)
-                            .foregroundStyle(.token(.textSecondary))
-                    }
-                } else if session.error != nil {
-                    Text("Unavailable until the repository can be read.")
-                        .typeStyle(.callout)
-                        .foregroundStyle(.token(.textTertiary))
-                } else {
-                    Text("Loading…")
-                        .typeStyle(.callout)
-                        .foregroundStyle(.token(.textTertiary))
-                }
-                if session.info?.topLevel != nil {
-                    VStack(alignment: .leading, spacing: Space.s4) {
-                        Button("Open in Finder", systemImage: "folder", action: actions.revealInFinder)
-                        Button("Open in Terminal", systemImage: "terminal", action: actions.openInTerminal)
-                    }
-                    .buttonStyle(.bordered)
-                    .padding(.top, Space.s2)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Space.s7)
-        }
-        .background(ColorToken.surfacePanel.color.ignoresSafeArea())
-    }
-
-    private func row(_ label: String, _ value: Int) -> some View {
-        GridRow {
-            Text(label)
-                .typeStyle(.callout)
-                .foregroundStyle(.token(.textSecondary))
-            Text("\(value)")
-                .typeStyle(.callout)
-                .monospacedDigit()
-                .foregroundStyle(.token(value > 0 ? .textPrimary : .textTertiary))
-        }
-        .accessibilityElement(children: .combine)
     }
 }
 

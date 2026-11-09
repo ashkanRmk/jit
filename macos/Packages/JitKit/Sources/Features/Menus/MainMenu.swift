@@ -89,6 +89,14 @@ public enum MainMenu {
         menu.addItem(item("Paste", #selector(NSText.paste(_:)), "v"))
         menu.addItem(item("Delete", #selector(NSText.delete(_:))))
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
+        menu.addItem(.separator())
+        let find = item("Find", nil)
+        let findMenu = NSMenu(title: "Find")
+        findMenu.addItem(item("Find…", #selector(GraphViewController.jitFind(_:)), "f"))
+        findMenu.addItem(item("Find Next", #selector(GraphViewController.jitFindNext(_:)), "g"))
+        findMenu.addItem(item("Find Previous", #selector(GraphViewController.jitFindPrevious(_:)), "G", .command))
+        find.submenu = findMenu
+        menu.addItem(find)
         return menu
     }
 
@@ -109,6 +117,15 @@ public enum MainMenu {
         }
         appearance.submenu = appearanceMenu
         menu.addItem(appearance)
+        let density = item("Graph Density", nil)
+        let densityMenu = NSMenu(title: "Graph Density")
+        for value in PreferencesStore.GraphDensity.allCases {
+            let entry = item(value.title, #selector(GraphViewController.setGraphDensity(_:)))
+            entry.representedObject = value.rawValue
+            densityMenu.addItem(entry)
+        }
+        density.submenu = densityMenu
+        menu.addItem(density)
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu

@@ -8,10 +8,15 @@ import Testing
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Sources/GitCore")
 
+    /// Every `.swift` file under `Sources/GitCore`, recursively (relative paths).
+    static func sourceFiles() throws -> [String] {
+        let enumerator = try #require(FileManager.default.enumerator(atPath: gitCoreSources.path))
+        return enumerator.compactMap { $0 as? String }.filter { $0.hasSuffix(".swift") }
+    }
+
     @Test func gitCoreImportsFoundationOnly() throws {
         let allowed: Set<String> = ["Foundation", "Darwin", "Dispatch", "System", "Synchronization", "os"]
-        let files = try FileManager.default.contentsOfDirectory(atPath: Self.gitCoreSources.path)
-            .filter { $0.hasSuffix(".swift") }
+        let files = try Self.sourceFiles()
         #expect(!files.isEmpty)
         for file in files {
             let text = try String(contentsOf: Self.gitCoreSources.appendingPathComponent(file), encoding: .utf8)
@@ -28,7 +33,7 @@ import Testing
 
     @Test func noShellStringAPI() throws {
         // Production code never launches a shell.
-        for file in try FileManager.default.contentsOfDirectory(atPath: Self.gitCoreSources.path) {
+        for file in try Self.sourceFiles() {
             let text = try String(contentsOf: Self.gitCoreSources.appendingPathComponent(file), encoding: .utf8)
             #expect(!text.contains("/bin/sh"), "\(file) mentions /bin/sh")
             #expect(!text.contains("/bin/zsh") && !text.contains("/bin/bash"), "\(file) mentions a shell")

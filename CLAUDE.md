@@ -49,10 +49,16 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
   `[JIT_OPEN=<repo>] [JIT_APP_SUPPORT=<dir>] scripts/benchmarks/idle.sh [label]`,
   `swift run -c release --package-path macos/Packages/JitKit JitBench [spawn-latency|discovery|status-parse|all]`;
   env-gated app modes `JIT_BENCHMARK_TAB_SWITCH=1`, `JIT_STRESS_OPEN_CLOSE=<repo>` (all builds)
+- History fixtures (outside the repo, `~/Library/Caches/jit-bench/`): `scripts/benchmarks/make-history-fixture.sh --standard`
+  (or `<commits> <branches> <out>`); graph benchmark: `JIT_BENCHMARK_GRAPH=1 JIT_OPEN=<repo> <release Jit binary>`
+- Lane golden files: `UPDATE_GOLDEN=1 swift test --package-path macos/Packages/JitKit --filter LaneGoldenTests`
+  (review the diff of `Tests/GitCoreTests/Resources/lanes/` by hand)
 - State: `JIT_APP_SUPPORT=<dir>` replaces `~/Library/Application Support/Jit` (tests, screenshots, benchmarks —
   never run experiments against the real one)
 - Screenshots (real captures; needs Screen Recording): `scripts/testing/screenshot.sh <light|dark> <out.png>`
 - Debug launch args: `-JitOpen <path>` / env `JIT_OPEN` (all builds), `-JitAppearance light|dark`,
   `-JitShowGallery YES`, `-JitGallerySection <name>`, `-JitShowSettings general|profiles`,
   `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`, `-JitUITestOpenRepository <path>`,
-  `-JitSnapshot <png>` (debug only; renders the window to PNG, glass approximated)
+  `-JitSnapshot <png>` (debug only; renders the window to PNG, glass approximated),
+  `-JitGraphSelectRow <n>` [`-JitGraphCompareRow <m>`], `-JitGraphSearch <text>` [`-JitGraphOnlyMatches YES`],
+  `-JitGraphSelectWIP YES`, `-graphDensity compact|comfortable` (debug only except the last)

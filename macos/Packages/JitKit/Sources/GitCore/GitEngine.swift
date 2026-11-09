@@ -152,6 +152,19 @@ public actor GitEngine {
         return try await runner.run(spec)
     }
 
+    /// Starts one long-lived, on-demand-read Git command (history readers). See `ProcessRunner.stream`.
+    public func stream(_ command: GitCommand) async throws(GitCoreError) -> ProcessStream {
+        let git = try await gitInfo()
+        let spec = ProcessSpec(
+            executable: git.path,
+            arguments: GitCommand.globalOptions + command.arguments,
+            workingDirectory: command.workingDirectory,
+            environment: Self.environment(for: git.path, kind: command.kind, configuration: configuration),
+            acceptedExitCodes: command.acceptedExitCodes
+        )
+        return runner.stream(spec)
+    }
+
     /// Classifies the folder at `url` (or the repository enclosing it).
     public func discoverRepository(at url: URL) async throws(GitCoreError) -> RepositoryInfo {
         // A missing working directory would otherwise surface as a launch failure.

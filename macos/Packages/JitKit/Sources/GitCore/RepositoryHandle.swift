@@ -19,9 +19,12 @@ public struct RepositoryStatus: Sendable, Equatable {
 /// never returned.
 public actor RepositoryHandle {
     public nonisolated let info: RepositoryInfo
-    private let engine: GitEngine
+    private nonisolated let engine: GitEngine
 
     private var generation: UInt64 = 1
+    private var cachedObjectFormat: ObjectFormat?
+    /// LRU of commit details (design §4.6).
+    nonisolated let detailsCache = DetailsCache()
     private var cachedStatus: RepositoryStatus?
     private var cachedSnapshot: StatusSnapshot?
     private var inFlight: (generation: UInt64, task: Task<Result<Computed, GitCoreError>, Never>)?
@@ -41,6 +44,25 @@ public actor RepositoryHandle {
     /// Stable identity: the working tree root, or the git directory of a bare repository.
     public nonisolated var path: String { info.topLevel ?? info.gitDirectory }
 
+    /// Where read commands run: the working tree, or the git directory of a bare repository.
+    nonisolated var workingDirectory: String { info.topLevel ?? info.gitDirectory }
+    nonisolated var gitEngine: GitEngine { engine }
+
+    /// `sha1` or `sha256` (`rev-parse --show-object-format`), read once per handle.
+    public func objectFormat() async throws(GitCoreError) -> ObjectFormat {
+        if let cachedObjectFormat { return cachedObjectFormat }
+        let output: ProcessOutput
+        do {
+            output = try await engine.run(
+                GitCommand(["rev-parse", "--show-object-format"], in: workingDirectory, kind: .read, stdoutLimit: 256))
+        } catch {
+            throw RepositoryDiscovery.classify(error, path: workingDirectory)
+        }
+        let format: ObjectFormat = output.stdoutText.hasPrefix("sha256") ? .sha256 : .sha1
+        cachedObjectFormat = format
+        return format
+    }
+
     public func invalidate(_ kinds: Set<InvalidationKind>) {
         guard !kinds.isEmpty else { return }
         generation &+= 1
@@ -50,6 +72,7 @@ public actor RepositoryHandle {
     public func releaseCaches() {
         cachedStatus = nil
         cachedSnapshot = nil
+        detailsCache.removeAll()
     }
 
     /// The full parsed status from the last computation, if still cached (Phase 3 reads entries from it).
