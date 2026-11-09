@@ -61,6 +61,16 @@ public final class DiffViewModel {
     public private(set) var changeRows: [Int] = []
     public private(set) var currentChange: Int?
 
+    // Line actions (P3.8).
+    public private(set) var selection = LineSelection()
+    /// Changed lines of the file in display order (selection ranges run over these).
+    @ObservationIgnored private var changedLines: [Int] = []
+    /// Banner over the diff: a stale reload, a refusal, a failure.
+    public private(set) var banner: String?
+    /// The discard / keep-only confirmation (design §3.2).
+    public private(set) var pendingDiscard: LineDiscardRequest?
+    @ObservationIgnored public var recovery = RecoveryStore()
+
     /// Tells the view to reload (new source) or redraw (highlights).
     @ObservationIgnored public var onSourceChange: (() -> Void)?
     @ObservationIgnored public var onRedraw: (() -> Void)?
@@ -98,6 +108,9 @@ public final class DiffViewModel {
     }
 
     public func close() {
+        selection.clear()
+        banner = nil
+        pendingDiscard = nil
         loadTask?.cancel()
         highlightTask?.cancel()
         highlight = nil
@@ -168,6 +181,11 @@ public final class DiffViewModel {
             state = .loaded
             return
         }
+        // Different bytes: line indices changed, so a pending selection would point at other lines.
+        if keepPosition, !selection.isEmpty {
+            banner = "The file changed — diff updated and selection cleared."
+        }
+        selection.clear()
         document = newDocument
         state = .loaded
         wordPairs = WordDiff.pairs(in: newDocument)
@@ -180,10 +198,19 @@ public final class DiffViewModel {
                 debugFocused = true
                 isFocused = true
             }
+            // `-JitDiffSelect <text>`: selects the changed lines containing it.
+            if let text = UserDefaults.standard.string(forKey: "JitDiffSelect"), !debugSelected {
+                debugSelected = true
+                for line in changedLines where newDocument.text(ofLine: line).contains(text) {
+                    selection.click(line, changed: changedLines, modifiers: .command)
+                }
+                selectionChanged()
+            }
         #endif
     }
 
     @ObservationIgnored private var debugFocused = false
+    @ObservationIgnored private var debugSelected = false
 
     /// Working-tree diffs follow status; commit diffs never change.
     private func observeStatus() {
@@ -240,6 +267,9 @@ public final class DiffViewModel {
         }
         let source = DiffRowsSource(document: document, layout: layout)
         self.source = source
+        changedLines = (0..<document.storage.lineCount).filter { document.kind(ofLine: $0) != .context }
+        selection.restrict(to: Set(changedLines))
+        source.selectedLines = selection.lines
         attachProviders()
         computeChangeRows()
         runSearch()
@@ -335,6 +365,117 @@ public final class DiffViewModel {
         self.document = document.expandingContext(gap: gapIndex, lines: lines)
         rebuildSource()
         self.source?.selectedLines = selected
+    }
+
+    // MARK: Line selection and actions
+
+    private func selectionChanged() {
+        source?.selectedLines = selection.lines
+        onRedraw?()
+    }
+
+    /// A click on a row (`column` matters in side by side).
+    public func click(row: Int, column: Int, modifiers: NSEvent.ModifierFlags) {
+        guard let source, let document else { return }
+        if layout == .split, case .hunk(let hunk) = document.splitRow(row) {
+            selection.toggleHunk(document.hunks[hunk].lines.filter { document.kind(ofLine: $0) != .context })
+        } else if layout != .split, case .hunk(let hunk) = document.row(layout, row) {
+            selection.toggleHunk(document.hunks[hunk].lines.filter { document.kind(ofLine: $0) != .context })
+        } else if let line = source.line(row: row, column: column) ?? source.line(row: row, column: 1 - column) {
+            selection.click(line, changed: changedLines, modifiers: modifiers)
+        } else {
+            return
+        }
+        banner = nil
+        selectionChanged()
+    }
+
+    public func drag(row: Int, column: Int) {
+        guard let source, let line = source.line(row: row, column: column) ?? source.line(row: row, column: 1 - column)
+        else { return }
+        selection.drag(to: line, changed: changedLines)
+        selectionChanged()
+    }
+
+    /// Keys while the diff body has focus: ↑/↓ (⇧ extends), Space, S, U, ⌫. Never while typing in a field.
+    public func key(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !modifiers.contains(.command), !modifiers.contains(.option) else { return false }
+        switch event.keyCode {
+        case 125, 126:  // ↓ ↑
+            selection.move(forward: event.keyCode == 125, extend: modifiers.contains(.shift), changed: changedLines)
+            selectionChanged()
+            if let cursor = selection.cursor, let row = source?.row(ofLine: cursor) { scrollToRow?(row, false) }
+            return true
+        case 49:  // Space
+            selection.toggleCursor()
+            selectionChanged()
+            return true
+        case 51:  // ⌫
+            perform(.discard)
+            return true
+        default:
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "s": perform(.stage)
+            case "u": perform(.unstage)
+            default: return false
+            }
+            return true
+        }
+    }
+
+    public var actionStates: [LineActionState] {
+        LineActions.states(document: document, target: target, selectionCount: selection.count, isBusy: session.isBusy)
+    }
+
+    /// Runs `action` on the selection; discard and keep-only first show the confirmation sheet.
+    public func perform(_ action: SelectionAction) {
+        guard let state = actionStates.first(where: { $0.action == action }) else { return }
+        guard state.isEnabled, let document else {
+            if let reason = state.reason { banner = reason }
+            return
+        }
+        if action == .discard || action == .keepOnly {
+            pendingDiscard = LineDiscardRequest(document: document, selection: selection.lines, action: action)
+            return
+        }
+        run(SelectionRequest(document: document, lines: selection.lines, action: action))
+    }
+
+    public func confirmDiscard() {
+        guard let request = pendingDiscard else { return }
+        pendingDiscard = nil
+        run(SelectionRequest(document: request.document, lines: request.selection, action: request.action))
+    }
+
+    public func cancelDiscard() { pendingDiscard = nil }
+
+    public func dismissBanner() { banner = nil }
+
+    private func run(_ request: SelectionRequest) {
+        banner = nil
+        let session = self.session
+        let recovery = self.recovery
+        Task { [weak self] in
+            do throws(GitCoreError) {
+                _ = try await session.apply(request, recovery: recovery)
+                self?.selection.clear()
+                self?.selectionChanged()
+            } catch .cancelled {
+                return
+            } catch {
+                guard let self else { return }
+                if case .staleSnapshot = error {
+                    self.selection.clear()
+                    self.selectionChanged()
+                    self.banner =
+                        "The file changed since you selected those lines. The diff was reloaded; nothing was changed."
+                    self.reload()
+                } else {
+                    self.banner = error.summary
+                }
+            }
+        }
     }
 
     // MARK: Navigation
@@ -451,4 +592,25 @@ extension DiffDocument {
         guard other.storage.lineCount == storage.lineCount else { return self }
         return DiffDocument(storage: storage, target: target, options: options, token: token, gapsOverride: other.gaps)
     }
+}
+
+/// What a line discard / keep-only would remove and restore (design §3.2 preview).
+public struct LineDiscardRequest: Identifiable {
+    public let id = UUID()
+    public let document: DiffDocument
+    public let selection: Set<Int>
+    public let action: SelectionAction
+
+    /// Lines the working tree loses and lines that come back, in file order.
+    public var effect: (lost: [Int], restored: [Int]) {
+        let changed = (0..<document.storage.lineCount).filter { document.kind(ofLine: $0) != .context }
+        let affected =
+            action == .keepOnly ? changed.filter { !selection.contains($0) } : changed.filter { selection.contains($0) }
+        return (
+            affected.filter { document.kind(ofLine: $0) == .added },
+            affected.filter { document.kind(ofLine: $0) == .deleted }
+        )
+    }
+
+    public var path: String { document.files.first?.path ?? "" }
 }

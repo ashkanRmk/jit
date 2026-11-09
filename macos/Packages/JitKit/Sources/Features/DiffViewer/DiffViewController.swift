@@ -12,6 +12,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
     let codeView = CodeLinesView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
     private let scrollView = NSScrollView()
     private var chrome: NSHostingView<DiffChromeView>?
+    private var messageHost: NSHostingView<DiffMessageView>?
     /// Line selection (P3.8) hooks: clicks on line rows go here when set.
     var onLineClick: ((_ row: Int, _ column: Int, _ modifiers: NSEvent.ModifierFlags) -> Void)?
     var onLineDrag: ((_ row: Int, _ column: Int) -> Void)?
@@ -39,21 +40,41 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         scrollView.documentView = codeView
         codeView.delegate = self
         root.addSubview(scrollView)
+        let messageHost = NSHostingView(rootView: DiffMessageView(model: model))
+        messageHost.translatesAutoresizingMaskIntoConstraints = false
+        messageHost.sizingOptions = []
+        messageHost.safeAreaRegions = []
+        root.addSubview(messageHost)
+        self.messageHost = messageHost
+        // Separate hosting views sized to their content: the body between them takes the clicks.
         let chrome = NSHostingView(rootView: DiffChromeView(model: model, controller: self))
         chrome.translatesAutoresizingMaskIntoConstraints = false
-        chrome.sizingOptions = []
+        chrome.sizingOptions = [.intrinsicContentSize]
         chrome.safeAreaRegions = []  // the bar sits at the pane's top, not below the window toolbar
+        chrome.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        chrome.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         root.addSubview(chrome)
         self.chrome = chrome
+        let capsule = NSHostingView(rootView: SelectionCapsuleHost(model: model))
+        capsule.translatesAutoresizingMaskIntoConstraints = false
+        capsule.sizingOptions = [.intrinsicContentSize]
+        capsule.safeAreaRegions = []
+        root.addSubview(capsule)
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: root.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            messageHost.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            messageHost.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            messageHost.topAnchor.constraint(equalTo: root.topAnchor),
+            messageHost.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             chrome.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             chrome.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             chrome.topAnchor.constraint(equalTo: root.topAnchor),
-            chrome.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            capsule.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+            capsule.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            capsule.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor),
         ])
         view = root
         model.onSourceChange = { [weak self] in self?.sourceChanged() }
@@ -63,6 +84,11 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         }
         model.scrollToRow = { [weak self] row, center in self?.codeView.scrollToRow(row, center: center) }
         model.onTextChange = { [weak self] in self?.codeView.invalidateText() }
+        onLineClick = { [weak self] row, column, modifiers in
+            self?.model.click(row: row, column: column, modifiers: modifiers)
+        }
+        onLineDrag = { [weak self] row, column in self?.model.drag(row: row, column: column) }
+        onKey = { [weak self] event in self?.model.key(event) ?? false }
         NotificationCenter.default.addObserver(
             self, selector: #selector(frameChanged), name: NSView.frameDidChangeNotification, object: scrollView)
         scrollView.postsFrameChangedNotifications = true
@@ -75,6 +101,18 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         codeView.showsWhitespace = model.showsWhitespace
         codeView.dataSource = model.source
         scrollView.isHidden = model.source == nil
+        updateMessage()
+    }
+
+    /// The message layer exists only when there is something to say (it would otherwise eat clicks).
+    private func updateMessage() {
+        withObservationTracking {
+            messageHost?.isHidden =
+                model.state == .loaded && model.message == nil
+                || model.state == .idle || (model.state == .loading && !model.showsSpinner)
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.updateMessage() }
+        }
     }
 
     /// First visible row (for change navigation).
@@ -206,20 +244,45 @@ struct DiffChromeView: View {
     @FocusState private var findFocused: Bool
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color.clear
-            content
-            VStack(spacing: 0) {
-                ViewThatFits(in: .horizontal) {
-                    bar(compact: false)
-                    bar(compact: true)
+        VStack(alignment: .leading, spacing: Space.s3) {
+            ViewThatFits(in: .horizontal) {
+                bar(compact: false)
+                bar(compact: true)
+            }
+            if let banner = model.banner {
+                HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.token(.statusInfo))
+                        .accessibilityHidden(true)
+                    Text(banner)
+                        .typeStyle(.callout)
+                        .foregroundStyle(.token(.textPrimary))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button {
+                        model.dismissBanner()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Dismiss")
                 }
-                .padding(.horizontal, Space.s5)
-                .padding(.top, Space.s4)
-                Spacer()
+                .padding(Space.s4)
+                .background(ColorToken.surfaceRaised.color, in: RoundedRectangle(cornerRadius: Radius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.md).stroke(
+                        ColorToken.borderSubtle.color, lineWidth: Border.hairline))
             }
         }
+        .padding(.horizontal, Space.s5)
+        .padding(.top, Space.s4)
+        .padding(.bottom, Space.s2)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .ignoresSafeArea()
+        .sheet(item: Binding(get: { model.pendingDiscard }, set: { if $0 == nil { model.cancelDiscard() } })) {
+            request in
+            LineDiscardSheet(request: request, cancel: model.cancelDiscard, confirm: model.confirmDiscard)
+        }
         .onChange(of: findRequest) {
             showsFind = true
             findFocused = true
@@ -295,31 +358,6 @@ struct DiffChromeView: View {
         .fixedSize()
         .help("Layout and Options")
         .accessibilityLabel("Layout and options")
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch model.state {
-        case .idle:
-            EmptyView()
-        case .loading:
-            if model.showsSpinner { ProgressView().controlSize(.small).accessibilityLabel("Loading diff") }
-        case .failed(let message):
-            VStack(spacing: Space.s4) {
-                Label(message, systemImage: "exclamationmark.triangle")
-                    .typeStyle(.callout)
-                    .foregroundStyle(.token(.statusDanger))
-                Button("Reload") { model.reload() }
-            }
-            .padding(.top, Self.height + Space.s8)
-        case .loaded:
-            if let message = model.message {
-                Text(message)
-                    .typeStyle(.callout)
-                    .foregroundStyle(.token(.textSecondary))
-                    .padding(.top, Self.height + Space.s8)
-            }
-        }
     }
 
     private var titleCapsule: some View {
@@ -486,5 +524,181 @@ struct DiffPane: NSViewRepresentable {
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
+    }
+}
+
+/// Loading / failed / binary / empty messages over the body; hidden (no hit testing) when rows show.
+struct DiffMessageView: View {
+    let model: DiffViewModel
+
+    var body: some View {
+        VStack {
+            content
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch model.state {
+        case .idle:
+            EmptyView()
+        case .loading:
+            if model.showsSpinner { ProgressView().controlSize(.small).accessibilityLabel("Loading diff") }
+        case .failed(let message):
+            VStack(spacing: Space.s4) {
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .typeStyle(.callout)
+                    .foregroundStyle(.token(.statusDanger))
+                Button("Reload") { model.reload() }
+            }
+            .padding(.top, DiffChromeView.height + Space.s8)
+        case .loaded:
+            if let message = model.message {
+                Text(message)
+                    .typeStyle(.callout)
+                    .foregroundStyle(.token(.textSecondary))
+                    .padding(.top, DiffChromeView.height + Space.s8)
+            }
+        }
+    }
+
+}
+
+/// Hosts the selection capsule at its own size, so the rest of the body stays clickable.
+struct SelectionCapsuleHost: View {
+    let model: DiffViewModel
+
+    var body: some View {
+        if model.selection.isEmpty {
+            EmptyView()
+        } else {
+            SelectionCapsule(model: model).padding(Space.s4)
+        }
+    }
+}
+
+/// The floating glass action capsule for a line selection (design §3.3): primary action first, each
+/// disabled one explains why.
+struct SelectionCapsule: View {
+    let model: DiffViewModel
+
+    var body: some View {
+        GlassControlGroup(spacing: Space.s3) {
+            HStack(spacing: Space.s3) {
+                Text("\(model.selection.count) selected")
+                    .typeStyle(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.token(.textSecondary))
+                ForEach(Array(model.actionStates.enumerated()), id: \.offset) { index, state in
+                    let button = Button(state.title) { model.perform(state.action) }
+                        .disabled(!state.isEnabled)
+                        .help(state.reason ?? shortcut(state.action))
+                    if index == 0 {
+                        button.primaryGlassButton()
+                    } else {
+                        button.secondaryGlassButton()
+                            .foregroundStyle(state.isDestructive ? .token(.statusDanger) : .token(.textPrimary))
+                    }
+                }
+            }
+            .padding(.leading, Space.s5)
+            .padding(.trailing, Space.s3)
+            .padding(.vertical, Space.s3)
+            .jitGlass(in: Capsule(), interactive: false)
+        }
+        .controlSize(.small)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Selection actions")
+    }
+
+    private func shortcut(_ action: SelectionAction) -> String {
+        switch action {
+        case .stage: "Stage the selected lines (S)"
+        case .unstage: "Unstage the selected lines (U)"
+        case .discard: "Discard the selected lines (⌫)"
+        case .keepOnly: "Discard every other changed line in this file"
+        }
+    }
+}
+
+/// Confirmation for discarding lines (design §3.2): the exact lines lost and restored, recovery, and a
+/// destructive button that is never default.
+struct LineDiscardSheet: View {
+    let request: LineDiscardRequest
+    let cancel: () -> Void
+    let confirm: () -> Void
+
+    var body: some View {
+        let effect = request.effect
+        let count = effect.lost.count + effect.restored.count
+        VStack(alignment: .leading, spacing: Space.s6) {
+            HStack(alignment: .top, spacing: Space.s5) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .symbolSize(IconSize.lg)
+                    .foregroundStyle(.token(.statusWarning))
+                    .accessibilityHidden(true)
+                Text(
+                    request.action == .keepOnly
+                        ? "Keep only the selected lines in “\(DisplayText.sanitize(request.path))”?"
+                        : "Discard \(count) selected \(count == 1 ? "line" : "lines") in “\(DisplayText.sanitize(request.path))”?"
+                )
+                .typeStyle(.headline)
+                .foregroundStyle(.token(.textPrimary))
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(alignment: .leading, spacing: Space.s3) {
+                Text("Only the working tree changes. Staged changes are kept.")
+                Text(
+                    "\(effect.lost.count) \(effect.lost.count == 1 ? "line is" : "lines are") removed and \(effect.restored.count) deleted \(effect.restored.count == 1 ? "line comes" : "lines come") back."
+                )
+                Text(
+                    "A copy of the file is kept in Jit’s recovery folder for 7 days (Repository ▸ Recently Discarded).")
+            }
+            .typeStyle(.callout)
+            .foregroundStyle(.token(.textSecondary))
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach((effect.lost + effect.restored).sorted().prefix(20), id: \.self) { line in
+                    let lost = request.document.kind(ofLine: line) == .added
+                    HStack(spacing: Space.s3) {
+                        Text(lost ? "−" : "+")
+                            .foregroundStyle(.token(lost ? .diffDeleteMark : .diffAddMark))
+                            .frame(width: 10)
+                        Text(DisplayText.sanitize(request.document.text(ofLine: line)))
+                            .foregroundStyle(.token(.textPrimary))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .typeStyle(.monoCaption)
+                    .padding(.horizontal, Space.s4)
+                    .padding(.vertical, 1)
+                    .background((lost ? ColorToken.diffDeleteBackground : .diffAddBackground).color)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(lost ? "Removed" : "Restored"): \(request.document.text(ofLine: line))")
+                }
+                if count > 20 {
+                    Text("and \(count - 20) more")
+                        .typeStyle(.caption)
+                        .foregroundStyle(.token(.textTertiary))
+                        .padding(.horizontal, Space.s4)
+                }
+            }
+            .padding(.vertical, Space.s3)
+            .background(ColorToken.surfaceSunken.color, in: RoundedRectangle(cornerRadius: Radius.sm))
+            HStack {
+                Spacer()
+                Button("Cancel", action: cancel)
+                    .keyboardShortcut(.defaultAction)
+                Button(role: .destructive, action: confirm) {
+                    Text("Discard").foregroundStyle(.token(.statusDanger))
+                }
+            }
+            .controlSize(.large)
+        }
+        .padding(Space.s8)
+        .frame(width: 480)
+        .onExitCommand(perform: cancel)
     }
 }

@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.7 complete; P3.8 next)
+Status: **in progress** (P3.0–P3.8 complete; P3.9 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -111,6 +111,17 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   all variants), word diff via own Myers on tokens for paired lines; options menu toggles.
   Evidence: `HighlightTests` (8); screenshots `diff-highlighted-{light,dark}.png`. Tree-sitter was not
   prototyped (recorded in ADR-0012).
+- **P3.8 Line / hunk actions in the UI** — `LineSelection` (click, ⌘ toggle, ⇧ range over changed lines,
+  drag, hunk-header click selects/clears the hunk, ↑/↓ and ⇧↑/⇧↓, Space), `LineActions` availability (every
+  reason code → disabled with its explanation; busy while a write runs), floating glass selection capsule
+  (primary "Stage N Lines" / "Unstage N Lines", destructive "Discard N Lines…", "Keep Only Selected…"), keys
+  S / U / ⌫ on the diff body, `LineDiscardSheet` with the exact lost/restored lines (Cancel default),
+  stale → reload + selection cleared + banner, recovery copy for discards. The chrome is three hosting
+  views sized to content so body clicks are never swallowed (regression test). Debug arg `-JitDiffSelect`.
+  Evidence: `LineActionTests` — `lineSelectionModel`, `actionAvailability`, `scenarioCPartialStaging` (§24 C
+  end to end through the viewer model on a real repo: stage one line, others stay unstaged, unstage it,
+  discard another after confirmation, unrelated file preserved, recovery copy written),
+  `chromeDoesNotSwallowBodyClicks`; screenshots `diff-selection-{light,dark}.png`.
 
 ## Verified
 - Tests: `scripts/build/test-core.sh` — **335 passed** (43 + 227 + 52 + 13 across the four test targets);
@@ -151,6 +162,9 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
 - Discard into the real Trash is not exercised by tests (it would fill the user's Trash); tests inject a
   trash hook, and `RecoveryStore.discardHooks` calls `FileManager.trashItem`.
 - Not yet exercised by pointer: Discard Changes… menu, confirming in the sheet, Recently Discarded menu.
+- P3.8: hunk header rows have no inline buttons; clicking the header selects the hunk and the capsule acts
+  (design asked for buttons on the row). Character-level text selection (⌥-drag) is not built; ⌘C copies
+  selected lines. Scenario C runs as a model-level test, not an XCUITest (no UI test target).
 - Diff viewer: no soft wrap (fixed rows, ADR-0011); search works in unified and full-file layouts only;
   renamed files in commit diffs opened with a path filter show as add + delete pair-less (the path filter
   hides the rename source); the commit-inspector diff path was exercised in tests only, not by pointer.
