@@ -114,7 +114,7 @@ struct LaneLayouter {
                     EdgeSegment(fromLane: UInt16(clamping: index), toLane: UInt16(clamping: node), color: colors[index], half: .top))
             }
             if states[node] == .reserved {
-                nodeColor = colorFor(key: tipKey(oid), slot: node)
+                nodeColor = oid == headCommit ? 0 : colorFor(key: tipKey(oid), slot: node)
                 states[node] = .active
             } else {
                 nodeColor = colors[node]
@@ -122,7 +122,8 @@ struct LaneLayouter {
             for index in matches where index != node { free(index, row: r) }
         } else {
             node = allocate(from: 0, row: r)
-            nodeColor = colorFor(key: tipKey(oid), slot: node)
+            // HEAD's lane always gets slot 0, also when HEAD is detached or a branch shares its tip.
+            nodeColor = oid == headCommit ? 0 : colorFor(key: tipKey(oid), slot: node)
             states[node] = .active
         }
         if !anyDrawn { output.flags.insert(.tip) }

@@ -94,7 +94,7 @@ public struct Topology: Sendable {
     }
 
     public mutating func checkout(_ name: String) {
-        precondition(tips[name] != nil, "unknown branch \(name)")
+        precondition(tips[name] != nil || name == current, "unknown branch \(name)")
         current = name
     }
 
@@ -105,7 +105,9 @@ public struct Topology: Sendable {
 
     public mutating func merge(_ others: [String], label: String) {
         guard let head = tips[current] else { preconditionFailure("merge on an unborn branch") }
-        add(label, parents: [head] + others.map { resolve($0) }, on: current)
+        var parents = [head]
+        for other in others.map({ resolve($0) }) where !parents.contains(other) { parents.append(other) }
+        add(label, parents: parents, on: current)
     }
 
     /// Starts an unrelated history on `name` (its first commit is a root).

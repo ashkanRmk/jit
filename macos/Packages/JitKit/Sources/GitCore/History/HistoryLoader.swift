@@ -105,6 +105,9 @@ public actor HistoryLoader {
     public private(set) var snapshot: HistorySnapshot
     /// Reader processes started (tests, diagnostics).
     public private(set) var readerStarts = 0
+    /// Bytes per pipe read (tests vary it to move record boundaries across reads).
+    var readSizes: [Int] = [256 * 1024]
+    private var readIndex = 0
 
     private static let signposter = OSSignposter(subsystem: "jit.performance", category: "history")
 
@@ -170,6 +173,11 @@ public actor HistoryLoader {
         parser = LogParser()
     }
 
+    /// Test hook: cycle through these read sizes.
+    func setReadSizes(_ sizes: [Int]) {
+        readSizes = sizes.isEmpty ? [256 * 1024] : sizes
+    }
+
     /// Clears a read failure so the next `ensureLoaded` restarts the reader (Retry).
     public func resetFailure() {
         failure = nil
@@ -184,7 +192,9 @@ public actor HistoryLoader {
         do throws(GitCoreError) {
             while builder.count < target && !complete && !closed {
                 let stream = try await currentStream()
-                guard let chunk = try await stream.read() else {
+                let size = readSizes[readIndex % readSizes.count]
+                readIndex += 1
+                guard let chunk = try await stream.read(maxBytes: size) else {
                     if parser.hasPartialRecord {
                         throw .internalError(summary: "Git's history output ended in the middle of a commit.")
                     }
