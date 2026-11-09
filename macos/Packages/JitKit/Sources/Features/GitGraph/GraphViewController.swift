@@ -52,6 +52,7 @@ final class GraphViewController: NSViewController {
 
     private static let signposter = OSSignposter(subsystem: "jit.performance", category: "graph")
 
+    static let columnRefs = NSUserInterfaceItemIdentifier("refs")
     static let columnGraph = NSUserInterfaceItemIdentifier("graph")
     static let columnSubject = NSUserInterfaceItemIdentifier("subject")
     static let columnAuthor = NSUserInterfaceItemIdentifier("author")
@@ -160,6 +161,9 @@ final class GraphViewController: NSViewController {
     /// The subject column takes whatever the fixed columns leave (no horizontal scrolling). In narrow
     /// layouts the SHA column hides first, then the author column narrows (design §3.1).
     private func fitSubjectColumn() {
+        // Widths set here are layout, not the user's choice: never persisted (columnResized).
+        isFittingColumns = true
+        defer { isFittingColumns = false }
         guard let subject = tableView.tableColumn(withIdentifier: Self.columnSubject),
             let sha = tableView.tableColumn(withIdentifier: Self.columnSHA),
             let author = tableView.tableColumn(withIdentifier: Self.columnAuthor)
@@ -179,6 +183,16 @@ final class GraphViewController: NSViewController {
         }
         if available - others() < comfortableSubject {
             author.width = max(author.minWidth, author.width - (comfortableSubject - (available - others())))
+        }
+        // Then the ref column gives back width down to its minimum (pills truncate in the middle).
+        if let refs = tableView.tableColumn(withIdentifier: Self.columnRefs) {
+            let preferredRefs = savedColumnWidths()[Self.columnRefs.rawValue] ?? 150
+            if refs.width < preferredRefs, available - others() - (preferredRefs - refs.width) >= comfortableSubject {
+                refs.width = preferredRefs
+            }
+            if available - others() < comfortableSubject {
+                refs.width = max(refs.minWidth, refs.width - (comfortableSubject - (available - others())))
+            }
         }
         let width = max(subject.minWidth, available - others())
         if abs(subject.width - width) > 0.5 { subject.width = width }
@@ -219,6 +233,9 @@ final class GraphViewController: NSViewController {
             column.resizingMask = .userResizingMask
             return column
         }
+        let refs = column(Self.columnRefs, "Branch / Tag", width: 150, min: 96)
+        refs.resizingMask = .userResizingMask
+        tableView.addTableColumn(refs)
         let graph = column(Self.columnGraph, "Graph", width: 80, min: 24)
         graph.resizingMask = []
         tableView.addTableColumn(graph)
@@ -511,6 +528,7 @@ final class GraphViewController: NSViewController {
     }
 
     private var isSyncingSelection = false
+    private var isFittingColumns = false
 
     private func redrawVisibleRows() {
         let visible = tableView.rows(in: tableView.visibleRect)
@@ -960,13 +978,17 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
                 cell.content = .wip(lane: lane, color: snapshot.headRow.map { snapshot.row($0).nodeColor } ?? 0)
             case .commit(let index):
                 let commit = snapshot.row(index)
+                var decor = NodeDecor()
+                if let display = cache.display(index) {
+                    decor.initials = display.initials
+                    decor.avatarSlot = display.avatarSlot
+                    decor.hasRefs = !display.labels.isEmpty
+                }
                 if isFlat {
-                    cell.content = .flat(isMerge: commit.isMerge)
+                    cell.content = .flat(isMerge: commit.isMerge, color: 0, decor)
                 } else {
-                    let headCommit = currentRefs?.head.commit
-                    cell.content = .commit(
-                        commit, isHead: commit.oid == headCommit, wipAbove: showsWIP && index == snapshot.headRow,
-                        dimmed: false)
+                    decor.wipAbove = showsWIP && index == snapshot.headRow
+                    cell.content = .commit(commit, decor)
                 }
             case .footer:
                 cell.content = .empty
@@ -988,11 +1010,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
                     content.trailing = parts.joined(separator: " · ")
                 }
             case .commit(let index):
-                if let display = cache.display(index) {
-                    content.subject = display.subject
-                    content.labels = display.labels
-                    content.labelColor = snapshot.row(index).nodeColor
-                }
+                if let display = cache.display(index) { content.subject = display.subject }
             case .footer:
                 content.style = .footer
                 let count = snapshot.count.formatted()
@@ -1003,11 +1021,18 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
             }
             cell.content = content
             return cell
+        case Self.columnRefs:
+            let cell = reuse(RefsCellView.self, id: id)
+            var content = RefsCellView.Content()
+            if case .commit(let index) = kind, let display = cache.display(index) {
+                content.labels = display.labels
+                content.labelColor = isFlat ? 0 : snapshot.row(index).nodeColor
+            }
+            cell.content = content
+            return cell
         case Self.columnAuthor:
             let cell = reuse(AuthorCellView.self, id: id)
             if case .commit(let index) = kind, let display = cache.display(index) {
-                cell.initials = display.initials
-                cell.slot = display.avatarSlot
                 cell.name = display.authorName
                 cell.toolTip = "\(display.authorName) <\(display.authorEmail)>"
             } else {
@@ -1047,6 +1072,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
         switch view {
         case let cell as GraphCellView: cell.style = style
         case let cell as SubjectCellView: cell.style = style
+        case let cell as RefsCellView: cell.style = style
         case let cell as AuthorCellView: cell.style = style
         case let cell as TextCellView: cell.style = style
         default: break
@@ -1088,7 +1114,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableViewColumnDidResize(_ notification: Notification) {
         guard let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
-            column.identifier != Self.columnGraph
+            column.identifier != Self.columnGraph, !isFittingColumns
         else { return }
         columnResized()
     }
@@ -1111,12 +1137,20 @@ extension GraphViewController: NSMenuDelegate {
             menu.addItem(ClosureMenuItem(title: title, action: action))
         }
         // A ref label under the cursor adds label actions first.
-        if let label = labelUnderClick(row: row), let fullName = label.fullName {
-            item("Copy Name") { Pasteboard.copy(label.text) }
-            let pinned = viewModel.pinned.contains(fullName)
-            item(pinned ? "Unpin" : "Pin to Left") { [weak self] in self?.togglePin(fullName) }
-            item("Solo \(label.text)") { [weak self] in self?.solo(fullName) }
-            item("Show in Navigator") { [weak self] in self?.actions.showInNavigator(fullName) }
+        let pill = pillUnderClick(row: row)
+        if let label = pill?.label, let fullName = label.fullName {
+            labelItems(label, fullName: fullName).forEach(menu.addItem)
+            menu.addItem(.separator())
+        } else if pill?.isOverflow == true {
+            // `+N`: every ref on this commit, each with its own actions.
+            for label in cache.labels(for: commit.oid) {
+                guard let fullName = label.fullName else { continue }
+                let parent = NSMenuItem(title: label.text, action: nil, keyEquivalent: "")
+                let submenu = NSMenu(title: label.text)
+                labelItems(label, fullName: fullName).forEach(submenu.addItem)
+                parent.submenu = submenu
+                menu.addItem(parent)
+            }
             menu.addItem(.separator())
         }
         item("Copy SHA") { [weak self] in self?.copySelection(.sha) }
@@ -1151,13 +1185,27 @@ extension GraphViewController: NSMenuDelegate {
         }
     }
 
-    private func labelUnderClick(row: Int) -> RefLabel? {
+    private func labelUnderClick(row: Int) -> RefLabel? { pillUnderClick(row: row)?.label }
+
+    /// The pill under the click in the ref column; `isOverflow` for the `+N` pill.
+    private func pillUnderClick(row: Int) -> (label: RefLabel?, isOverflow: Bool)? {
         guard let event = NSApp.currentEvent,
-            let column = tableView.tableColumns.firstIndex(where: { $0.identifier == Self.columnSubject }),
-            let cell = tableView.view(atColumn: column, row: row, makeIfNecessary: false) as? SubjectCellView
+            let column = tableView.tableColumns.firstIndex(where: { $0.identifier == Self.columnRefs }),
+            let cell = tableView.view(atColumn: column, row: row, makeIfNecessary: false) as? RefsCellView
         else { return nil }
         let point = cell.convert(event.locationInWindow, from: nil)
-        return cell.label(at: point)?.label
+        return cell.label(at: point)
+    }
+
+    /// Copy / pin / solo / navigator actions for one ref label.
+    private func labelItems(_ label: RefLabel, fullName: String) -> [NSMenuItem] {
+        let pinned = viewModel.pinned.contains(fullName)
+        return [
+            ClosureMenuItem(title: "Copy Name") { Pasteboard.copy(label.text) },
+            ClosureMenuItem(title: pinned ? "Unpin" : "Pin to Left") { [weak self] in self?.togglePin(fullName) },
+            ClosureMenuItem(title: "Solo \(label.text)") { [weak self] in self?.solo(fullName) },
+            ClosureMenuItem(title: "Show in Navigator") { [weak self] in self?.actions.showInNavigator(fullName) },
+        ]
     }
 }
 

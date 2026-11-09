@@ -1,3 +1,4 @@
+import AppKit
 import DesignSystem
 import Foundation
 import GitCore
@@ -184,5 +185,99 @@ func testObjectID(_ digit: Character) -> ObjectID {
         #expect(DisplayText.sanitize("a\nb", keepNewlines: true) == "a\nb")
         #expect(DisplayText.sanitize("a\nb") == "a\u{240A}b")
         #expect(DisplayText.sanitize("x\u{9B}y") == "x\u{FFFD}y")
+    }
+}
+
+@Suite struct GraphVisualStyleTests {
+    let mid: CGFloat = 16
+    let height: CGFloat = 32
+
+    @Test func fullSegmentIsVertical() {
+        let box = GraphEdgeGeometry.path(x0: 20, x1: 20, half: .full, mid: mid, height: height).boundingBoxOfPath
+        #expect(box.minX == 20 && box.maxX == 20 && box.minY == 0 && box.maxY == height)
+    }
+
+    @Test func topElbowRunsDownThenHorizontallyIntoTheNode() {
+        let path = GraphEdgeGeometry.path(x0: 68, x1: 20, half: .top, mid: mid, height: height)
+        #expect(path.currentPoint == CGPoint(x: 20, y: mid))
+        let box = path.boundingBoxOfPath
+        #expect(box.minY >= -0.001 && box.maxY <= mid + 0.001)
+        #expect(box.minX >= 20 - 0.001 && box.maxX <= 68 + 0.001)
+        // Still on the source lane just above the turn.
+        #expect(path.contains(CGPoint(x: 68, y: 1), using: .winding) == false)
+        #expect(stroked(path).contains(CGPoint(x: 68, y: 1)))
+        #expect(stroked(path).contains(CGPoint(x: 30, y: mid)))
+    }
+
+    @Test func bottomElbowLeavesTheNodeHorizontallyThenRunsDown() {
+        let path = GraphEdgeGeometry.path(x0: 20, x1: 44, half: .bottom, mid: mid, height: height)
+        #expect(path.currentPoint == CGPoint(x: 44, y: height))
+        let box = path.boundingBoxOfPath
+        #expect(box.minY >= mid - 0.001 && box.maxY <= height + 0.001)
+        #expect(stroked(path).contains(CGPoint(x: 22, y: mid)))
+        #expect(stroked(path).contains(CGPoint(x: 44, y: height - 1)))
+    }
+
+    @Test func narrowLaneChangeUsesTheLaneGapAsRadius() {
+        // |dx| < half row: the turn radius shrinks so the path never overshoots either lane.
+        let path = GraphEdgeGeometry.path(x0: 20, x1: 26, half: .bottom, mid: mid, height: height)
+        let box = path.boundingBoxOfPath
+        #expect(box.minX >= 20 - 0.001 && box.maxX <= 26 + 0.001)
+    }
+
+    private func stroked(_ path: CGPath) -> CGPath {
+        path.copy(strokingWithWidth: 2, lineCap: .butt, lineJoin: .round, miterLimit: 1)
+    }
+
+    @Test func metricsFitAvatarNodes() {
+        for metrics in [GraphMetrics.compact, .comfortable] {
+            #expect(metrics.nodeDiameter < metrics.rowHeight)
+            #expect(metrics.laneSpacing >= metrics.nodeDiameter)
+            #expect(metrics.mergeDotDiameter < metrics.nodeDiameter)
+            #expect(metrics.pillHeight < metrics.rowHeight)
+        }
+    }
+
+    @MainActor @Test func avatarCacheReusesImagesUntilAppearanceChanges() throws {
+        let style = GraphStyle(density: .comfortable)
+        _ = style.update(appearance: try #require(NSAppearance(named: .aqua)))
+        let key = GraphStyle.AvatarKey(initials: "AR", authorSlot: 3, laneSlot: 1, diameter: 22, scale: 2)
+        let first = try #require(style.avatar(key))
+        #expect(first.width == 44 && first.height == 44)
+        #expect(style.avatar(key) === first)
+        #expect(style.cachedAvatarCount == 1)
+        _ = style.update(appearance: try #require(NSAppearance(named: .darkAqua)))
+        #expect(style.cachedAvatarCount == 0)
+        #expect(style.avatar(key) !== first)
+    }
+
+    @MainActor @Test func refColumnDrawsFirstLabelAndOverflow() throws {
+        let style = GraphStyle(density: .comfortable)
+        _ = style.update(appearance: try #require(NSAppearance(named: .aqua)))
+        let cell = RefsCellView(frame: NSRect(x: 0, y: 0, width: 150, height: 32))
+        cell.style = style
+        let main = RefLabel(kind: .current, text: "main", fullName: "refs/heads/main")
+        let tag = RefLabel(kind: .tag, text: "v1", fullName: "refs/tags/v1")
+        cell.content = .init(labels: [main, tag], labelColor: 0)
+        let image = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
+        cell.cacheDisplay(in: cell.bounds, to: image)
+        #expect(cell.pillFrames.count == 2)
+        let firstFrame = cell.pillFrames[0].1
+        #expect(cell.label(at: NSPoint(x: firstFrame.midX, y: firstFrame.midY))?.label == main)
+        let overflowFrame = cell.pillFrames[1].1
+        #expect(cell.label(at: NSPoint(x: overflowFrame.midX, y: overflowFrame.midY))?.isOverflow == true)
+        #expect(overflowFrame.maxX <= cell.bounds.width)
+    }
+
+    @MainActor @Test func longBranchNameTruncatesInsideTheColumn() throws {
+        let style = GraphStyle(density: .compact)
+        _ = style.update(appearance: try #require(NSAppearance(named: .darkAqua)))
+        let cell = RefsCellView(frame: NSRect(x: 0, y: 0, width: 90, height: 26))
+        cell.style = style
+        let long = RefLabel(kind: .local, text: String(repeating: "feature/very-long-name-", count: 4), fullName: "x")
+        cell.content = .init(labels: [long, long, long], labelColor: 2)
+        let image = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
+        cell.cacheDisplay(in: cell.bounds, to: image)
+        #expect(cell.pillFrames.allSatisfy { $0.1.maxX <= cell.bounds.width })
     }
 }

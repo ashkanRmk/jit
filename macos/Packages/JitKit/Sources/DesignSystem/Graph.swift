@@ -7,28 +7,31 @@ public struct GraphMetrics: Sendable, Equatable {
     /// Lanes past `maxVisibleLanes` are squeezed to this spacing (and drawn at reduced opacity).
     public let compressedLaneSpacing: CGFloat
     public let leadingInset: CGFloat
-    public let nodeRadius: CGFloat
-    public let mergeNodeRadius: CGFloat
-    public let headRingGap: CGFloat
-    public let headRingWidth: CGFloat
+    /// Regular commits: an initials avatar inside a lane-coloured ring (P2.13).
+    public let nodeDiameter: CGFloat
+    public let nodeRing: CGFloat
+    /// Merge commits: a small solid disc in the lane colour.
+    public let mergeDotDiameter: CGFloat
     public let edgeWidth: CGFloat
     public let maxVisibleLanes: Int
     public let pillHeight: CGFloat
     public let pillPadding: CGFloat
     public let pillSpacing: CGFloat
-    public let avatarSize: CGFloat
     /// Graph column never takes more than this share of the table width.
     public let maxGraphShare: CGFloat
 
     public static let compact = GraphMetrics(
-        rowHeight: 24, laneSpacing: 14, compressedLaneSpacing: 6, leadingInset: 10, nodeRadius: 3.5,
-        mergeNodeRadius: 4, headRingGap: 2.5, headRingWidth: 1.25, edgeWidth: 1.5, maxVisibleLanes: 12,
-        pillHeight: 16, pillPadding: 6, pillSpacing: 4, avatarSize: 16, maxGraphShare: 0.4)
+        rowHeight: 26, laneSpacing: 20, compressedLaneSpacing: 6, leadingInset: 8, nodeDiameter: 18,
+        nodeRing: 1.75, mergeDotDiameter: 8, edgeWidth: 1.75, maxVisibleLanes: 12, pillHeight: 18, pillPadding: 6,
+        pillSpacing: 4, maxGraphShare: 0.4)
 
     public static let comfortable = GraphMetrics(
-        rowHeight: 30, laneSpacing: 16, compressedLaneSpacing: 6, leadingInset: 12, nodeRadius: 4,
-        mergeNodeRadius: 4.5, headRingGap: 3, headRingWidth: 1.25, edgeWidth: 1.75, maxVisibleLanes: 12,
-        pillHeight: 18, pillPadding: 6, pillSpacing: 4, avatarSize: 18, maxGraphShare: 0.4)
+        rowHeight: 32, laneSpacing: 24, compressedLaneSpacing: 6, leadingInset: 10, nodeDiameter: 22,
+        nodeRing: 2, mergeDotDiameter: 10, edgeWidth: 2, maxVisibleLanes: 12, pillHeight: 20, pillPadding: 7,
+        pillSpacing: 4, maxGraphShare: 0.4)
+
+    /// The lane-coloured bar at the graph column's trailing edge of each commit row.
+    public static let laneBarWidth: CGFloat = 2
 
     public static func forDensity(_ density: Density) -> GraphMetrics {
         density == .compact ? .compact : .comfortable
@@ -68,7 +71,6 @@ public struct GraphMetrics: Sendable, Equatable {
     public private(set) var textSecondary: NSColor = .secondaryLabelColor
     public private(set) var textTertiary: NSColor = .tertiaryLabelColor
     public private(set) var warning: CGColor = .clear
-    public private(set) var headRing: CGColor = .clear
     public private(set) var variant: Variant = .light
     private var resolvedFor: NSAppearance.Name?
     private var resolvedIncreaseContrast = false
@@ -95,9 +97,6 @@ public struct GraphMetrics: Sendable, Equatable {
         canvas = cg(ColorToken.surfaceCanvas.spec.value(for: variant))
         neutralFill = cg(ColorToken.stateHover.spec.value(for: variant).opacity(variant.isDark ? 0.10 : 0.07))
         warning = cg(ColorToken.statusWarning.spec.value(for: variant))
-        appearance.performAsCurrentDrawingAppearance {
-            headRing = NSColor.controlAccentColor.cgColor
-        }
         textPrimary = ColorToken.textPrimary.nsColor
         textSecondary = ColorToken.textSecondary.nsColor
         textTertiary = ColorToken.textTertiary.nsColor
@@ -125,8 +124,10 @@ public enum GraphTypography {
     public static var subjectEmphasized: NSFont { .systemFont(ofSize: TypeToken.body.size, weight: .semibold) }
     public static var pill: NSFont { .systemFont(ofSize: TypeToken.caption.size, weight: .medium) }
     public static var pillEmphasized: NSFont { .systemFont(ofSize: TypeToken.caption.size, weight: .semibold) }
-    /// Initials inside the 16–18 pt avatar.
-    public static var avatar: NSFont { .systemFont(ofSize: 8, weight: .semibold) }
+    /// Initials inside an avatar node of `diameter` points.
+    public static func nodeInitials(diameter: CGFloat) -> NSFont {
+        .systemFont(ofSize: (diameter * 0.4).rounded(), weight: .semibold)
+    }
     public static var secondary: NSFont { TypeToken.callout.nsFont }
     public static var mono: NSFont { TypeToken.monoCaption.nsFont }
     /// Navigator rows use the system sidebar size; the current branch is semibold.

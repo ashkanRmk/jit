@@ -52,9 +52,17 @@ baseline. **Missing:** a suspendable stream API for backpressure — implemented
   Evidence: `HistoryInvalidationTests` (5), `HistoryControllerTests` (4).
 - **P2.12 Verification** — `JIT_BENCHMARK_GRAPH=1` in-app benchmark, idle runs, ADR-0023 read-only policy,
   row accessibility labels.
+- **P2.13 Graph visual style** (owner request after the PR opened) — avatar nodes (initials in the author colour
+  inside a lane ring, cached `CGImage`s), solid merge dots, rounded-elbow lane changes (`GraphEdgeGeometry`),
+  lane-tinted row band + trailing lane bar, a "Branch / Tag" column (first ref + `+N`, connector to the node,
+  `+N` menu lists every ref), author column name-only, new density metrics. Column widths set by layout
+  fitting are no longer persisted as the user's widths. Spec `specs/P2.13-graph-visual-style.md`.
+  Evidence: `GraphVisualStyleTests` (8); screenshots recaptured; release benchmark on the 100k fixture
+  (no commit-graph): row draw p95 0.016–0.017 ms, scroll step p95 1.85–1.88 ms (0 over 16.7 ms), first rows
+  404–546 ms from history start (unchanged range, Git's sort dominates).
 
 ## Verified
-- Tests: `swift test` **218 passed** (GitCoreTests 152, ServicesTests 39, FeaturesTests 15, DesignSystemTests 12);
+- Tests: `swift test` **226 passed** (GitCoreTests 152, ServicesTests 39, FeaturesTests 23, DesignSystemTests 12);
   `xcodebuild test` (JitAppTests) **23 passed**; skipped: none. Lint clean (`scripts/build/lint.sh`) — but CI's
   swift-format flagged three test force unwraps that local swift-format 6.4.4 accepted; fixed after the PR opened.
 - Real workflow (debug and release app, real repositories): git/git clone (86k commits, 1,012 tags), 1k/10k/100k
@@ -97,6 +105,8 @@ Full table and methods: `docs/performance.md`.
 - ADR-0024 History invalidation — labels in place vs background reload + swap.
 
 ## Deviations from plan
+- **Graph look changed to P2.13** (avatar nodes, elbow edges, ref column) at the owner's request; design §3.2's
+  "original identity" node/curve/pill rules are superseded where P2.13 says so. No network avatars (initials only).
 - **P2.0 added** (streamed process API was missing). Docs updated: yes.
 - **Graph toolbar** is a floating glass bar at the top of the graph pane, not window toolbar items: the window
   toolbar is fully used by the Phase 1 tab strip. Same glass rules (one `GlassEffectContainer`). Docs: design-system.
