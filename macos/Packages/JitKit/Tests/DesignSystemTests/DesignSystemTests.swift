@@ -61,6 +61,23 @@ import Testing
         }
     }
 
+    /// Conflict resolver (P4.12): text, syntax, line numbers and marks on conflict / resolved rows.
+    @Test(arguments: Variant.allCases)
+    func resolverRowsMeetContrast(_ variant: Variant) {
+        for background in [ColorToken.conflictBackground, .resolvedBackground] {
+            let bg = background.spec.value(for: variant)
+            #expect(ColorToken.textPrimary.spec.value(for: variant).contrast(against: bg) >= 4.5)
+            for token in [ColorToken.textTertiary, .conflictMark, .accentBase] {
+                let ratio = token.spec.value(for: variant).contrast(against: bg)
+                #expect(ratio >= 3, "\(token.rawValue) on \(background.rawValue) \(variant): \(ratio)")
+            }
+            for color in SyntaxColor.allCases {
+                let ratio = color.spec.value(for: variant).contrast(against: bg)
+                #expect(ratio >= 4.5, "\(color.name) on \(background.rawValue) \(variant): \(ratio)")
+            }
+        }
+    }
+
     @Test(arguments: Variant.allCases)
     func syntaxColorsMeetAAOnCodeBackgrounds(_ variant: Variant) {
         for color in SyntaxColor.allCases {

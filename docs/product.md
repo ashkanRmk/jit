@@ -34,6 +34,10 @@ workbench modes.
 | ⌘Z / ⇧⌘Z | Undo / Redo (e.g. removing a recent) | standard |
 | ⌘M, ⌘H, ⌥⌘H, ⌘Q, ⌘? | Minimize, Hide, Hide Others, Quit, Help | standard |
 
+## Phase 4 shortcuts
+⇧⌘N Clone Repository… · ⌥⌘A Show Activity · ⌥⌘S Stash Changes… · resolver: ⌥⌘↓ / ⌥⌘↑ next / previous block,
+⌘S save, ⇧⌘R mark as resolved, ⌘Z / ⇧⌘Z undo / redo, Esc close.
+
 ## V1 scope (planned, by phase)
 - **Shell & tabs (P1, done):** one main window with repository tabs restored on relaunch, new-tab page,
   live status, identity-only profiles and a global profile indicator.
@@ -41,8 +45,14 @@ workbench modes.
   commit details, search/filter, file history.
 - **Working directory & diff (P3):** native unified/split diff, syntax highlighting, file/hunk/line
   stage, unstage and discard proven safe by tests, blame, commit and amend with profile identity.
-- **Everyday workflows & conflicts (P4):** fetch/pull/push/clone, branch operations,
-  merge/rebase/cherry-pick/revert, visual three-way conflict resolution.
+- **Everyday workflows & conflicts (P4, done):** fetch (prune explicit), pull (fetch + fast-forward only by
+  default; merge or rebase only on explicit choice), push with publish/upstream, rejection explanations and
+  force-with-lease only (never plain `--force`), clone from URL with progress/cancel, branch create / switch /
+  check out remote / detach / rename / delete (unmerged needs a second confirmation) / delete remote / upstream,
+  merge, rebase, cherry-pick, revert with continue / skip / abort, an operation banner for states started
+  anywhere, a three-way conflict resolver with non-text fallbacks, stash (create, apply, pop, drop, Stash and
+  Switch), GitHub/GitLab web links, activity history. Remote operations never prompt: public HTTPS and
+  ssh-agent keys work; credentials arrive in P5.
 - **Profiles & providers (P5):** SSH/PAT/OAuth via the Keychain, GitHub and GitLab (incl. self-managed,
   custom CA, proxy).
 - **Polish & performance (P6), Packaging & release (P7):** §15.1 targets, accessibility, signed and

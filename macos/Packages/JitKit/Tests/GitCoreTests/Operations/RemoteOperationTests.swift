@@ -56,10 +56,17 @@ import Testing
         let task = Task { try await world.handleA.fetch(FetchRequest(remote: "origin", prune: false)) }
         try await Task.sleep(for: .milliseconds(30))
         task.cancel()
-        let outcome = try await task.value
-        let now = try await world.a.git("rev-parse", "origin/main")
+        let now: String
+        do {
+            let outcome = try await task.value
+            now = try await world.a.git("rev-parse", "origin/main")
+            if outcome.cancelled { #expect(outcome.changedRefs == (now == before ? 0 : 1)) }
+        } catch let error as GitCoreError where error == .cancelled {
+            // Cancelled before Git started: nothing ran.
+            now = try await world.a.git("rev-parse", "origin/main")
+            #expect(now == before)
+        }
         #expect(now == before || now == after)
-        if outcome.cancelled { #expect(outcome.changedRefs == (now == before ? 0 : 1)) }
         _ = try await world.a.git("fsck", "--connectivity-only", "--no-progress")
     }
 

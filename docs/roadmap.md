@@ -4,7 +4,10 @@
 > [`phases/00-foundation/progress.md`](phases/00-foundation/progress.md)); **Phase 1 implemented** (branch
 > `phase/01-shell-and-tabs`, see [`phases/01-shell-and-tabs/progress.md`](phases/01-shell-and-tabs/progress.md));
 > **Phase 2 implemented** (branch `phase/02-graph-and-navigation`, see
-> [`phases/02-graph-and-navigation/progress.md`](phases/02-graph-and-navigation/progress.md)); Phases 3–8 are plans. Each phase folder under
+> [`phases/02-graph-and-navigation/progress.md`](phases/02-graph-and-navigation/progress.md)); **Phase 3 implemented**
+> ([`progress.md`](phases/03-working-directory-and-diff/progress.md)); **Phase 4 implemented** (branch
+> `phase/04-git-workflows-and-conflicts`, see
+> [`phases/04-git-workflows-and-conflicts/progress.md`](phases/04-git-workflows-and-conflicts/progress.md)); Phases 5–8 are plans. Each phase folder under
 > [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
 > such as **§7.4** point into that file.
@@ -189,7 +192,7 @@ Assigned across the phase designs; check here before adding one (Phase 6 audits 
 | 0012 | Syntax highlighting: tree-sitter C runtime via a SwiftPM C target (or a lighter lexer if it wins on size/speed), computed lazily for visible ranges as compact span runs. | P3 |
 | 0013 | Partial staging: build full-context patches from a captured snapshot, `git apply --check` then `git apply` against index/worktree, verify after. | P3 |
 | 0014 | Git hooks policy: hooks run as Git runs them (documented, visible in UI), never silently bypassed or silently added. | P3 |
-| 0015 | Operation framework: risk classes (read / mutating / destructive), per-repo serialized writer queue, revision tokens for staleness. | P4 |
+| 0015 | **Accepted.** Operation framework: the Phase 3 write gate is the one writer; `RepoStateToken` staleness checks; destructive calls need a `ConfirmationToken` only `ConfirmationRequest.confirm()` mints; Task cancellation → `killpg`. | P4 |
 | 0016 | Credential delivery: bundled helper binary `jit-git-helper` (Swift executable target `JitGitHelper`, at `Contents/Helpers/`) + one-shot authenticated local IPC (broker lives in `Services`, since it needs Keychain/Security; `GitCore` only passes an opaque endpoint); secrets never in argv, URLs, env dumps or logs. Post-V1 the same helper gains editor subcommands for interactive rebase. | P5 |
 | 0017 | OAuth: `ASWebAuthenticationSession`, auth code + PKCE + state for GitLab; for GitHub, PKCE if GitHub supports it for public clients at implementation time, otherwise device flow. Public clients only; registered client IDs are an external prerequisite. | P5 |
 | 0018 | Custom CA and proxy: URLSession trust evaluation scoped to configured hosts; Git gets `-c http.<url>.sslCAInfo` / `-c http.<url>.proxy` scoped per invocation. | P5 |

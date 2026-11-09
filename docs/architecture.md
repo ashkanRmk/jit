@@ -146,3 +146,29 @@ RepositoryHandle ── WriteGate (FIFO, ADR-0027)                │           
   applies, verifies and rolls back.
 - **Memory:** inactive tabs drop diff documents, rows, spans and blame text (targets kept, reloaded on
   return); strings exist only for visible rows.
+
+## Workflows and conflicts (Phase 4: ADR-0015, 0030–0034)
+```
+UI (command bar, menus, graph/navigator menus, banner, resolver)
+   └─ OperationsController (per tab): prepares sheets with a RepoStateToken, captures the profile snapshot on
+      confirm, turns outcomes into the next sheet (not fast-forward, push rejected, blocked switch, conflicts)
+         └─ RepositorySession.perform → OperationCenter (records, progress, cancel) → RepositoryHandle
+               ├─ performExclusive (the Phase 3 FIFO write gate — the only writer)
+               ├─ fetch / pull (fetch + uncancellable integrate) / push --porcelain / force-with-lease
+               ├─ switch / branch / rename / delete / upstream; merge / rebase / cherry-pick / revert
+               ├─ continue / skip / abort; conflicts / loadConflict / saveResolution / markResolved
+               └─ stash list / push / apply / pop / drop / stash-and-switch
+cloneRepository(_:engine:) — free function (no repository yet)
+```
+- **Execution:** `GitEnvironment.remoteCommand(ExecContext)` (non-interactive auth, protocol policy) and
+  `integrationCommand` (identity via env: committer always, author for new commits). Phase 5 extends
+  `AuthPlan` / `NetworkPlan`.
+- **Staleness and confirmation:** `RepoStateToken` (HEAD, HEAD ref, refs digest, operation state) is validated
+  inside the gate; destructive methods verify a `ConfirmationToken` minted by the sheet.
+- **State detection:** `operationState()` reads the per-worktree git dir (merge, rebase-merge/apply, am,
+  cherry-pick, revert, sequencer, bisect) after FSEvents `.operationState/.index/.head` and after operations.
+- **Progress:** `ProgressSink` parses `--progress` stderr bytes (CR/LF), ≤ 10 Hz into `.bufferingNewest(1)`.
+- **Conflicts:** stage blobs → `merge-file --zdiff3` → byte-range segments; the resolver renders panes from
+  the same buffer with `CodeLinesView`; choices render back to bytes identical to Git's `--ours/--theirs/--union`.
+- **Errors:** `GitErrorClassifier` (C-locale stderr) → `ClassifiedFailure` → `PresentableError` with recovery
+  actions.
