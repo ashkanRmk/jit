@@ -38,14 +38,14 @@ import json, re, sys
 top, fp, out, label, pid = sys.argv[1:]
 rows = [line.split() for line in open(top) if line.strip().startswith(pid + " ") or line.split()[:1] == [pid]]
 rows = rows[1:]  # first top sample has no CPU delta
-cpu = [float(r[1]) for r in rows]; wake = [int(float(r[2])) for r in rows]; power = [float(r[3]) for r in rows]
+cpu = [float(r[1]) for r in rows]; wake = [int(float(r[2].rstrip("+"))) for r in rows]; power = [float(r[3]) for r in rows]
 threads = [int(r[4].split("/")[0]) for r in rows]
 footprint = None
 for line in open(fp):
     m = re.search(r"phys_footprint:\s*([\d.]+)\s*(\w+)", line) or re.search(r"Footprint:\s*([\d.]+)\s*(\w+)", line)
     if m: footprint = f"{m.group(1)} {m.group(2)}"; break
 result = {"label": label, "samples": len(rows), "cpu_percent_mean": sum(cpu)/len(cpu), "cpu_percent_max": max(cpu),
-          "idle_wakeups_during_sampling": wake[-1] - wake[0], "idle_wakeups_total_since_launch": wake[-1], "energy_impact_mean": sum(power)/len(power),
+          "idle_wakeups_per_sample_mean": sum(wake)/len(wake), "idle_wakeups_per_sample_max": max(wake), "energy_impact_mean": sum(power)/len(power),
           "threads_max": max(threads), "physical_footprint": footprint}
 json.dump(result, open(out, "w"), indent=2)
 print(json.dumps(result))

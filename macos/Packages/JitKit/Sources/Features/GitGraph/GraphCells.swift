@@ -55,6 +55,10 @@ final class GraphCellView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func draw(_ dirtyRect: NSRect) {
+        let started = GraphBenchmark.drawSamples == nil ? nil : ContinuousClock.now
+        defer {
+            if let started { GraphBenchmark.drawSamples?.append(GraphBenchmark.ms(ContinuousClock.now - started)) }
+        }
         guard let style, let context = NSGraphicsContext.current?.cgContext else { return }
         let metrics = style.metrics
         let colors = style.colors
@@ -238,20 +242,18 @@ final class SubjectCellView: NSView {
             font = style.secondaryFont
             color = colors.textTertiary
         }
-        var trailingWidth: CGFloat = 0
         let trailingAttributes: [NSAttributedString.Key: Any] = [
             .font: style.secondaryFont, .foregroundColor: colors.textTertiary,
         ]
-        if !content.trailing.isEmpty {
-            trailingWidth = (content.trailing as NSString).size(withAttributes: trailingAttributes).width + Space.s5
-        }
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font, .foregroundColor: color, .paragraphStyle: paragraph,
         ]
         let lineHeight = ceil(font.ascender - font.descender)
-        let available = max(0, bounds.width - x - trailingWidth - Space.s2)
+        // The subject wins; trailing counts take what is left (truncated if needed).
+        let subjectWidth = ceil((content.subject as NSString).size(withAttributes: attributes).width)
+        let available = max(0, min(subjectWidth + 1, bounds.width - x - Space.s2))
         let textRect = NSRect(x: x, y: (bounds.height - lineHeight) / 2, width: available, height: lineHeight)
         (content.subject as NSString).draw(
             with: textRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes)

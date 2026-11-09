@@ -83,8 +83,8 @@ final class WorkbenchController: NSSplitViewController {
     /// Graph ↔ navigator ↔ inspector (design §3.4–§3.5).
     private func connect(graph: GraphViewController, navigator: NavigatorViewController) {
         let inspector = inspectorModel
-        graph.actions.selectionChanged = { model in
-            inspector.show(selection: model.selection, wip: model.wipSelected)
+        graph.actions.selectionChanged = { [weak graph] model in
+            inspector.show(selection: graph?.compareOrder(model.selection) ?? model.selection, wip: model.wipSelected)
         }
         graph.actions.refsChanged = { [weak graph, weak navigator] refs in
             navigator?.update(refs: refs)

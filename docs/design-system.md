@@ -65,6 +65,38 @@ slate `#4C6B9F`/`#8EA7D1`, tidewater `#2B8580`/`#6FC0B9`, moss `#6F8435`/`#A9BE7
 `#A9782A`/`#D9AD62`, clay `#AD5A43`/`#DD9079`, heather `#82599A`/`#B897CF`, rosewood
 `#A8577A`/`#D891B0`, steel `#5D7380`/`#9BB0BC` (light/dark). All ≥ 3:1 on `surface.canvas` (tested).
 
+Slot 0 (slate) is HEAD's lane; other lanes take `StableHash(branch name) % 7 + 1`, skipping an
+adjacent lane's colour (ADR-0021).
+
+### Graph (Phase 2 — `GraphMetrics`, `GraphColorTable`, `GraphTypography`)
+| Token | Compact | Comfortable |
+|---|---|---|
+| row height | 24 | 30 |
+| lane spacing (compressed past 12 lanes) | 14 (6) | 16 (6) |
+| leading inset | 10 | 12 |
+| node / merge ring radius | 3.5 / 4 | 4 / 4.5 |
+| HEAD ring gap / width | 2.5 / 1.25 | 3 / 1.25 |
+| edge width | 1.5 | 1.75 |
+| pill height | 16 | 18 |
+| avatar | 16 | 18 |
+
+- Nodes: filled disc with a 1 pt canvas-coloured ring; merges a hollow ring one step larger; HEAD an outer
+  ring in the system accent. Edges: straight per row, S-curves (control points at 50 %) confined to a half
+  row; butt caps; vertical lines snapped to the device pixel grid. No gradients, glow or neon.
+- Ref pills (opaque, never glass, radius `radius.xs`): local = lane colour at 14 % (light) / 22 % (dark)
+  with lane-colour text; current = + 6 pt dot and semibold; local + upstream at the same commit = one pill
+  `main ⇄ origin`; remote = 1 pt outline at 60 %, remote prefix dimmed; tag = neutral fill + `tag` symbol;
+  detached `HEAD` = neutral fill with `status.warning` outline; more than 3 → `+N`.
+- WIP row: dashed hollow node on HEAD's lane, dashed edge into HEAD's row, counts in `text.tertiary`.
+- Rows: hover `state.hover` (100 ms in / 140 ms out, off during live scroll, instant with Reduce Motion);
+  selection = system accent 16 %/24 % + 2 pt leading accent bar; search matches tinted with the system
+  find-highlight colour.
+- Glass placement: the scope menu, search capsule, match controls and chips (`Solo: x ✕`,
+  `History: path ✕`) float above the opaque table in one `GlassEffectContainer`; the navigator sits on the
+  system sidebar material (source-list outline); the inspector content is opaque `surface.panel`.
+- Density: View ▸ Graph Density (Compact / Comfortable), default Comfortable (Q2: compact rows read
+  cramped next to 13 pt subjects at the default window size).
+
 ### Contrast guarantees (unit-tested, all four variants)
 Primary/secondary text ≥ 4.5:1 on canvas, panel, raised, sunken; tertiary text, accent, status and diff
 marks ≥ 3:1; lanes ≥ 3:1 on canvas; text on diff backgrounds and on accent ≥ 4.5:1; Increase Contrast

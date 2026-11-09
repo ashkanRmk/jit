@@ -161,3 +161,14 @@ import Testing
         #expect(GraphRowCache.labels(for: refs)[commit]?.first?.kind == .detachedHead)
     }
 }
+
+@Suite struct MessageReflowTests {
+    @Test func joinsHardWrappedParagraphsKeepsStructure() {
+        let body =
+            "Some of the tests create\nmany refs and then\nverify them.\n\n* topic:\n  t5551: use reftables\n- item one\n\nSigned-off-by: A <a@b>\nAcked-by: B <b@c>"
+        #expect(
+            MessageReflow.reflow(body)
+                == "Some of the tests create many refs and then verify them.\n\n* topic:\n  t5551: use reftables\n- item one\n\nSigned-off-by: A <a@b>\nAcked-by: B <b@c>"
+        )
+    }
+}

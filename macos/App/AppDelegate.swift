@@ -165,6 +165,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             path = path ?? UserDefaults.standard.string(forKey: "JitUITestOpenRepository")
         #endif
         if let path { model.open(URL(fileURLWithPath: path)) }
+        if GraphBenchmark.isEnabled, let controller = windowController {
+            GraphBenchmark.prepare()
+            Task {
+                await GraphBenchmark.run(controller: controller, report: Benchmarks.report)
+                NSApp.terminate(nil)
+            }
+        }
         if environment["JIT_BENCHMARK_TAB_SWITCH"] != nil, let controller = windowController {
             Task { await Benchmarks.tabSwitch(model: model, controller: controller) }
         }

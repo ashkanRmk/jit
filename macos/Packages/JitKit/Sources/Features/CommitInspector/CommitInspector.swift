@@ -246,7 +246,7 @@ private struct CommitHeader: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if !details.body.isEmpty {
-                    Text(details.body)
+                    Text(MessageReflow.reflow(details.body))
                         .typeStyle(.body)
                         .foregroundStyle(.token(.textSecondary))
                         .textSelection(.enabled)
@@ -620,5 +620,51 @@ private struct WorkingDirectorySummary: View {
                     .foregroundStyle(.token(.textTertiary))
             }
         }
+    }
+}
+
+/// Commit bodies are usually hard-wrapped at ~72 columns; re-wrapping them in a narrower inspector gives
+/// ragged lines. Joins lines inside plain paragraphs; keeps blank lines, list items (`-`, `*`, `1.`),
+/// indented/code lines and trailers (`Signed-off-by:`) on their own lines. Display only.
+enum MessageReflow {
+    static func reflow(_ body: String) -> String {
+        var output: [String] = []
+        var current = ""
+        func flush() {
+            if !current.isEmpty { output.append(current) }
+            current = ""
+        }
+        for line in body.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                flush()
+                output.append("")
+            } else if keepsOwnLine(line) {
+                flush()
+                current = line
+            } else if current.isEmpty {
+                current = line
+            } else {
+                current += " " + line.trimmingCharacters(in: .whitespaces)
+            }
+        }
+        flush()
+        return output.joined(separator: "\n")
+    }
+
+    static func keepsOwnLine(_ line: String) -> Bool {
+        guard let first = line.first else { return true }
+        if first == " " || first == "\t" { return true }
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("> ") { return true }
+        if let dot = trimmed.firstIndex(of: "."), trimmed[..<dot].allSatisfy(\.isNumber), !trimmed[..<dot].isEmpty {
+            return true
+        }
+        // Trailers: "Key-Word: value".
+        if let colon = trimmed.firstIndex(of: ":"), trimmed[..<colon].allSatisfy({ $0.isLetter || $0 == "-" }),
+            trimmed[..<colon].contains("-")
+        {
+            return true
+        }
+        return false
     }
 }

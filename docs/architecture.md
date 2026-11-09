@@ -23,12 +23,12 @@ git CLI (installed; bundled from Phase 7)
 
 | Target | Contents today |
 |---|---|
-| `GitCore` | `GitVersion`, `GitLocator`, `ProcessEnvironment`, `ProcessRunner`, `GitEngine` (actor), `GitCommand`, `RepositoryDiscovery`/`RepositoryInfo`, `RepositoryHandle` (actor), `StatusParser`/`StatusSnapshot`/`StatusEntries`/`StatusSummary`/`BranchHeader`, `OperationStateDetector`, `InvalidationKind`, `GitIdentity`, `GitCoreError` + redaction |
-| `GitTestKit` | `GitSandbox` (temp dir, isolated `HOME`/config, fixed identity/dates), `TestRepo` |
-| `Services` | `StoreLocation`, `JSONFile`, `DebouncedWriter`, `SessionStore`/`SessionState`/`JSONValue`, `RecentsStore`, `PreferencesStore`, `ProfileStore`/`GitProfile`/`ProfileSnapshot`/`ProfileValidation`, `RepositorySession` + `StatusDot`, `RepositoryWatcher` + `FSEventClassifier`, `MemoryPressureMonitor` |
-| `DesignSystem` | color tokens, type, metrics (+ tab/profile/overlay metrics), motion, glass helpers (+ `GlassTabStrip`, `glassTab`), profile swatches, content styles |
-| `Features` | `AppModel`, `TabModel`, `TabOrdering`, `LayoutState`; AppKit shell (`MainWindowController`, `WorkbenchController`, content container + drop target), tab strip, new-tab page, workbench views, profile capsule/switcher/editor, `SettingsWindowController`, `MainMenu`, `RepositoryActions`; `DesignSystemGallery` (`#if DEBUG`) |
-| `JitBench` | `spawn-latency`, `discovery`, `status-parse` → JSON |
+| `GitCore` | `GitVersion`, `GitLocator`, `ProcessEnvironment`, `ProcessRunner`, `GitEngine` (actor), `GitCommand`, `RepositoryDiscovery`/`RepositoryInfo`, `RepositoryHandle` (actor), `StatusParser`/`StatusSnapshot`/`StatusEntries`/`StatusSummary`/`BranchHeader`, `OperationStateDetector`, `InvalidationKind`, `GitIdentity`, `GitCoreError` + redaction; `ProcessStream` (on-demand stdout with backpressure); **Phase 2:** `ObjectID`/`ObjectFormat`/`StableHash`, `RefSnapshot`/`GitRef`/`RefParser`, `HistoryLoader` (actor) + `HistoryQuery`, `LogParser`, `CommitStore` (`CommitChunk`, `HistorySnapshot`, `CommitRow`, `EdgeSegment`), `LaneLayouter`, `HistorySearch`, `CommitDetails`/`ChangedFile`/compare, `HistoryInvalidation` |
+| `GitTestKit` | `GitSandbox` (temp dir, isolated `HOME`/config, fixed identity/dates), `TestRepo`, `Topology` (fast-import DSL), `SyntheticHistory` (1k–100k fixtures), `RandomTopology` (seeded DAGs) |
+| `Services` | `StoreLocation`, `JSONFile`, `DebouncedWriter`, `SessionStore`/`SessionState`/`JSONValue`, `RecentsStore`, `PreferencesStore`, `ProfileStore`/`GitProfile`/`ProfileSnapshot`/`ProfileValidation`, `RepositorySession` + `StatusDot`, `HistoryController` (per-tab history, pages, refs refresh), `RepositoryWatcher` + `FSEventClassifier`, `MemoryPressureMonitor` |
+| `DesignSystem` | `GraphMetrics`/`GraphColorTable`/`GraphTypography`/`AvatarStyle` (Phase 2), color tokens, type, metrics (+ tab/profile/overlay metrics), motion, glass helpers (+ `GlassTabStrip`, `glassTab`), profile swatches, content styles |
+| `Features` | `AppModel`, `TabModel`, `TabOrdering`, `LayoutState`; AppKit shell (`MainWindowController`, `WorkbenchController`, content container + drop target), tab strip, new-tab page, workbench views, **GitGraph** (`GraphViewController`, cells, `GraphRowCache`, `GraphBar`, `GraphBenchmark`), **BranchNavigator** (`NavigatorTreeBuilder`, outline), **CommitInspector** (`InspectorModel`, details/compare/WIP views), profile capsule/switcher/editor, `SettingsWindowController`, `MainMenu`, `RepositoryActions`; `DesignSystemGallery` (`#if DEBUG`) |
+| `JitBench` | `spawn-latency`, `discovery`, `status-parse` → JSON; `make-history` (fixtures), `history-source` (loader timings) |
 | App `Jit` | `AppDelegate` (`@main`, AppKit lifecycle, appearance, menus, settings, launch hooks), `LaunchProbe`, `Benchmarks` (env-gated tab-switch and open/close stress), `DebugLaunchActions` (debug only) |
 | `JitAppTests` | `AppModel`, tab ordering, layout and menu validation against real repositories |
 
@@ -101,3 +101,21 @@ platter around it. Content (new-tab page, workbench main and inspector, drop ove
 - No timers anywhere in the app: debounced writes and the 150 ms loading placeholder are one-shot
   cancellable tasks; FSEvents latency provides event coalescing.
 - Debug builds assert `dispatchPrecondition(.notOnQueue(.main))` on every spawn path.
+
+## History (Phase 2: ADR-0009, 0010, 0021–0024)
+
+```
+FSEvents (refs/HEAD) ─► RepositorySession ─► HistoryController (main actor, @Observable)
+                                              │  refs() ─► RefSnapshot          ─► navigator, labels
+                                              │  HistoryLoader (actor) ── git log --topo-order -z (ProcessStream,
+                                              │     LogParser ─► LaneLayouter ─► CommitStoreBuilder    backpressure)
+                                              ▼
+                                      HistorySnapshot (sealed CommitChunks, immutable, Sendable)
+                                              ▼
+                     GraphViewController ─ NSTableView ─ GraphRowCache (strings for visible rows only)
+```
+- One reader per visible history view; killed when the tab hides (rows kept), restarted with `--skip`.
+- Pages: 300 first, then 2,000 when the visible range is within 500 rows of the end; appended with
+  `insertRows`, no reload. Refs changes: labels in place or background reload + atomic swap (ADR-0024).
+- Commit details/compare run on `RepositoryHandle` (LRU of 32 details); selecting another commit cancels
+  the previous request (and its Git process).

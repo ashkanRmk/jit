@@ -249,6 +249,7 @@ final class GraphViewController: NSViewController {
         if history.query != viewModel.query {
             history.setQuery(viewModel.query)
         }
+        GraphBenchmark.noteHistoryStart()
         history.start()
         if history.snapshot.count > 0 { historyUpdated(.replaced) }
         observeHistoryState()
@@ -319,6 +320,10 @@ final class GraphViewController: NSViewController {
             scannedRows = 0
             scanLanes(from: 0)
             reloadPreservingSelection(previous: previous)
+            if snapshot.count > 0 {
+                view.window?.displayIfNeeded()
+                GraphBenchmark.noteFirstRows()
+            }
             if viewModel.isSearching { recomputeMatches(scroll: false) }
         case .labels:
             updateWIP()
@@ -326,6 +331,9 @@ final class GraphViewController: NSViewController {
         }
         updatePaneState()
         visibleRangeChanged()
+        #if DEBUG
+            applyDebugLaunchState()
+        #endif
     }
 
     /// The graph column fits the lanes of the rows on screen (+ overscan): it grows at once when a visible
@@ -430,7 +438,11 @@ final class GraphViewController: NSViewController {
 
     private func appendRows() {
         let interval = Self.signposter.beginInterval("PageAppend")
-        defer { Self.signposter.endInterval("PageAppend", interval) }
+        let started = ContinuousClock.now
+        defer {
+            Self.signposter.endInterval("PageAppend", interval)
+            GraphBenchmark.appendSamples?.append(GraphBenchmark.ms(ContinuousClock.now - started))
+        }
         showsFooter = snapshot.complete && snapshot.count > 0
         let newCount = computeRowCount()
         let oldCount = tableView.numberOfRows
@@ -547,6 +559,39 @@ final class GraphViewController: NSViewController {
         appearanceChanged()
         view.window?.makeFirstResponder(tableView)
     }
+
+    #if DEBUG
+        private var appliedDebugState = false
+
+        /// Debug-only launch arguments for repeatable screenshots and real-workflow checks without pointer
+        /// automation: `-JitGraphSearch <text>`, `-JitGraphOnlyMatches YES`, `-JitGraphSelectRow <n>`
+        /// (`-JitGraphCompareRow <m>` adds a second commit), `-JitGraphSelectWIP YES`.
+        private func applyDebugLaunchState() {
+            guard !appliedDebugState, snapshot.count > 0 else { return }
+            appliedDebugState = true
+            let defaults = UserDefaults.standard
+            if let search = defaults.string(forKey: "JitGraphSearch") {
+                viewModel.searchText = search
+                searchTextChanged()
+                if defaults.bool(forKey: "JitGraphOnlyMatches") { setFilterMode(.onlyMatches) }
+            }
+            if defaults.bool(forKey: "JitGraphSelectWIP"), showsWIP {
+                viewModel.selection = []
+                viewModel.wipSelected = true
+                tableView.selectRowIndexes([0], byExtendingSelection: false)
+                actions.selectionChanged(viewModel)
+            }
+            if defaults.object(forKey: "JitGraphSelectRow") != nil {
+                let first = defaults.integer(forKey: "JitGraphSelectRow")
+                var rows = IndexSet(integer: first)
+                if defaults.object(forKey: "JitGraphCompareRow") != nil {
+                    rows.insert(defaults.integer(forKey: "JitGraphCompareRow"))
+                }
+                tableView.selectRowIndexes(rows, byExtendingSelection: false)
+                tableView.scrollRowToVisible(first)
+            }
+        }
+    #endif
 
     // MARK: - Menu commands (responder chain)
 
@@ -799,6 +844,14 @@ final class GraphViewController: NSViewController {
 
     var currentRefs: RefSnapshot? { history?.refs }
 
+    /// A comparison reads older → newer: the commit further down the graph first.
+    func compareOrder(_ selection: [ObjectID]) -> [ObjectID] {
+        guard selection.count == 2, let a = snapshot.row(for: selection[0]), let b = snapshot.row(for: selection[1]),
+            a < b
+        else { return selection }
+        return [selection[1], selection[0]]
+    }
+
     // MARK: - Copy
 
     func copySelection(_ what: CopyKind) {
@@ -876,6 +929,13 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
         view.identifier = GraphTableView.rowIdentifier
         view.resetHover()
         view.isSearchMatch = isMatch(row)
+        // VoiceOver reads the row as one element (design §3.8); the lane drawing is decorative.
+        switch displayRow(row) {
+        case .commit(let index): view.setAccessibilityLabel(cache.display(index)?.accessibilityLabel)
+        case .wip: view.setAccessibilityLabel("Uncommitted changes")
+        case .footer: view.setAccessibilityLabel("Beginning of history, \(snapshot.count) commits")
+        case nil: view.setAccessibilityLabel(nil)
+        }
         return view
     }
 
