@@ -1,7 +1,7 @@
 import Foundation
 
 /// One edge piece inside one row (design §4.2). Rows are drawn independently: every segment is fully
-/// described by its row. 6 bytes (lanes are `UInt16` so very wide "All branches" graphs never overflow).
+/// described by its row. Packed into 4 bytes: 13-bit lanes (up to 8,191 lanes), 3-bit colour, 2-bit half.
 public struct EdgeSegment: Sendable, Hashable {
     public enum Half: UInt8, Sendable {
         /// Row top → row centre (an incoming edge, straight or curving into the node lane).
@@ -12,17 +12,20 @@ public struct EdgeSegment: Sendable, Hashable {
         case full
     }
 
-    public var fromLane: UInt16
-    public var toLane: UInt16
-    public var color: UInt8
-    public var half: Half
+    public static let maxLane: UInt16 = 0x1FFF
+
+    var bits: UInt32
 
     public init(fromLane: UInt16, toLane: UInt16, color: UInt8, half: Half) {
-        self.fromLane = fromLane
-        self.toLane = toLane
-        self.color = color
-        self.half = half
+        bits =
+            UInt32(min(fromLane, Self.maxLane)) | UInt32(min(toLane, Self.maxLane)) << 13 | UInt32(color & 7) << 26
+            | UInt32(half.rawValue) << 29
     }
+
+    public var fromLane: UInt16 { UInt16(bits & 0x1FFF) }
+    public var toLane: UInt16 { UInt16(bits >> 13 & 0x1FFF) }
+    public var color: UInt8 { UInt8(bits >> 26 & 7) }
+    public var half: Half { Half(rawValue: UInt8(bits >> 29 & 3)) ?? .full }
 }
 
 /// Per-row node flags.
@@ -103,6 +106,18 @@ public final class CommitChunk: Sendable {
         return nil
     }
 
+    /// Per-column bytes (capacity × stride), for diagnostics.
+    var columnBytes: [(String, Int)] {
+        [
+            ("oids", oids.capacity * MemoryLayout<ObjectID>.stride), ("parentEnds", parentEnds.capacity * 4),
+            ("parents", parents.capacity * MemoryLayout<ObjectID>.stride), ("authors", authors.capacity * 4),
+            ("times", times.capacity * 8), ("subjectEnds", subjectEnds.capacity * 4), ("subjects", subjects.capacity),
+            ("lanes", nodeLanes.capacity * 2 + nodeColors.capacity + nodeFlags.capacity + widths.capacity * 2),
+            ("segmentEnds", segmentEnds.capacity * 4),
+            ("segments", segments.capacity * MemoryLayout<EdgeSegment>.stride), ("sortedByID", sortedByID.capacity * 2),
+        ]
+    }
+
     /// Bytes held by the columns' storage (capacity × stride), for memory accounting.
     var storageBytes: Int {
         oids.capacity * MemoryLayout<ObjectID>.stride + parentEnds.capacity * 4
@@ -146,14 +161,45 @@ struct ChunkBuilder {
     var count: Int { oids.count }
     var isFull: Bool { oids.count >= CommitChunk.capacity }
 
-    /// Shrinks every column to its size before sealing (sealed chunks never grow).
+    /// Copies the growable columns into exactly sized storage before sealing (sealed chunks never grow).
+    /// (`ContiguousArray(array)` would share the over-allocated buffer; a slice copy does not.)
     mutating func compact() {
         func shrink<T>(_ array: inout ContiguousArray<T>) {
-            if array.capacity > array.count + 16 { array = ContiguousArray(array) }
+            if array.capacity > array.count + 16 { array = Self.exactCopy(array) }
         }
         shrink(&parents)
         shrink(&subjects)
         shrink(&segments)
+    }
+
+    /// A copy whose capacity equals its count (array initializers may reuse an over-allocated buffer).
+    static func exactCopy<T>(_ array: ContiguousArray<T>) -> ContiguousArray<T> {
+        ContiguousArray(unsafeUninitializedCapacity: array.count) { buffer, initialized in
+            array.withUnsafeBufferPointer { source in
+                _ = buffer.initialize(fromContentsOf: source)
+            }
+            initialized = array.count
+        }
+    }
+
+    /// An exactly sized copy, for publishing the partial tail chunk.
+    func compacted() -> ChunkBuilder {
+        var copy = self
+        func exact<T>(_ array: inout ContiguousArray<T>) { array = Self.exactCopy(array) }
+        exact(&copy.oids)
+        exact(&copy.parentEnds)
+        exact(&copy.parents)
+        exact(&copy.authors)
+        exact(&copy.times)
+        exact(&copy.subjectEnds)
+        exact(&copy.subjects)
+        exact(&copy.nodeLanes)
+        exact(&copy.nodeColors)
+        exact(&copy.nodeFlags)
+        exact(&copy.widths)
+        exact(&copy.segmentEnds)
+        exact(&copy.segments)
+        return copy
     }
 }
 
@@ -315,6 +361,6 @@ struct CommitStoreBuilder {
     /// Sealed chunks plus a frozen copy of the partial tail.
     func chunksForSnapshot() -> [CommitChunk] {
         guard tail.count > 0 else { return sealed }
-        return sealed + [CommitChunk(base: sealed.count * CommitChunk.capacity, builder: tail)]
+        return sealed + [CommitChunk(base: sealed.count * CommitChunk.capacity, builder: tail.compacted())]
     }
 }

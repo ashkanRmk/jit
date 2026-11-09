@@ -111,7 +111,7 @@ struct LaneLayouter {
             for index in matches where states[index] == .active {
                 anyDrawn = true
                 output.segments.append(
-                    EdgeSegment(fromLane: UInt16(index), toLane: UInt16(node), color: colors[index], half: .top))
+                    EdgeSegment(fromLane: UInt16(clamping: index), toLane: UInt16(clamping: node), color: colors[index], half: .top))
             }
             if states[node] == .reserved {
                 nodeColor = colorFor(key: tipKey(oid), slot: node)
@@ -130,7 +130,7 @@ struct LaneLayouter {
         // 2. Lanes passing by.
         for index in states.indices where states[index] == .active && index != node && !matches.contains(index) {
             output.segments.append(
-                EdgeSegment(fromLane: UInt16(index), toLane: UInt16(index), color: colors[index], half: .full))
+                EdgeSegment(fromLane: UInt16(clamping: index), toLane: UInt16(clamping: index), color: colors[index], half: .full))
         }
 
         // 3. Parents.
@@ -139,7 +139,7 @@ struct LaneLayouter {
             expected[node] = first
             colors[node] = nodeColor
             output.segments.append(
-                EdgeSegment(fromLane: UInt16(node), toLane: UInt16(node), color: nodeColor, half: .bottom))
+                EdgeSegment(fromLane: UInt16(clamping: node), toLane: UInt16(clamping: node), color: nodeColor, half: .bottom))
             var mergeOrdinal = 0
             while let parent = parentIterator.next() {
                 mergeOrdinal += 1
@@ -148,7 +148,7 @@ struct LaneLayouter {
                 }) {
                     output.segments.append(
                         EdgeSegment(
-                            fromLane: UInt16(node), toLane: UInt16(existing), color: colors[existing], half: .bottom))
+                            fromLane: UInt16(clamping: node), toLane: UInt16(clamping: existing), color: colors[existing], half: .bottom))
                 } else {
                     let slot = allocate(from: node + 1, row: r)
                     expected[slot] = parent
@@ -156,14 +156,14 @@ struct LaneLayouter {
                     let key = mergeKey(subject: subject, ordinal: mergeOrdinal, parent: parent)
                     colors[slot] = colorFor(key: key, slot: slot)
                     output.segments.append(
-                        EdgeSegment(fromLane: UInt16(node), toLane: UInt16(slot), color: colors[slot], half: .bottom))
+                        EdgeSegment(fromLane: UInt16(clamping: node), toLane: UInt16(clamping: slot), color: colors[slot], half: .bottom))
                 }
             }
         } else {
             free(node, row: r)  // root: the lane ends here
         }
 
-        output.nodeLane = UInt16(node)
+        output.nodeLane = UInt16(clamping: node)
         output.nodeColor = nodeColor
         var width = node + 1
         for segment in output.segments {
