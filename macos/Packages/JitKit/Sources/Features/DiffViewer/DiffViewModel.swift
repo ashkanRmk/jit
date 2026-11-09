@@ -33,6 +33,17 @@ public final class DiffViewModel {
         }
     }
     public var showsWhitespace = false { didSet { onSourceChange?() } }
+    /// Word-level emphasis inside paired lines (ADR-0029).
+    public var showsWordDiff = true { didSet { if showsWordDiff != oldValue { attachProviders(); onTextChange?() } } }
+    /// Syntax colours (ADR-0012); applied when the off-main pass finishes.
+    public var highlightsSyntax = true { didSet { if highlightsSyntax != oldValue { startHighlight() } } }
+    public private(set) var language: SyntaxLanguage = .plain
+    @ObservationIgnored private var highlight: HighlightResult?
+    @ObservationIgnored private var highlightTask: Task<Void, Never>?
+    @ObservationIgnored private var wordPairs: [Int: Int] = [:]
+    @ObservationIgnored private var wordCache: [Int: [NSRange]] = [:]
+    /// Text attributes changed (spans arrived): cached lines must be rebuilt.
+    @ObservationIgnored public var onTextChange: (() -> Void)?
     public var ignoresWhitespace = false {
         didSet { if ignoresWhitespace != oldValue, let target { load(target, keepPosition: true) } }
     }
@@ -88,6 +99,8 @@ public final class DiffViewModel {
 
     public func close() {
         loadTask?.cancel()
+        highlightTask?.cancel()
+        highlight = nil
         spinnerTask?.cancel()
         target = nil
         document = nil
@@ -157,7 +170,10 @@ public final class DiffViewModel {
         }
         document = newDocument
         state = .loaded
+        wordPairs = WordDiff.pairs(in: newDocument)
+        wordCache = [:]
         rebuildSource()
+        startHighlight()
         #if DEBUG
             // `-JitFocusDiff YES` (screenshots).
             if UserDefaults.standard.bool(forKey: "JitFocusDiff"), !debugFocused {
@@ -224,9 +240,60 @@ public final class DiffViewModel {
         }
         let source = DiffRowsSource(document: document, layout: layout)
         self.source = source
+        attachProviders()
         computeChangeRows()
         runSearch()
         onSourceChange?()
+    }
+
+    /// Highlights off the main actor; the body draws plain text until spans arrive (no layout shift:
+    /// rows are fixed height).
+    private func startHighlight() {
+        highlightTask?.cancel()
+        highlight = nil
+        guard let document, highlightsSyntax else {
+            attachProviders()
+            onTextChange?()
+            return
+        }
+        let path = document.files.first?.path ?? target?.path ?? ""
+        let firstLine = document.storage.lineCount > 0 ? document.text(ofLine: 0) : nil
+        let language = document.files.count == 1 ? SyntaxLanguage.detect(path: path, firstLine: firstLine) : .plain
+        self.language = language
+        highlightTask = Task { [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Highlighter.highlight(document, language: language)
+            }.value
+            guard let self, !Task.isCancelled, self.document === document else { return }
+            self.highlight = result
+            self.attachProviders()
+            self.onTextChange?()
+        }
+    }
+
+    private func attachProviders() {
+        guard let source else { return }
+        if let highlight, highlightsSyntax {
+            source.syntaxProvider = { line in
+                highlight.spans(forLine: line).map { ($0.range, $0.syntaxColor.nsColor) }
+            }
+        } else {
+            source.syntaxProvider = nil
+        }
+        if showsWordDiff, !wordPairs.isEmpty, let document {
+            source.emphasisProvider = { [weak self] line in
+                guard let self, let partner = self.wordPairs[line] else { return [] }
+                if let cached = self.wordCache[line] { return cached }
+                let isOld = document.kind(ofLine: line) == .deleted
+                let (old, new) = isOld ? (line, partner) : (partner, line)
+                let ranges = WordDiff.ranges(old: document.text(ofLine: old), new: document.text(ofLine: new))
+                self.wordCache[old] = ranges.old
+                self.wordCache[new] = ranges.new
+                return isOld ? ranges.old : ranges.new
+            }
+        } else {
+            source.emphasisProvider = nil
+        }
     }
 
     private func computeChangeRows() {

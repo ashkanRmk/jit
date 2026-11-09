@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.6 complete; P3.7 next)
+Status: **in progress** (P3.0–P3.7 complete; P3.8 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -106,6 +106,11 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   go to line, renderer geometry/whitespace), contrast test for gutter/marks on diff backgrounds; screenshots
   `diff-{unified,split,fullfile}-{light,dark}.png` (focused), `diff-unified-inspector-{light,dark}.png`,
   `diff-no-newline-light.png`, `diff-binary-dark.png`.
+- **P3.7 Syntax highlighting & word diff** (ADR-0012, ADR-0029) — hand-written lexers by language family,
+  off-main highlighting with limits and cancellation, `syntax.*` tokens (AA on canvas and diff backgrounds,
+  all variants), word diff via own Myers on tokens for paired lines; options menu toggles.
+  Evidence: `HighlightTests` (8); screenshots `diff-highlighted-{light,dark}.png`. Tree-sitter was not
+  prototyped (recorded in ADR-0012).
 
 ## Verified
 - Tests: `scripts/build/test-core.sh` — **335 passed** (43 + 227 + 52 + 13 across the four test targets);

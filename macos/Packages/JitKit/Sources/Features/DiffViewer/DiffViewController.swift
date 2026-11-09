@@ -62,6 +62,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
             self?.codeView.refreshRows()
         }
         model.scrollToRow = { [weak self] row, center in self?.codeView.scrollToRow(row, center: center) }
+        model.onTextChange = { [weak self] in self?.codeView.invalidateText() }
         NotificationCenter.default.addObserver(
             self, selector: #selector(frameChanged), name: NSView.frameDidChangeNotification, object: scrollView)
         scrollView.postsFrameChangedNotifications = true
@@ -281,6 +282,8 @@ struct DiffChromeView: View {
             Divider()
             Toggle("Show Whitespace", isOn: $model.showsWhitespace)
             Toggle("Ignore Whitespace Changes", isOn: $model.ignoresWhitespace)
+            Toggle("Highlight Word Changes", isOn: $model.showsWordDiff)
+            Toggle("Syntax Highlighting", isOn: $model.highlightsSyntax)
             Divider()
             Button("Go to Line…") { controller.diffGoToLine(nil) }
         } label: {
@@ -434,6 +437,8 @@ struct DiffChromeView: View {
         Menu {
             Toggle("Show Whitespace", isOn: $model.showsWhitespace)
             Toggle("Ignore Whitespace Changes", isOn: $model.ignoresWhitespace)
+            Toggle("Highlight Word Changes", isOn: $model.showsWordDiff)
+            Toggle("Syntax Highlighting", isOn: $model.highlightsSyntax)
             Divider()
             Button("Go to Line…") { controller.diffGoToLine(nil) }
         } label: {
