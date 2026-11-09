@@ -102,14 +102,25 @@ public func cloneRepository(
     guard FileManager.default.fileExists(atPath: request.parentDirectory, isDirectory: &isDirectory),
         isDirectory.boolValue
     else { throw .pathNotFound(path: request.parentDirectory) }
-    let destination = request.destination
-    let existedBefore = FileManager.default.fileExists(atPath: destination, isDirectory: &isDirectory)
-    if existedBefore {
-        guard isDirectory.boolValue else { throw .refused(summary: "A file named “\(name)” already exists there.") }
-        let contents = (try? FileManager.default.contentsOfDirectory(atPath: destination)) ?? []
-        guard contents.isEmpty else {
+    let destination = (request.parentDirectory as NSString).appendingPathComponent(name)
+    func requireEmptyFolder() throws(GitCoreError) {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: destination, isDirectory: &isFolder), isFolder.boolValue else {
+            throw .refused(summary: "A file named “\(name)” already exists there.")
+        }
+        guard ((try? FileManager.default.contentsOfDirectory(atPath: destination)) ?? []).isEmpty else {
             throw .refused(summary: "The folder “\(name)” already exists and isn't empty. Choose another name.")
         }
+    }
+    // Jit creates the folder itself (mkdir fails if anything appeared meanwhile), so cleanup can only ever remove
+    // a folder Jit provably created; a pre-existing empty folder is only emptied again.
+    var createdByJit = false
+    if mkdir(destination, 0o755) == 0 {
+        createdByJit = true
+    } else if errno == EEXIST {
+        try requireEmptyFolder()
+    } else {
+        throw .io(summary: "Jit couldn't create “\(name)” (\(String(cString: strerror(errno)))).")
     }
     let url = request.url.trimmingCharacters(in: .whitespacesAndNewlines)
     var command = GitEnvironment.remoteCommand(
@@ -119,7 +130,7 @@ public func cloneRepository(
 
     func cleanUp() {
         guard FileManager.default.fileExists(atPath: destination) else { return }
-        if existedBefore {
+        if !createdByJit {
             // Keep the user's (empty) folder; remove only what the clone put inside it.
             for item in (try? FileManager.default.contentsOfDirectory(atPath: destination)) ?? [] {
                 try? FileManager.default.removeItem(atPath: (destination as NSString).appendingPathComponent(item))

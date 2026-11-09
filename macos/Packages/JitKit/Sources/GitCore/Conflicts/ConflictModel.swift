@@ -5,8 +5,11 @@ import Foundation
 public struct FileHash: Sendable, Hashable, CustomStringConvertible {
     public let value: UInt64
     public let length: Int
+    /// `false` only for `.missing`: a missing file never equals an empty one.
+    public let exists: Bool
 
     public init(_ bytes: some Collection<UInt8>) {
+        exists = true
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         for byte in bytes {
             hash ^= UInt64(byte)
@@ -16,10 +19,16 @@ public struct FileHash: Sendable, Hashable, CustomStringConvertible {
         length = bytes.count
     }
 
-    /// The hash of a missing file.
-    public static let missing = FileHash([UInt8]())
+    private init(missing: Void) {
+        value = 0
+        length = 0
+        exists = false
+    }
 
-    public var description: String { String(value, radix: 16) + ":\(length)" }
+    /// A file that does not exist.
+    public static let missing = FileHash(missing: ())
+
+    public var description: String { exists ? String(value, radix: 16) + ":\(length)" : "missing" }
 
     static func of(path: String) -> FileHash? {
         guard let data = FileManager.default.contents(atPath: path) else { return nil }

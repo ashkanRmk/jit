@@ -150,7 +150,7 @@ extension RepositorySession {
         }
     }
 
-    public func deleteBranch(_ name: String, token: ConfirmationToken, expected: RepoStateToken?) async
+    public func deleteBranch(_ name: String, token: ConfirmationToken, expected: RepoStateToken) async
         -> Result<Void, PresentableError>
     {
         await perform("Delete branch \(name)", refresh: [.refs, .config]) { _ in
@@ -161,12 +161,12 @@ extension RepositorySession {
         }
     }
 
-    public func deleteRemoteBranch(remote: String, branch: String, token: ConfirmationToken) async
+    public func deleteRemoteBranch(remote: String, branch: String, expectedTip: String, token: ConfirmationToken) async
         -> Result<PushOutcome, PresentableError>
     {
         await perform("Delete \(remote)/\(branch)", refresh: [.refs], summarize: OutcomeText.describe) {
             handle, _ throws(GitCoreError) in
-            try await handle.deleteRemoteBranch(remote: remote, branch: branch, token: token)
+            try await handle.deleteRemoteBranch(remote: remote, branch: branch, expectedTip: expectedTip, token: token)
         }
     }
 
@@ -221,20 +221,22 @@ extension RepositorySession {
         }
     }
 
-    public func skipCurrent(context: ExecContext, token: ConfirmationToken) async -> Result<
-        IntegrationOutcome, PresentableError
-    > {
+    public func skipCurrent(context: ExecContext, token: ConfirmationToken, expected: RepoStateToken) async
+        -> Result<IntegrationOutcome, PresentableError>
+    {
         await perform("Skip commit", summarize: OutcomeText.describe) { handle, _ throws(GitCoreError) in
-            try await handle.skipCurrent(context: context, token: token)
+            try await handle.skipCurrent(context: context, token: token, expected: expected)
         }
     }
 
-    public func abortOperation(token: ConfirmationToken) async -> Result<Void, PresentableError> {
+    public func abortOperation(token: ConfirmationToken, expected: RepoStateToken) async -> Result<
+        Void, PresentableError
+    > {
         await perform("Abort") { _ in
             OperationSummary("Aborted; the repository is back where it was.")
         } _: {
             handle, _ throws(GitCoreError) in
-            try await handle.abortOperation(token: token)
+            try await handle.abortOperation(token: token, expected: expected)
         }
     }
 

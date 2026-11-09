@@ -20,7 +20,7 @@ enum OperationSheet: Identifiable {
     case stashCreate(paths: [String])
     case remotes([RemoteInfo])
     case detached(oid: String)
-    case unmerged(branch: String, commits: [CommitSummary], tip: String)
+    case unmerged(branch: String, commits: [CommitSummary], tip: String, expected: RepoStateToken)
     case insecureClone
 
     var id: String {
@@ -40,7 +40,7 @@ enum OperationSheet: Identifiable {
         case .stashCreate: "stash"
         case .remotes: "remotes"
         case .detached(let oid): "detached-\(oid)"
-        case .unmerged(let branch, _, _): "unmerged-\(branch)"
+        case .unmerged(let branch, _, _, _): "unmerged-\(branch)"
         case .insecureClone: "insecure"
         }
     }
@@ -381,7 +381,9 @@ final class OperationsController {
         case .local:
             switchTo(.branch(ref.shortName))
         case .remote:
-            guard let remote = ref.remoteName, let branch = ref.remoteBranchName else { return }
+            guard let remote = ref.remoteName, let branch = ref.remoteBranchName,
+                let tip = ref.commit?.hex(refs?.format ?? .sha1)
+            else { return }
             if refs?.ref(named: "refs/heads/\(branch)") != nil {
                 switchTo(.branch(branch))
             } else {
@@ -428,7 +430,7 @@ final class OperationsController {
                     "The local branch is removed. Commits that are merged elsewhere stay; the remote branch is not touched.",
                 recoverability: "Recoverable via reflog: the tip was", recoveryValue: tip.isEmpty ? nil : tip,
                 verb: "Delete Branch")
-            let token = await session.captureState()
+            guard let token = await session.captureState() else { return }
             confirm(request) { [weak self] confirmed in
                 guard let self else { return }
                 Task {
@@ -437,7 +439,7 @@ final class OperationsController {
                         let base = (try? await self.session.repository?.upstream(of: branch))?.ref ?? "HEAD"
                         let commits =
                             (try? await self.session.repository?.commits(in: "refs/heads/\(branch)", notIn: base)) ?? []
-                        self.sheet = .unmerged(branch: branch, commits: commits, tip: tip)
+                        self.sheet = .unmerged(branch: branch, commits: commits, tip: tip, expected: token)
                     } else {
                         self.handle(result)
                     }
@@ -446,7 +448,7 @@ final class OperationsController {
         }
     }
 
-    func forceDelete(branch: String, commits: [CommitSummary], tip: String) {
+    func forceDelete(branch: String, commits: [CommitSummary], tip: String, expected: RepoStateToken) {
         let request = ConfirmationRequest(
             action: .deleteBranch(name: branch, force: true), title: "Delete unmerged branch \(branch)?",
             context: contextLine,
@@ -458,12 +460,14 @@ final class OperationsController {
             verb: "Delete Branch")
         confirm(request) { [weak self] token in
             guard let self else { return }
-            Task { self.handle(await self.session.deleteBranch(branch, token: token, expected: nil)) }
+            Task { self.handle(await self.session.deleteBranch(branch, token: token, expected: expected)) }
         }
     }
 
     func deleteRemote(ref: GitRef) {
-        guard let remote = ref.remoteName, let branch = ref.remoteBranchName else { return }
+        guard let remote = ref.remoteName, let branch = ref.remoteBranchName,
+            let tip = ref.commit?.hex(refs?.format ?? .sha1)
+        else { return }
         let request = ConfirmationRequest(
             action: .deleteRemoteBranch(remote: remote, branch: branch),
             title: "Delete \(remote)/\(branch) on the remote?",
@@ -473,7 +477,22 @@ final class OperationsController {
             recoveryValue: ref.commit?.hex(refs?.format ?? .sha1), verb: "Delete Remote Branch", isHighRisk: true)
         confirm(request) { [weak self] token in
             guard let self else { return }
-            Task { self.handle(await self.session.deleteRemoteBranch(remote: remote, branch: branch, token: token)) }
+            Task {
+                self.handle(
+                    await self.session.deleteRemoteBranch(
+                        remote: remote, branch: branch, expectedTip: tip, token: token)
+                ) {
+                    outcome in
+                    if outcome.rejection == .staleLease {
+                        self.present(
+                            PresentableError(
+                                title: "The remote branch moved.",
+                                explanation:
+                                    "Someone pushed to it since you last fetched, so it was not deleted. Fetch and review it first."
+                            ))
+                    }
+                }
+            }
         }
     }
 
@@ -627,6 +646,11 @@ final class OperationsController {
 
     func skip() {
         guard let context = requireProfile() else { return }
+        Task { await self.confirmSkip(context: context) }
+    }
+
+    private func confirmSkip(context: ExecContext) async {
+        guard let expected = await session.captureState() else { return }
         let state = session.operationState
         var commit = "the current commit"
         switch state {
@@ -642,7 +666,8 @@ final class OperationsController {
         confirm(request) { [weak self] token in
             guard let self else { return }
             Task {
-                self.handle(await self.session.skipCurrent(context: context, token: token)) { outcome in
+                self.handle(await self.session.skipCurrent(context: context, token: token, expected: expected)) {
+                    outcome in
                     if case .stoppedWithConflicts = outcome { self.openNextConflict() }
                 }
             }
@@ -650,6 +675,11 @@ final class OperationsController {
     }
 
     func abort() {
+        Task { await self.confirmAbort() }
+    }
+
+    private func confirmAbort() async {
+        guard let expected = await session.captureState() else { return }
         let title: String
         switch session.operationState {
         case .merging(let source, _):
@@ -670,7 +700,7 @@ final class OperationsController {
         confirm(request) { [weak self] token in
             guard let self else { return }
             Task {
-                self.handle(await self.session.abortOperation(token: token))
+                self.handle(await self.session.abortOperation(token: token, expected: expected))
                 self.resolver = nil
             }
         }

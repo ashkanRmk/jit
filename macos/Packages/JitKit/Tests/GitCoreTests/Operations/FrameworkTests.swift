@@ -220,7 +220,7 @@ import Testing
             verb: "Delete"
         ).confirm()
         await #expect(throws: GitCoreError.self) {
-            try await handle.deleteBranch("doomed", token: wrong, expected: nil)
+            try await handle.deleteBranch("doomed", token: wrong, expected: try await handle.captureState())
         }
         #expect(try await repo.git("branch", "--list", "doomed") == "doomed")
         let right = ConfirmationRequest(
@@ -228,7 +228,7 @@ import Testing
             recoverability: "",
             verb: "Delete"
         ).confirm()
-        try await handle.deleteBranch("doomed", token: right, expected: nil)
+        try await handle.deleteBranch("doomed", token: right, expected: try await handle.captureState())
         #expect(try await repo.git("branch", "--list", "doomed") == "")
     }
 
@@ -247,7 +247,8 @@ import Testing
         let start = ContinuousClock.now
         task.cancel()
         await #expect(throws: GitCoreError.self) { _ = try await task.value }
-        #expect(ContinuousClock.now - start < .seconds(2))
+        // The child sleeps 30 s; cancellation ends it at SIGTERM (≈ms isolated; bounded for parallel debug runs).
+        #expect(ContinuousClock.now - start < PerfBudget.limit(.seconds(1)))
         #expect(!FileManager.default.fileExists(atPath: marker))
     }
 

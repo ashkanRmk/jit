@@ -37,13 +37,11 @@ public struct ConflictDocument: Sendable {
     /// The working-tree file when loaded (`nil`: missing). Saves are guarded by this hash.
     public let workingTreeHash: FileHash
     public let workingTree: [UInt8]?
+    /// The working-tree file is exactly what Git's merge wrote (same text; marker labels ignored), so nothing
+    /// the user typed would be lost by saving a result rendered from the stages.
+    public let workingTreeMatchesGit: Bool
 
-    /// The working-tree file still holds Git's conflict markers — not resolved by hand yet. (Git's merge may
-    /// coalesce nearby hunks that `zdiff3` keeps apart, so the counts need not match.)
-    public var workingTreeLooksUnedited: Bool {
-        guard let workingTree else { return false }
-        return Self.markerBlockCount(workingTree) > 0
-    }
+    public var workingTreeLooksUnedited: Bool { workingTreeMatchesGit }
 
     public var conflictCount: Int {
         segments.reduce(0) { count, segment in
@@ -112,6 +110,31 @@ public struct ConflictDocument: Sendable {
             if index > 0, bytes[index - 1] == 0x0D { crlf += 1 } else { lf += 1 }
         }
         return crlf > lf
+    }
+
+    /// Marker lines reduced to their marker characters (labels such as `HEAD` or a branch name dropped), so a
+    /// working-tree file can be compared with a re-run of Git's merge whatever labels Git used.
+    static func normalizeMarkers(_ bytes: [UInt8], size: Int = 7) -> [UInt8] {
+        var result: [UInt8] = []
+        result.reserveCapacity(bytes.count)
+        var lineStart = 0
+        while lineStart < bytes.count {
+            var lineEnd = lineStart
+            while lineEnd < bytes.count, bytes[lineEnd] != 0x0A { lineEnd += 1 }
+            let line = bytes[lineStart..<lineEnd]
+            if let first = line.first, [UInt8(ascii: "<"), UInt8(ascii: ">"), UInt8(ascii: "|")].contains(first),
+                line.count >= size, line.prefix(size).allSatisfy({ $0 == first }),
+                line.count == size || line[line.startIndex + size] == 0x20
+            {
+                result += Array(repeating: first, count: size)
+                if line.last == 0x0D { result.append(0x0D) }
+            } else {
+                result += line
+            }
+            if lineEnd < bytes.count { result.append(0x0A) }
+            lineStart = lineEnd + 1
+        }
+        return result
     }
 
     /// Lines in `bytes` that look like conflict markers (Mark as Resolved asks first when any remain).
@@ -259,10 +282,35 @@ extension RepositoryHandle {
         }
         let filePath = (topLevel as NSString).appendingPathComponent(entry.path)
         let workingTree = FileManager.default.contents(atPath: filePath).map { [UInt8]($0) }
+        // What Git itself wrote into the working tree: the same merge in the configured conflict style.
+        var matchesGit = false
+        if let workingTree {
+            let style =
+                (try? await gitEngine.run(
+                    GitCommand(
+                        ["config", "--get", "merge.conflictStyle"], in: topLevel, kind: .read,
+                        acceptedExitCodes: [0, 1])
+                ).stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? ""
+            var arguments = ["merge-file", "-p"]
+            if style == "diff3" {
+                arguments.append("--diff3")
+            } else if style == "zdiff3" {
+                arguments.append("--zdiff3")
+            }
+            arguments += ["-L", "o", "-L", "b", "-L", "t", "ours", "base", "theirs"]
+            if let gitStyle = try? await gitEngine.run(
+                GitCommand(
+                    arguments, in: directory.path, kind: .read, stdoutLimit: 4 * ConflictLimits.maxTextBytes,
+                    acceptedExitCodes: Set(0...127)))
+            {
+                matchesGit =
+                    ConflictDocument.normalizeMarkers(gitStyle.stdout) == ConflictDocument.normalizeMarkers(workingTree)
+            }
+        }
         return ConflictDocument(
             path: entry.path, entry: entry, bytes: output.stdout, segments: segments, ours: ours, base: base,
             theirs: theirs, markerSize: markerSize, workingTreeHash: workingTree.map { FileHash($0) } ?? .missing,
-            workingTree: workingTree)
+            workingTree: workingTree, workingTreeMatchesGit: matchesGit)
     }
 
     /// Writes the resolved text atomically (temp file in the same directory, original mode, `rename(2)`),
@@ -272,8 +320,10 @@ extension RepositoryHandle {
     {
         let topLevel = try requireWorkingTree()
         let filePath = try Self.resolveInsideWorkingTree(path, topLevel: topLevel)
+        let engine = gitEngine
         return try await performExclusive("Save \(Self.describe([path]))", invalidating: [.worktree]) {
             () throws(GitCoreError) -> FileHash in
+            try await Self.requireUnmerged(path, engine: engine, topLevel: topLevel)
             let current = FileHash.of(path: filePath) ?? .missing
             guard current == expected else {
                 throw .staleSnapshot(summary: "“\(path)” changed outside Jit. Reload it or keep your result.")
@@ -291,6 +341,7 @@ extension RepositoryHandle {
         _ = try await performExclusive("Mark \(Self.describe([path])) resolved", invalidating: [.index, .worktree]) {
             () throws(GitCoreError) in
             try Self.refuseIfIndexLocked(gitDirectory: gitDirectory)
+            try await Self.requireUnmerged(path, engine: engine, topLevel: topLevel)
             guard (FileHash.of(path: filePath) ?? .missing) == expected else {
                 throw .staleSnapshot(
                     summary: "“\(path)” changed since you saved it. Review it before marking it resolved.")
@@ -309,13 +360,22 @@ extension RepositoryHandle {
         _ = try Self.resolveInsideWorkingTree(path, topLevel: topLevel)
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         try token.verify(.resolveConflict(path: path, choice: choice.rawValue))
-        let entries = try await conflicts()
-        guard let entry = entries.first(where: { $0.path == path }) else {
-            throw .staleSnapshot(summary: "“\(path)” is no longer conflicted.")
-        }
+        let handle = self
         _ = try await performExclusive("Resolve \(Self.describe([path]))", invalidating: [.index, .worktree]) {
             () throws(GitCoreError) in
             try Self.refuseIfIndexLocked(gitDirectory: gitDirectory)
+            // Re-read inside the gate: the entry must still be conflicted, and the choice must fit its kind.
+            guard let entry = try await handle.conflicts().first(where: { $0.path == path }) else {
+                throw .staleSnapshot(summary: "“\(path)” is no longer conflicted.")
+            }
+            switch (entry.presentation, choice) {
+            case (.modifyDelete, .keepFile), (.modifyDelete, .deleteFile), (.bothDeleted, .deleteFile),
+                (.bothDeleted, .keepFile), (.pickSide, .ours), (.pickSide, .theirs), (.modifyDelete, .ours),
+                (.modifyDelete, .theirs), (.bothDeleted, .ours), (.bothDeleted, .theirs):
+                break
+            default:
+                throw .refused(summary: "That choice doesn't apply to this conflict. Nothing was changed.")
+            }
             func run(_ arguments: [String]) async throws(GitCoreError) {
                 try await Self.runPathspecCommand(
                     arguments, paths: [path], engine: engine, in: topLevel, gitDirectory: gitDirectory)
@@ -340,12 +400,37 @@ extension RepositoryHandle {
         }
     }
 
+    /// A repository-relative path: no absolute, empty, `.`, `..` or `.git` components, and its parent directory
+    /// must resolve (symlinks followed) inside the working tree.
     static func resolveInsideWorkingTree(_ path: String, topLevel: String) throws(GitCoreError) -> String {
-        let components = path.split(separator: "/")
-        guard !path.isEmpty, !path.hasPrefix("/"), !components.contains(".."), !path.contains("\0") else {
+        let components = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\0"),
+            !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." || $0.lowercased() == ".git" })
+        else {
             throw .refused(summary: "“\(path)” isn't a path inside this repository.")
         }
-        return (topLevel as NSString).appendingPathComponent(path)
+        let filePath = (topLevel as NSString).appendingPathComponent(path)
+        let parent = (filePath as NSString).deletingLastPathComponent
+        guard let resolvedParent = realpath(parent, nil), let resolvedTop = realpath(topLevel, nil) else {
+            throw .staleSnapshot(summary: "The folder of “\(path)” no longer exists.")
+        }
+        defer {
+            free(resolvedParent)
+            free(resolvedTop)
+        }
+        let parentString = String(cString: resolvedParent)
+        let topString = String(cString: resolvedTop)
+        guard parentString == topString || parentString.hasPrefix(topString + "/") else {
+            throw .refused(summary: "“\(path)” is outside this repository.")
+        }
+        return filePath
+    }
+
+    /// Only conflicted paths may be written or marked by the resolver.
+    static func requireUnmerged(_ path: String, engine: GitEngine, topLevel: String) async throws(GitCoreError) {
+        guard try await unmergedPathList(engine: engine, in: topLevel).contains(path) else {
+            throw .staleSnapshot(summary: "“\(path)” is no longer conflicted.")
+        }
     }
 
     static func atomicWrite(_ content: [UInt8], to filePath: String) throws(GitCoreError) {

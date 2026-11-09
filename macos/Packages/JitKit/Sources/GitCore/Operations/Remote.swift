@@ -277,7 +277,7 @@ extension RepositoryHandle {
     ) async throws(GitCoreError) -> PullOutcome {
         let topLevel = try requireWorkingTree()
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
-        guard try await currentBranchName(nil) != nil else {
+        guard let branch = try await currentBranchName(nil) else {
             throw .failed(ClassifiedFailure(kind: .detachedHead, summary: "You're not on a branch."))
         }
         guard let upstream = try await upstream() else {
@@ -292,6 +292,22 @@ extension RepositoryHandle {
         ) { () throws(GitCoreError) -> IntegrationOutcome in
             try await Self.uncancellable { () throws(GitCoreError) -> IntegrationOutcome in
                 try Self.refuseIfIndexLocked(gitDirectory: gitDirectory)
+                // Between the fetch and now, Terminal may have switched branches or changed the upstream.
+                let now = try await engine.run(
+                    GitCommand(
+                        ["symbolic-ref", "-q", "--short", "HEAD"], in: topLevel, kind: .read, acceptedExitCodes: [0, 1])
+                ).stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let upstreamNow = try await engine.run(
+                    GitCommand(
+                        ["rev-parse", "--symbolic-full-name", "\(branch)@{upstream}"], in: topLevel, kind: .read,
+                        acceptedExitCodes: [0, 128])
+                ).stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard now == branch, upstreamNow == upstream.ref else {
+                    throw .staleSnapshot(
+                        summary:
+                            "The branch or its upstream changed while fetching. Nothing was integrated — review and pull again."
+                    )
+                }
                 let counts = try await Self.aheadBehind(engine: engine, in: topLevel, "HEAD", upstream.ref)
                 if counts.behind == 0 { return .upToDate }
                 let head = try await Self.readHead(engine: engine, in: topLevel) ?? ""
@@ -497,8 +513,8 @@ extension RepositoryHandle {
         let directory = workingDirectory
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         try Self.requireSafeName(request.remote, what: "remote")
-        try Self.requireSafeName(request.localBranch, what: "branch")
-        try Self.requireSafeName(request.remoteBranch, what: "branch")
+        try await requireValidBranchRef(request.localBranch)
+        try await requireValidBranchRef(request.remoteBranch)
         guard try await remotes().contains(where: { $0.name == request.remote }) else {
             throw .refused(summary: "There's no remote named “\(request.remote)”.")
         }
@@ -553,6 +569,19 @@ extension RepositoryHandle {
                 } : sink.remoteLines
             return PushOutcome(
                 refs: refs, remoteLines: remoteLines, rejection: PushPorcelainParser.rejection(refs), cancelled: false)
+        }
+    }
+
+    /// `git check-ref-format refs/heads/<name>`: the name can be spliced into a refspec safely (no `:`, spaces,
+    /// `..`, leading `-`).
+    nonisolated func requireValidBranchRef(_ name: String) async throws(GitCoreError) {
+        try Self.requireSafeName(name, what: "branch")
+        let output = try await gitEngine.run(
+            GitCommand(
+                ["check-ref-format", "refs/heads/\(name)"], in: workingDirectory, kind: .read,
+                acceptedExitCodes: [0, 1, 128]))
+        guard output.exitCode == 0 else {
+            throw .failed(ClassifiedFailure(kind: .invalidName, summary: "“\(name)” isn't a valid branch name."))
         }
     }
 

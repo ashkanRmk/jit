@@ -49,8 +49,8 @@ struct OperationSheetsHost: View {
             RemotesSheet(remotes: remotes, dismiss: controller.cancelSheet)
         case .detached(let oid):
             DetachedSheet(controller: controller, oid: oid)
-        case .unmerged(let branch, let commits, let tip):
-            UnmergedBranchSheet(controller: controller, branch: branch, commits: commits, tip: tip)
+        case .unmerged(let branch, let commits, let tip, let expected):
+            UnmergedBranchSheet(controller: controller, branch: branch, commits: commits, tip: tip, expected: expected)
         case .insecureClone:
             EmptyView()
         }
@@ -306,6 +306,7 @@ struct UnmergedBranchSheet: View {
     let branch: String
     let commits: [CommitSummary]
     let tip: String
+    let expected: RepoStateToken
 
     var body: some View {
         SheetScaffold(title: "\(branch) has unmerged commits", subtitle: controller.contextLine) {
@@ -318,7 +319,9 @@ struct UnmergedBranchSheet: View {
         } buttons: {
             Button("Keep Branch", action: controller.cancelSheet)
                 .keyboardShortcut(.defaultAction)
-            Button("Delete Anyway…") { controller.forceDelete(branch: branch, commits: commits, tip: tip) }
+            Button("Delete Anyway…") {
+                controller.forceDelete(branch: branch, commits: commits, tip: tip, expected: expected)
+            }
         }
     }
 }

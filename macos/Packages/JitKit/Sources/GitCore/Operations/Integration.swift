@@ -272,8 +272,8 @@ extension RepositoryHandle {
     }
 
     /// `--skip` (rebase, cherry-pick, revert): drops the current commit. Destructive.
-    public func skipCurrent(context: ExecContext, token: ConfirmationToken) async throws(GitCoreError)
-        -> IntegrationOutcome
+    public func skipCurrent(context: ExecContext, token: ConfirmationToken, expected: RepoStateToken)
+        async throws(GitCoreError) -> IntegrationOutcome
     {
         let topLevel = try requireWorkingTree()
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
@@ -281,6 +281,7 @@ extension RepositoryHandle {
         let identity = try context.requireIdentity()
         return try await performExclusive("Skip commit", invalidating: Set(InvalidationKind.allCases)) {
             () throws(GitCoreError) -> IntegrationOutcome in
+            try await Self.ensureCurrent(expected, engine: engine, in: topLevel, gitDirectory: gitDirectory)
             try Self.refuseIfIndexLocked(gitDirectory: gitDirectory)
             let command: String
             switch OperationStateDetector.detect(gitDirectory: gitDirectory) {
@@ -298,12 +299,15 @@ extension RepositoryHandle {
     }
 
     /// `--abort`: returns to the state before the operation. Destructive (resolutions are lost).
-    public func abortOperation(token: ConfirmationToken) async throws(GitCoreError) {
+    /// `expected` is the state the confirmation sheet was shown for: aborting a different operation (or the same
+    /// one after more steps ran in Terminal) is refused.
+    public func abortOperation(token: ConfirmationToken, expected: RepoStateToken) async throws(GitCoreError) {
         let topLevel = try requireWorkingTree()
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         try token.verify(.abortOperation)
         _ = try await performExclusive("Abort", invalidating: Set(InvalidationKind.allCases)) {
             () throws(GitCoreError) in
+            try await Self.ensureCurrent(expected, engine: engine, in: topLevel, gitDirectory: gitDirectory)
             try Self.refuseIfIndexLocked(gitDirectory: gitDirectory)
             let command: String
             switch OperationStateDetector.detect(gitDirectory: gitDirectory) {

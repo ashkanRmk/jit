@@ -90,7 +90,8 @@ import Testing
         let before = try await RepoFingerprint.capture(repo)
         do {
             try await handle.deleteBranch(
-                "unmerged", token: confirm(.deleteBranch(name: "unmerged", force: false)), expected: nil)
+                "unmerged", token: confirm(.deleteBranch(name: "unmerged", force: false)),
+                expected: try await handle.captureState())
             Issue.record("-d must refuse an unmerged branch")
         } catch .failed(let failure) {
             #expect(failure.kind == .branchNotFullyMerged)
@@ -99,7 +100,8 @@ import Testing
         let unmerged = try await handle.commits(in: "refs/heads/unmerged", notIn: "HEAD")
         #expect(unmerged.map(\.subject) == ["Only here"])
         try await handle.deleteBranch(
-            "unmerged", token: confirm(.deleteBranch(name: "unmerged", force: true)), expected: nil)
+            "unmerged", token: confirm(.deleteBranch(name: "unmerged", force: true)),
+            expected: try await handle.captureState())
         #expect(try await repo.git("branch", "--list", "unmerged") == "")
     }
 
@@ -107,7 +109,9 @@ import Testing
         let world = try await Ops.world()
         try await world.a.git("push", "-q", "origin", "HEAD:refs/heads/gone")
         let outcome = try await world.handleA.deleteRemoteBranch(
-            remote: "origin", branch: "gone", token: confirm(.deleteRemoteBranch(remote: "origin", branch: "gone")))
+            remote: "origin", branch: "gone",
+            expectedTip: try #require(try await world.handleA.remoteTrackingOID(remote: "origin", branch: "gone")),
+            token: confirm(.deleteRemoteBranch(remote: "origin", branch: "gone")))
         #expect(outcome.refs.first?.status == .deleted)
         #expect(try await world.sandbox.git(["branch", "--list", "gone"], in: world.origin) == "")
     }

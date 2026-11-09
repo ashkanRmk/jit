@@ -140,14 +140,16 @@ extension RepositoryHandle {
         }
     }
 
-    /// `git push <remote> --delete refs/heads/<branch>` (high-risk destructive).
+    /// `git push --force-with-lease=refs/heads/<b>:<expected> <remote> --delete refs/heads/<b>` (high-risk
+    /// destructive): the remote branch is deleted only while it still points at the tip the sheet showed.
     public func deleteRemoteBranch(
-        remote: String, branch: String, token: ConfirmationToken, context: ExecContext = .anonymous
+        remote: String, branch: String, expectedTip: String, token: ConfirmationToken, context: ExecContext = .anonymous
     ) async throws(GitCoreError) -> PushOutcome {
         let directory = workingDirectory
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         try Self.requireSafeName(remote, what: "remote")
-        try Self.requireSafeName(branch, what: "branch")
+        try await requireValidBranchRef(branch)
+        try Self.requireObjectID(expectedTip)
         try token.verify(.deleteRemoteBranch(remote: remote, branch: branch))
         guard try await remotes().contains(where: { $0.name == remote }) else {
             throw .refused(summary: "There's no remote named “\(remote)”.")
@@ -155,7 +157,10 @@ extension RepositoryHandle {
         return try await performExclusive("Delete \(remote)/\(branch)", invalidating: [.refs]) {
             () throws(GitCoreError) -> PushOutcome in
             let command = GitEnvironment.remoteCommand(
-                ["push", "--porcelain", remote, "--delete", "refs/heads/\(branch)"], in: directory, context: context,
+                [
+                    "push", "--porcelain", "--force-with-lease=refs/heads/\(branch):\(expectedTip)", remote, "--delete",
+                    "refs/heads/\(branch)",
+                ], in: directory, context: context,
                 acceptedExitCodes: [0, 1])
             let output = try await Self.runClassified(command, engine: engine, gitDirectory: gitDirectory)
             let refs = PushPorcelainParser.parse(output.stdoutText)

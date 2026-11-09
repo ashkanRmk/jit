@@ -83,7 +83,7 @@ import Testing
         let before = try await RepoFingerprint.capture(repo)
         _ = try await handle.merge(MergeRequest(source: "feature"), context: Ops.context, expected: nil)
         #expect(try await RepoFingerprint.capture(repo) != before)
-        try await handle.abortOperation(token: confirm(.abortOperation))
+        try await handle.abortOperation(token: confirm(.abortOperation), expected: try await handle.captureState())
         let after = try await RepoFingerprint.capture(repo)
         #expect(after == before, "\(after.difference(from: before))")
     }
@@ -167,9 +167,11 @@ import Testing
         let main = try await repo.git("rev-parse", "main")
         _ = try await handle.rebase(onto: "main", context: Ops.context, expected: nil)
         await #expect(throws: GitCoreError.self) {
-            _ = try await handle.skipCurrent(context: Ops.context, token: confirm(.abortOperation))
+            _ = try await handle.skipCurrent(
+                context: Ops.context, token: confirm(.abortOperation), expected: try await handle.captureState())
         }
-        let outcome = try await handle.skipCurrent(context: Ops.context, token: confirm(.skipCurrent))
+        let outcome = try await handle.skipCurrent(
+            context: Ops.context, token: confirm(.skipCurrent), expected: try await handle.captureState())
         #expect(outcome == .finished)
         #expect(try await repo.git("rev-parse", "HEAD") == main)
     }
@@ -179,7 +181,7 @@ import Testing
         try await repo.git("switch", "-q", "feature")
         let before = try await RepoFingerprint.capture(repo)
         _ = try await handle.rebase(onto: "main", context: Ops.context, expected: nil)
-        try await handle.abortOperation(token: confirm(.abortOperation))
+        try await handle.abortOperation(token: confirm(.abortOperation), expected: try await handle.captureState())
         let after = try await RepoFingerprint.capture(repo)
         #expect(after == before, "\(after.difference(from: before))")
     }
@@ -251,7 +253,7 @@ import Testing
         let before = try await RepoFingerprint.capture(repo)
         let pick = try await repo.git("rev-parse", "feature")
         _ = try await handle.cherryPick([pick], context: Ops.context, expected: nil)
-        try await handle.abortOperation(token: confirm(.abortOperation))
+        try await handle.abortOperation(token: confirm(.abortOperation), expected: try await handle.captureState())
         let after = try await RepoFingerprint.capture(repo)
         #expect(after == before, "\(after.difference(from: before))")
     }
@@ -302,7 +304,7 @@ import Testing
             Issue.record("not reverting")
             return
         }
-        try await handle.abortOperation(token: confirm(.abortOperation))
+        try await handle.abortOperation(token: confirm(.abortOperation), expected: try await handle.captureState())
         #expect(try await RepoFingerprint.capture(repo) == before)
     }
 

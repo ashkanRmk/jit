@@ -193,6 +193,23 @@ extension RepositoryHandle {
         return .applied
     }
 
+    /// Pops `stash@{0}` in a task the caller's cancellation cannot reach (restore after a failed switch).
+    static func restoreStash(identity: IdentitySnapshot, engine: GitEngine, topLevel: String, gitDirectory: String)
+        async
+        -> Result<StashApplyOutcome, GitCoreError>
+    {
+        do throws(GitCoreError) {
+            return .success(
+                try await uncancellable { () throws(GitCoreError) -> StashApplyOutcome in
+                    try await applyStash(
+                        index: 0, pop: true, identity: identity, engine: engine, topLevel: topLevel,
+                        gitDirectory: gitDirectory)
+                })
+        } catch {
+            return .failure(error)
+        }
+    }
+
     /// `git stash drop stash@{n}` after checking the OID. Destructive (recoverable only by SHA).
     public func dropStash(index: Int, oid: String, token: ConfirmationToken) async throws(GitCoreError) {
         let topLevel = try requireWorkingTree()
@@ -260,12 +277,24 @@ extension RepositoryHandle {
                     throw GitCoreError.refused(summary: "Git still refused to switch.")
                 }
             } catch {
-                // Put everything back where it was.
-                _ = try? await Self.applyStash(
-                    index: 0, pop: true, identity: identity, engine: engine, topLevel: topLevel,
-                    gitDirectory: gitDirectory)
-                throw .refused(
-                    summary: "Switching failed, so your changes were restored from the stash: \(error.summary)")
+                // Put everything back where it was — even if this operation is being cancelled — and say exactly
+                // what happened: "restored" only when the pop applied cleanly.
+                let stashOID =
+                    (try? await Self.uncancellable { () throws(GitCoreError) -> String? in
+                        try await Self.readRef(engine: engine, in: topLevel, "refs/stash")
+                    }) ?? nil
+                let restore = await Self.restoreStash(
+                    identity: identity, engine: engine, topLevel: topLevel, gitDirectory: gitDirectory)
+                switch restore {
+                case .success(.applied):
+                    throw .refused(
+                        summary: "Switching failed, so your changes were restored from the stash: \(error.summary)")
+                default:
+                    throw .refused(
+                        summary:
+                            "Switching failed and your changes could not be put back automatically. They are safe in stash@{0}\(stashOID.map { " (\($0.prefix(10)))" } ?? ""). \(error.summary)"
+                    )
+                }
             }
             return StashListParser.parse(
                 try await engine.run(

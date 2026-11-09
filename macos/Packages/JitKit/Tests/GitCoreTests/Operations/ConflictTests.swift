@@ -388,7 +388,7 @@ import Testing
                     path: "x", code: .bothModified, base: nil, ours: nil, theirs: nil, isBinary: false,
                     isOversized: false, isValidUTF8: true),
                 bytes: merged, segments: segments, ours: o, base: b, theirs: t, markerSize: markerSize,
-                workingTreeHash: .missing, workingTree: nil)
+                workingTreeHash: .missing, workingTree: nil, workingTreeMatchesGit: false)
             let indices = document.conflictIndices
             let ours = document.render(Dictionary(uniqueKeysWithValues: indices.map { ($0, BlockChoice.ours) }))
             let theirs = document.render(Dictionary(uniqueKeysWithValues: indices.map { ($0, BlockChoice.theirs) }))
@@ -460,5 +460,38 @@ struct SplitMix: RandomNumberGenerator {
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
         z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
         return z ^ (z >> 31)
+    }
+}
+
+/// P4.12 budget: a 5,000-line file with 20 conflict blocks loads (stages + merge-file + parse) in < 250 ms
+/// (release). Debug builds get PerfBudget headroom.
+@Suite struct ConflictPerformanceTests {
+    @Test func load5000LineConflictWith20Blocks() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await sandbox.makeRepository()
+        let base = (0..<5000).map { "let value\($0) = \($0)" }
+        try repo.write("big.swift", base.joined(separator: "\n") + "\n")
+        try await repo.commit("Base")
+        func edit(_ tag: String) -> String {
+            var lines = base
+            for block in 0..<20 { lines[block * 250 + 10] = "let value\(block * 250 + 10) = \(tag)" }
+            return lines.joined(separator: "\n") + "\n"
+        }
+        try await repo.git("switch", "-q", "-c", "theirs")
+        try repo.write("big.swift", edit("theirs"))
+        try await repo.commit("Theirs")
+        try await repo.git("switch", "-q", "main")
+        try repo.write("big.swift", edit("ours"))
+        try await repo.commit("Ours")
+        _ = try? await repo.git("merge", "theirs")
+        let handle = try await Ops.open(repo)
+        let clock = ContinuousClock()
+        let start = clock.now
+        let entry = try #require(try await handle.conflicts().first)
+        let document = try await handle.loadConflict(entry)
+        let elapsed = clock.now - start
+        print("load5000LineConflictWith20Blocks: \(elapsed)")
+        #expect(document.conflictCount == 20)
+        #expect(elapsed < PerfBudget.limit(.milliseconds(250)))
     }
 }
