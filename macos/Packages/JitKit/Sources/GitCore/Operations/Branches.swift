@@ -151,16 +151,19 @@ extension RepositoryHandle {
         try await requireValidBranchRef(branch)
         try Self.requireObjectID(expectedTip)
         try token.verify(.deleteRemoteBranch(remote: remote, branch: branch))
-        guard try await remotes().contains(where: { $0.name == remote }) else {
+        guard let remoteInfo = try await remotes().first(where: { $0.name == remote }) else {
             throw .refused(summary: "There's no remote named “\(remote)”.")
         }
+        let urls = remoteInfo.pushURLs
         return try await performExclusive("Delete \(remote)/\(branch)", invalidating: [.refs]) {
             () throws(GitCoreError) -> PushOutcome in
+            let lease = try await context.prepareAccess(for: urls, purpose: .push)
+            defer { lease?.release() }
             let command = GitEnvironment.remoteCommand(
                 [
                     "push", "--porcelain", "--force-with-lease=refs/heads/\(branch):\(expectedTip)", remote, "--delete",
                     "refs/heads/\(branch)",
-                ], in: directory, context: context,
+                ], in: directory, context: context, access: lease?.access,
                 acceptedExitCodes: [0, 1])
             let output = try await Self.runClassified(command, engine: engine, gitDirectory: gitDirectory)
             let refs = PushPorcelainParser.parse(output.stdoutText)

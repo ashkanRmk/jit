@@ -22,6 +22,7 @@ enum OperationSheet: Identifiable {
     case detached(oid: String)
     case unmerged(branch: String, commits: [CommitSummary], tip: String, expected: RepoStateToken)
     case insecureClone
+    case hostKey(HostKeyTarget)
 
     var id: String {
         switch self {
@@ -42,6 +43,7 @@ enum OperationSheet: Identifiable {
         case .detached(let oid): "detached-\(oid)"
         case .unmerged(let branch, _, _, _): "unmerged-\(branch)"
         case .insecureClone: "insecure"
+        case .hostKey(let target): "hostkey-\(target.host):\(target.port)"
         }
     }
 }
@@ -75,6 +77,9 @@ final class OperationsController {
     @ObservationIgnored var inspectCommit: (ObjectID) -> Void = { _ in }
     @ObservationIgnored private var pendingDestructive: ((ConfirmationToken) -> Void)?
     @ObservationIgnored private var retry: (() -> Void)?
+    @ObservationIgnored private var lastHostKey: HostKeyTarget?
+    /// URLs of the current repository's remotes (for explanations; masked when shown).
+    @ObservationIgnored var lastRemoteURLs: [String] = []
     @ObservationIgnored private var lastRejected: PushRequest?
 
     init(session: RepositorySession, model: AppModel) {
@@ -93,11 +98,16 @@ final class OperationsController {
         return [repositoryName, branch].joined(separator: " · ")
     }
 
-    /// The identity captured now (when the user confirms) — a later profile switch changes nothing.
+    /// The profile snapshot captured now (when the user confirms): identity plus remote authentication. A later
+    /// profile switch or edit changes nothing for this operation (design §4.2).
     var execContext: ExecContext {
-        ExecContext(
-            identity: model.profiles.snapshot().map { IdentitySnapshot(author: $0.author, committer: $0.committer) })
+        let context = model.accounts.execContext()
+        if case .profile(let reference) = context.auth { lastAccess = reference.provider as? ProfileAccessProvider }
+        return context
     }
+
+    /// The access provider of the most recent remote operation (its snapshot and resolution explain auth failures).
+    @ObservationIgnored private var lastAccess: ProfileAccessProvider?
 
     var identityLine: String? {
         guard let profile = model.profiles.activeProfile else { return nil }
@@ -117,14 +127,36 @@ final class OperationsController {
     func present(_ error: PresentableError, retry: (() -> Void)? = nil) {
         guard !error.isCancellation else { return }
         self.retry = retry
+        var error = error
+        if let kind = error.kind, AuthFailureExplainer.authKinds.contains(kind) {
+            let resolution = lastAccess?.lastResolution.withLock { $0 }
+            error = AuthFailureExplainer.explain(
+                error, snapshot: lastAccess?.snapshot, resolution: resolution,
+                candidates: model.accounts.switchCandidates(for: resolution?.remoteHosts ?? []),
+                remoteURLs: lastRemoteURLs)
+        }
+        if error.title == "You're offline." { model.accounts.connectivity.noteOfflineFailure() }
         sheet = .error(error)
         NSAccessibility.post(
             element: NSApp.mainWindow as Any, notification: .announcementRequested,
             userInfo: [.announcement: error.title, .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
+    func retryAfterTrust() {
+        sheet = nil
+        retry?()
+    }
+
+    /// Explicit "Switch to '<profile>' and Retry": activates that profile, then retries with a new snapshot.
+    func switchProfileAndRetry(_ profileID: UUID) {
+        sheet = nil
+        model.profiles.setActive(profileID)
+        retry?()
+    }
+
     /// Runs a recovery action from an error sheet.
     func perform(_ action: RecoveryAction) {
+        if case .error(let error) = sheet { lastHostKey = error.hostKey }
         sheet = nil
         switch action {
         case .retry: retry?()
@@ -142,6 +174,11 @@ final class OperationsController {
         case .unsetUpstream: if let branch = currentBranch { setUpstream(branch, to: nil) }
         case .publishBranch: push()
         case .createBranch: newBranch(at: "HEAD", label: "HEAD")
+        case .editProfile: NSApp.sendAction(Selector(("showSettingsProfiles:")), to: nil, from: nil)
+        case .manageAccounts: NSApp.sendAction(Selector(("showSettingsAccounts:")), to: nil, from: nil)
+        case .showDiagnostics: NSApp.sendAction(Selector(("showSettingsNetwork:")), to: nil, from: nil)
+        case .trustHostKey: if let target = lastHostKey { sheet = .hostKey(target) }
+        case .switchProfileAndRetry: break  // handled per profile by switchProfileAndRetry(_:)
         }
     }
 
@@ -204,6 +241,7 @@ final class OperationsController {
                 remote ?? (remotes.count == 1 ? remotes.first?.name : nil)
                 ?? (remotes.contains { $0.name == "origin" } ? "origin" : nil)
             let effectivePrune = prune ?? remotes.first { $0.name == target }?.prune ?? remotes.first?.prune ?? false
+            lastRemoteURLs = remotes.filter { target == nil || $0.name == target }.flatMap(\.fetchURLs)
             guard !remotes.isEmpty else {
                 present(
                     PresentableError(
@@ -212,7 +250,7 @@ final class OperationsController {
                 return
             }
             handle(
-                await session.fetch(FetchRequest(remote: target, prune: effectivePrune)),
+                await session.fetch(FetchRequest(remote: target, prune: effectivePrune), context: execContext),
                 retry: Retry { [weak self] in self?.fetch(remote: remote, prune: prune) })
         }
     }
@@ -262,7 +300,11 @@ final class OperationsController {
 
     func run(_ request: PushRequest) {
         Task {
-            handle(await session.push(request), retry: Retry { [weak self] in self?.run(request) }) {
+            let infos = (try? await session.repository?.remotes()) ?? []
+            lastRemoteURLs = infos.first { $0.name == request.remote }?.pushURLs ?? []
+            handle(
+                await session.push(request, context: execContext), retry: Retry { [weak self] in self?.run(request) }
+            ) {
                 [weak self] outcome in
                 guard let self else { return }
                 if outcome.rejection != nil {
@@ -277,7 +319,7 @@ final class OperationsController {
     func confirmForcePush(_ request: PushRequest) {
         Task {
             guard let repository = session.repository else { return }
-            _ = await session.fetch(FetchRequest(remote: request.remote, prune: false))
+            _ = await session.fetch(FetchRequest(remote: request.remote, prune: false), context: execContext)
             guard
                 let expected = try? await repository.remoteTrackingOID(
                     remote: request.remote, branch: request.remoteBranch)
@@ -312,7 +354,10 @@ final class OperationsController {
             confirm(confirmation) { [weak self] token in
                 guard let self else { return }
                 Task {
-                    self.handle(await self.session.forcePushWithLease(request, expected: expected, token: token)) {
+                    self.handle(
+                        await self.session.forcePushWithLease(
+                            request, expected: expected, token: token, context: self.execContext)
+                    ) {
                         outcome in
                         if outcome.rejection == .staleLease {
                             self.present(
@@ -480,7 +525,7 @@ final class OperationsController {
             Task {
                 self.handle(
                     await self.session.deleteRemoteBranch(
-                        remote: remote, branch: branch, expectedTip: tip, token: token)
+                        remote: remote, branch: branch, expectedTip: tip, token: token, context: self.execContext)
                 ) {
                     outcome in
                     if outcome.rejection == .staleLease {

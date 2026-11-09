@@ -104,6 +104,7 @@ public enum GitErrorClassifier {
             return make(.expiredToken, "The access token has expired or was revoked.")
         }
         if lower.contains("authentication failed") || lower.contains("could not read username")
+            || lower.contains("unable to get password from user")
             || lower.contains("could not read password") || lower.contains("terminal prompts disabled")
             || lower.contains("http basic: access denied") || lower.contains("the requested url returned error: 401")
             || lower.contains("the requested url returned error: 403") || lower.contains("invalid username or password")

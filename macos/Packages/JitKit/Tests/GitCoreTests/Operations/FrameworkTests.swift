@@ -31,7 +31,8 @@ import Testing
         for (index, argument) in command.arguments.enumerated() where argument == "-c" {
             configValues.append(command.arguments[index + 1])
         }
-        #expect(configValues == ["protocol.ext.allow=never", "protocol.fd.allow=never"])
+        // Phase 5 (ADR-0016): inherited credential helpers are always cleared.
+        #expect(configValues == ["protocol.ext.allow=never", "protocol.fd.allow=never", "credential.helper="])
         for value in command.environment.values { #expect(!value.contains("pwned")) }
         // Identity is only ever set through the environment (ADR-0028), never `-c user.*`.
         let integration = GitEnvironment.integrationCommand(
@@ -42,6 +43,55 @@ import Testing
             ["cherry-pick", "x"], in: "/tmp", identity: Ops.ada, use: .committerOnly)
         #expect(pick.environment["GIT_AUTHOR_NAME"] == nil)
         #expect(pick.environment["GIT_COMMITTER_NAME"] == "Ada Lovelace")
+    }
+
+    @Test func profileAccessBecomesScopedOptionsAndEnvironment() {
+        let access = RemoteAccess(
+            helperPath: "/Applications/My Apps/Jit.app/Contents/Helpers/jit-git-helper",
+            broker: BrokerEndpoint(socketPath: "/tmp/jit-x/b", nonce: "abc"), httpsCredentials: true,
+            ssh: SSHPlan(
+                keyPath: "/Users/me/keys/it's a key", useAgent: false,
+                knownHostsFiles: [
+                    "/Users/me/.ssh/known_hosts", "/Users/me/Library/Application Support/Jit/known_hosts",
+                ],
+                strictConfig: true, proxy: SSHProxy(kind: .socks5, host: "proxy.corp", port: 1080)),
+            network: [
+                ScopedNetwork(
+                    urlPrefix: "https://git.corp:8443/", caInfo: "/ca/x.pem", proxy: .url("http://proxy.corp:3128")),
+                ScopedNetwork(urlPrefix: "https://github.com/", proxy: .direct),
+            ])
+        let command = GitEnvironment.remoteCommand(
+            ["fetch", "origin"], in: "/tmp", context: .anonymous, access: access)
+        var config: [String] = []
+        for (index, argument) in command.arguments.enumerated() where argument == "-c" {
+            config.append(command.arguments[index + 1])
+        }
+        #expect(
+            config == [
+                "protocol.ext.allow=never", "protocol.fd.allow=never", "credential.helper=",
+                "credential.helper=!'/Applications/My Apps/Jit.app/Contents/Helpers/jit-git-helper' credential",
+                "credential.useHttpPath=false", "credential.interactive=false",
+                "http.https://git.corp:8443/.sslCAInfo=/ca/x.pem",
+                "http.https://git.corp:8443/.proxy=http://proxy.corp:3128",
+                "http.https://github.com/.proxy=",
+            ])
+        #expect(Array(command.arguments.suffix(2)) == ["fetch", "origin"])
+        let env = command.environment
+        #expect(env["GIT_SSH_COMMAND"] == "'/Applications/My Apps/Jit.app/Contents/Helpers/jit-git-helper'")
+        #expect(env["JIT_HELPER_MODE"] == "ssh")
+        #expect(env["JIT_SSH_KEY"] == "/Users/me/keys/it's a key")
+        #expect(env["JIT_SSH_STRICT"] == "1")
+        #expect(env["JIT_SSH_PROXY"] == "socks5 proxy.corp:1080")
+        #expect(env["JIT_BROKER_NONCE"] == "abc")
+        // Never insecure TLS or host-key settings.
+        let all = (command.arguments + env.map { "\($0.key)=\($0.value)" }).joined(separator: " ")
+        for forbidden in ["sslVerify", "GIT_SSL_NO_VERIFY", "StrictHostKeyChecking=no", "accept-new"] {
+            #expect(!all.contains(forbidden))
+        }
+    }
+
+    @Test func shellQuoteHandlesQuotes() {
+        #expect(GitEnvironment.shellQuote("/a b/it's") == "'/a b/it'\\''s'")
     }
 
     @Test func progressParsesFetchClonePushSamples() {
@@ -305,5 +355,13 @@ import Testing
             Issue.record("unexpected \(error)")
         }
         #expect(try await RepoFingerprint.capture(repo) == before)
+    }
+}
+
+@Suite struct Phase5ClassifierTests {
+    @Test func helperWithoutAnswerIsAuthFailure() {
+        let failure = GitErrorClassifier.classify(
+            exitCode: 128, stderr: "fatal: unable to get password from user\n")
+        #expect(failure.kind == .authenticationFailed)
     }
 }

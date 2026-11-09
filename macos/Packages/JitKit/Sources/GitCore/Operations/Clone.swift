@@ -123,8 +123,17 @@ public func cloneRepository(
         throw .io(summary: "Jit couldn't create “\(name)” (\(String(cString: strerror(errno)))).")
     }
     let url = request.url.trimmingCharacters(in: .whitespacesAndNewlines)
+    let lease: RemoteAccessLease?
+    do throws(GitCoreError) {
+        lease = try await context.prepareAccess(for: [url], purpose: .clone)
+    } catch {
+        if createdByJit { rmdir(destination) }
+        throw error
+    }
+    defer { lease?.release() }
     var command = GitEnvironment.remoteCommand(
-        ["clone", "--progress", "--", url, destination], in: request.parentDirectory, context: context)
+        ["clone", "--progress", "--", url, destination], in: request.parentDirectory, context: context,
+        access: lease?.access)
     let sink = ProgressSink(progress)
     command.stderrObserver = sink.observer
 

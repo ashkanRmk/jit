@@ -69,6 +69,8 @@ public enum MainMenu {
         menu.addItem(item("New Tab", #selector(MainWindowController.newTab(_:)), "t"))
         menu.addItem(item("Open Repository…", #selector(MainWindowController.openRepository(_:)), "o"))
         menu.addItem(item("Clone Repository…", #selector(MainWindowController.cloneRepository(_:)), "N", .command))
+        menu.addItem(
+            item("Browse Remote Repositories…", #selector(MainWindowController.browseRemoteRepositories(_:))))
         let recent = item("Open Recent", nil)
         let recentMenu = NSMenu(title: "Open Recent")
         recentMenu.delegate = recentsDelegate
@@ -171,6 +173,15 @@ public enum MainMenu {
         menu.addItem(item("Abort Operation…", #selector(MainWindowController.abortOperation(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Remotes…", #selector(MainWindowController.showRemotes(_:))))
+        let profile = item("Profile", nil)
+        let profileMenu = NSMenu(title: "Profile")
+        profileMenu.delegate = ProfileMenu.shared
+        profile.submenu = profileMenu
+        menu.addItem(profile)
+        menu.addItem(
+            item(
+                "Show Profile Switcher", #selector(MainWindowController.showProfileSwitcher(_:)), "p",
+                [.command, .control]))
         menu.addItem(item("Show Activity", #selector(MainWindowController.showActivity(_:)), "a", [.command, .option]))
         menu.addItem(.separator())
         menu.addItem(
@@ -287,5 +298,36 @@ public enum RepositoryActions {
     public static func copyPath(_ path: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(path, forType: .string)
+    }
+}
+
+/// Repository ▸ Profile: every profile (check mark on the active one) so switching works from the keyboard and
+/// VoiceOver without the popover (design §3.1), plus Manage Profiles… (the switcher itself is ⌃⌘P in Repository). Built on demand.
+@MainActor
+public final class ProfileMenu: NSObject, NSMenuDelegate {
+    public static let shared = ProfileMenu()
+    /// Set by the window controller.
+    public var store: ProfileStore?
+
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let profiles = store?.profiles ?? []
+        if profiles.isEmpty {
+            let empty = NSMenuItem(title: "No Profiles", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        }
+        for profile in profiles {
+            let item = NSMenuItem(
+                title: profile.displayName, action: #selector(MainWindowController.selectProfile(_:)), keyEquivalent: ""
+            )
+            item.representedObject = profile.id
+            item.state = profile.id == store?.activeProfileID ? .on : .off
+            item.toolTip = "\(profile.author.name) <\(profile.author.email)>"
+            menu.addItem(item)
+        }
+        menu.addItem(.separator())
+        menu.addItem(
+            NSMenuItem(title: "Manage Profiles…", action: Selector(("showSettingsProfiles:")), keyEquivalent: ""))
     }
 }

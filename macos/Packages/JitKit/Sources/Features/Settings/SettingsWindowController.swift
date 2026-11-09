@@ -4,37 +4,51 @@ import GitCore
 import Services
 import SwiftUI
 
-/// Settings (⌘,): General and Profiles panes in a standard toolbar-style settings window (system glass
-/// toolbar/tabs on macOS 26).
+/// Settings (⌘,) in the macOS System Settings style (design §3.2): a `NavigationSplitView` with the system
+/// sidebar (Liquid Glass by the system) and grouped `Form` panes — General, Profiles, Accounts, Servers &
+/// Network. No custom chrome.
 @MainActor
 public final class SettingsWindowController: NSWindowController {
-    public enum Pane: Int {
-        case general, profiles
+    public enum Pane: String, CaseIterable, Identifiable, Sendable {
+        case general, profiles, accounts, network
+
+        public var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .general: "General"
+            case .profiles: "Profiles"
+            case .accounts: "Accounts"
+            case .network: "Servers & Network"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .general: "gearshape"
+            case .profiles: "person.2"
+            case .accounts: "person.crop.circle.badge.checkmark"
+            case .network: "network"
+            }
+        }
     }
 
-    private let tabs = NSTabViewController()
+    let navigation = SettingsNavigation()
 
-    public init(preferences: PreferencesStore, profiles: ProfileStore, engine: GitEngine) {
-        tabs.tabStyle = .toolbar
-        let general = NSHostingController(rootView: GeneralSettingsView(preferences: preferences))
-        general.sizingOptions = .preferredContentSize
-        general.title = "General"  // the selected pane's title becomes the window title
-        let generalItem = NSTabViewItem(viewController: general)
-        generalItem.label = "General"
-        generalItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "General")
-        let profilesHost = NSHostingController(rootView: ProfilesSettingsView(store: profiles, engine: engine))
-        profilesHost.sizingOptions = .preferredContentSize
-        profilesHost.title = "Profiles"
-        let profilesItem = NSTabViewItem(viewController: profilesHost)
-        profilesItem.label = "Profiles"
-        profilesItem.image = NSImage(systemSymbolName: "person.2", accessibilityDescription: "Profiles")
-        tabs.addTabViewItem(generalItem)
-        tabs.addTabViewItem(profilesItem)
-        let window = NSWindow(contentViewController: tabs)
-        window.styleMask = [.titled, .closable]
+    public init(preferences: PreferencesStore, accounts: AccountsService, engine: GitEngine) {
+        let root = SettingsRootView(
+            navigation: navigation, preferences: preferences, accounts: accounts, engine: engine)
+        let host = NSHostingController(rootView: root)
+        let window = NSWindow(contentViewController: host)
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = false
+        window.toolbarStyle = .unified
+        window.setContentSize(NSSize(width: 820, height: 560))
+        window.contentMinSize = NSSize(width: 720, height: 460)
         window.identifier = NSUserInterfaceItemIdentifier("settings")
         window.tabbingMode = .disallowed
         window.isRestorable = false
+        window.title = "Settings"
         super.init(window: window)
     }
 
@@ -42,10 +56,50 @@ public final class SettingsWindowController: NSWindowController {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public func show(_ pane: Pane? = nil) {
-        if let pane { tabs.selectedTabViewItemIndex = pane.rawValue }
+        if let pane { navigation.pane = pane }
         if window?.isVisible != true { window?.center() }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+@MainActor @Observable
+final class SettingsNavigation {
+    var pane: SettingsWindowController.Pane = .general
+}
+
+struct SettingsRootView: View {
+    @Bindable var navigation: SettingsNavigation
+    let preferences: PreferencesStore
+    let accounts: AccountsService
+    let engine: GitEngine
+
+    var body: some View {
+        NavigationSplitView {
+            List(SettingsWindowController.Pane.allCases, selection: $navigation.pane.optional) { pane in
+                Label(pane.title, systemImage: pane.symbol).tag(pane)
+            }
+            .navigationSplitViewColumnWidth(min: 190, ideal: 200, max: 240)
+        } detail: {
+            Group {
+                switch navigation.pane {
+                case .general: GeneralSettingsView(preferences: preferences)
+                case .profiles:
+                    ProfilesSettingsView(accounts: accounts, engine: engine) { navigation.pane = $0 }
+                case .accounts: AccountsSettingsView(accounts: accounts) { navigation.pane = $0 }
+                case .network: NetworkSettingsView(accounts: accounts)
+                }
+            }
+            .navigationTitle(navigation.pane.title)
+        }
+    }
+}
+
+extension Binding where Value == SettingsWindowController.Pane {
+    /// `List(selection:)` wants an optional; deselecting keeps the current pane.
+    var optional: Binding<SettingsWindowController.Pane?> {
+        Binding<SettingsWindowController.Pane?>(
+            get: { wrappedValue }, set: { if let value = $0 { wrappedValue = value } })
     }
 }
 
@@ -63,7 +117,5 @@ struct GeneralSettingsView: View {
             Toggle("Restore tabs on launch", isOn: $preferences.restoreTabsOnLaunch)
         }
         .formStyle(.grouped)
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
     }
 }

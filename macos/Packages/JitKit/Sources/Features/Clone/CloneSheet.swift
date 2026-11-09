@@ -32,11 +32,21 @@ final class CloneModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private let engine: GitEngine
     @ObservationIgnored private let preferences: PreferencesStore
+    /// Captures the active profile snapshot when Clone is pressed (credentials, SSH key, CA, proxy).
+    @ObservationIgnored private let makeContext: @MainActor () -> ExecContext
 
-    init(engine: GitEngine, preferences: PreferencesStore) {
+    init(
+        engine: GitEngine, preferences: PreferencesStore, url: String = "",
+        makeContext: @escaping @MainActor () -> ExecContext = { .anonymous }
+    ) {
         self.engine = engine
         self.preferences = preferences
+        self.makeContext = makeContext
         parent = preferences.cloneParentDirectory
+        if !url.isEmpty {
+            self.url = url
+            name = CloneURL.derivedName(url)
+        }
     }
 
     var kind: Result<CloneURL.Kind, GitCoreError> { CloneURL.classify(url) }
@@ -99,10 +109,12 @@ final class CloneModel {
             for await value in stream { self?.progress = value }
         }
         let engine = engine
+        let context = makeContext()
         task = Task {
             let result: Result<CloneOutcome, GitCoreError>
             do throws(GitCoreError) {
-                result = .success(try await cloneRepository(request, engine: engine, progress: continuation))
+                result = .success(
+                    try await cloneRepository(request, engine: engine, context: context, progress: continuation))
             } catch {
                 result = .failure(error)
             }

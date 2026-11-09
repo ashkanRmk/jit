@@ -76,6 +76,10 @@ public struct ProcessRunner: Sendable {
         self.liveGroups = liveGroups
     }
 
+    /// Test hook: sees every spec right before it is spawned (sentinel-secret scans of argv and environment,
+    /// Phase 5 security checklist). Never set by the app.
+    public static let spawnObserver = Mutex<(@Sendable (ProcessSpec) -> Void)?>(nil)
+
     /// Kills every process group started by any `ProcessRunner` that is still running. Called when the
     /// app terminates so no Git child outlives Jit.
     public static func terminateAllRunning() {
@@ -88,6 +92,7 @@ public struct ProcessRunner: Sendable {
             dispatchPrecondition(condition: .notOnQueue(.main))
         #endif
         if Task.isCancelled { throw .cancelled }
+        if let observer = Self.spawnObserver.withLock({ $0 }) { observer(spec) }
         let child = ChildProcess(spec: spec, grace: terminationGrace, liveGroups: liveGroups)
         let result = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in

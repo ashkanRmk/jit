@@ -18,3 +18,10 @@ Notes from Phase 0 research; nothing here is built or verified yet.
 | Licensing | Git is GPLv2. Shipping it unmodified as a separate executable is aggregation; we must provide the exact corresponding source (offer or bundle the tarball) and the license text in the app/DMG. |
 | Size | Expect roughly 20–40 MB uncompressed for a stripped build; measure in Phase 7. |
 | Fallback | If bundling is blocked, the existing "Git isn't installed" state guides the user to CLT/Homebrew. |
+
+## Phase 5 prerequisites for release
+- OAuth: register public clients (no secret) — GitHub OAuth app with Device Flow enabled, GitLab.com application
+  with redirect URI `jit://oauth/gitlab` and scopes `read_api read_repository write_repository`; put the client
+  IDs in `macos/Resources/OAuthClients.plist` (`GitHubClientID`, `GitLabClientID`). Register the `jit` URL scheme.
+- `jit-git-helper` is embedded at `Contents/Helpers/` and must be signed with the app (hardened runtime); the
+  broker's peer check should then also verify the team (Phase 7). Signed builds use the data-protection keychain.

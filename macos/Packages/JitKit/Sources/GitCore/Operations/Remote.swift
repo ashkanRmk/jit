@@ -158,19 +158,24 @@ extension RepositoryHandle {
     ) async throws(GitCoreError) -> FetchOutcome {
         let directory = workingDirectory
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
-        let known = try await remotes().map(\.name)
+        let remoteInfos = try await remotes()
+        let known = remoteInfos.map(\.name)
         if let remote = request.remote {
             guard known.contains(remote) else { throw .refused(summary: "There's no remote named “\(remote)”.") }
         } else if known.isEmpty {
             throw .refused(summary: "This repository has no remotes.")
         }
+        let urls = remoteInfos.filter { request.remote == nil || $0.name == request.remote }.flatMap(\.fetchURLs)
         return try await performExclusive(
             request.remote.map { "Fetch \($0)" } ?? "Fetch all remotes", invalidating: [.refs, .head]
         ) { () throws(GitCoreError) -> FetchOutcome in
             let before = try await Self.refMap(engine: engine, in: directory)
             var arguments = ["fetch", "--progress", request.prune ? "--prune" : "--no-prune"]
             if let remote = request.remote { arguments.append(remote) } else { arguments.append("--all") }
-            var command = GitEnvironment.remoteCommand(arguments, in: directory, context: context)
+            let lease = try await context.prepareAccess(for: urls, purpose: .fetch)
+            defer { lease?.release() }
+            var command = GitEnvironment.remoteCommand(
+                arguments, in: directory, context: context, access: lease?.access)
             let sink = ProgressSink(progress)
             command.stderrObserver = sink.observer
             do throws(GitCoreError) {
@@ -515,9 +520,10 @@ extension RepositoryHandle {
         try Self.requireSafeName(request.remote, what: "remote")
         try await requireValidBranchRef(request.localBranch)
         try await requireValidBranchRef(request.remoteBranch)
-        guard try await remotes().contains(where: { $0.name == request.remote }) else {
+        guard let remoteInfo = try await remotes().first(where: { $0.name == request.remote }) else {
             throw .refused(summary: "There's no remote named “\(request.remote)”.")
         }
+        let urls = remoteInfo.pushURLs
         let destination = "refs/heads/\(request.remoteBranch)"
         return try await performExclusive(
             "Push \(request.localBranch) to \(request.remote)", invalidating: [.refs, .config]
@@ -528,8 +534,10 @@ extension RepositoryHandle {
                 arguments += ["--force-with-lease=\(destination):\(lease)", "--force-if-includes"]
             }
             arguments += [request.remote, "refs/heads/\(request.localBranch):\(destination)"]
+            let lease = try await context.prepareAccess(for: urls, purpose: .push)
+            defer { lease?.release() }
             var command = GitEnvironment.remoteCommand(
-                arguments, in: directory, context: context, acceptedExitCodes: [0, 1])
+                arguments, in: directory, context: context, access: lease?.access, acceptedExitCodes: [0, 1])
             let sink = ProgressSink(progress)
             command.stderrObserver = sink.observer
             let output: ProcessOutput
@@ -540,7 +548,8 @@ extension RepositoryHandle {
                 let actual = try await Self.uncancellable { () throws(GitCoreError) -> String? in
                     let remote = try await engine.run(
                         GitEnvironment.remoteCommand(
-                            ["ls-remote", "--refs", request.remote, destination], in: directory, context: context))
+                            ["ls-remote", "--refs", request.remote, destination], in: directory, context: context,
+                            access: lease?.access))
                     return remote.stdoutText.split(separator: "\t").first.map(String.init)
                 }
                 let local = try? await Self.uncancellable { () throws(GitCoreError) -> String? in

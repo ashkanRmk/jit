@@ -16,6 +16,18 @@ packages:
   JitKit:
     path: Packages/JitKit
 targets:
+  # The credential helper / askpass / ssh wrapper (ADR-0016), built from the package sources and embedded at
+  # Contents/Helpers/jit-git-helper. Foundation/Darwin only.
+  jit-git-helper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Packages/JitKit/Sources/JitGitHelper
+    settings:
+      base:
+        PRODUCT_NAME: jit-git-helper
+        SWIFT_VERSION: "6.0"
+        SKIP_INSTALL: YES
   Jit:
     type: application
     platform: macOS
@@ -23,6 +35,11 @@ targets:
       - path: App
         excludes: ["Config/**"]
     dependencies:
+      - target: jit-git-helper
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
+        codeSign: true
       - package: JitKit
         product: GitCore
       - package: JitKit

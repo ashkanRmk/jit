@@ -143,11 +143,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @objc func showSettingsProfiles(_ sender: Any?) { settingsController().show(.profiles) }
 
+    @objc func showSettingsAccounts(_ sender: Any?) { settingsController().show(.accounts) }
+
+    @objc func showSettingsNetwork(_ sender: Any?) { settingsController().show(.network) }
+
     private func settingsController() -> SettingsWindowController {
         if let settings { return settings }
         guard let model else { fatalError("Settings requested before launch finished") }
         let controller = SettingsWindowController(
-            preferences: preferences, profiles: model.profiles, engine: model.engine)
+            preferences: preferences, accounts: model.accounts, engine: model.engine)
         settings = controller
         return controller
     }

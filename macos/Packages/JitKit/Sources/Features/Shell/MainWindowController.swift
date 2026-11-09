@@ -77,6 +77,16 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.presentOpenPanel = { [weak self] in self?.chooseRepository() }
         model.onOpenFailure = { [weak self] url, error in self?.presentOpenFailure(url, error) }
         observeProfiles()
+        ProfileMenu.shared.store = model.profiles
+        model.accounts.passphrasePrompt = { [weak self] keyPath, fingerprint in
+            await PassphrasePresenter.ask(on: self?.window, keyPath: keyPath, fingerprint: fingerprint)
+        }
+        model.accounts.publishedFingerprints = { [weak self] host in
+            guard host == "github.com", let accounts = await self?.model.accounts else { return [] }
+            let transport = await accounts.transport(for: .github)
+            let provider = GitHubProvider(instance: .github, transport: transport, token: { SecretBytes([]) })
+            return (try? await provider.publishedSSHFingerprints()) ?? []
+        }
         observeActivity()
         observeForeground()
         updateSidebarSeparator()
@@ -406,13 +416,46 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         withObservationTracking {
             _ = model.profiles.activeProfileID
             _ = model.profiles.profiles
+            _ = model.profiles.switchCount
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.applyProfileTint()
                 self?.updateChromeWidth()
+                self?.announceSwitchIfNeeded()
                 self?.observeProfiles()
             }
         }
+    }
+
+    private var announcedSwitch = 0
+
+    /// "Switched to Work GitLab — new operations commit as ada@corp.example" (design §3.1): a short transient
+    /// popover at the profile item (one-shot close, no timer loop) plus a VoiceOver announcement.
+    private func announceSwitchIfNeeded() {
+        let count = model.profiles.switchCount
+        guard count != announcedSwitch else { return }
+        announcedSwitch = count
+        guard let profile = model.profiles.activeProfile, let anchor = profileItem?.view,
+            profilePopover?.isShown != true, window?.isVisible == true
+        else { return }
+        let email = (profile.committer ?? profile.author).email
+        let message = "Switched to \(profile.displayName) — new operations commit as \(email)"
+        NSAccessibility.post(
+            element: window as Any, notification: .announcementRequested,
+            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+        let toast = NSPopover()
+        toast.behavior = .transient
+        toast.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let host = NSHostingController(
+            rootView: Text(message)
+                .typeStyle(.callout)
+                .padding(.horizontal, Space.s5)
+                .padding(.vertical, Space.s3)
+                .fixedSize())
+        host.sizingOptions = .preferredContentSize
+        toast.contentViewController = host
+        toast.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak toast] in toast?.performClose(nil) }
     }
 
     /// "No Profile" uses the system prominent toolbar style tinted `status.warning` — the one non-accent
@@ -442,6 +485,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
                 newProfile: { [weak self] prefill in
                     self?.profilePopover?.performClose(nil)
                     self?.presentProfileEditor(nil, prefillFromGitConfig: prefill)
+                },
+                editProfile: { [weak self] profile in
+                    self?.profilePopover?.performClose(nil)
+                    self?.presentProfileEditor(profile, prefillFromGitConfig: false)
                 },
                 manageProfiles: { [weak self] in
                     self?.profilePopover?.performClose(nil)
@@ -499,6 +546,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         NewTabActions(
             open: { [weak self] in self?.chooseRepository() },
             clone: { [weak self] in self?.presentClone() },
+            browse: { [weak self] in self?.browseRemoteRepositories(nil) },
             openPath: { [weak self] path in self?.model.open(URL(fileURLWithPath: path)) },
             locate: { [weak self] path in
                 self?.chooseRepository { url in self?.model.open(url, forgettingRecent: path) }
@@ -557,6 +605,28 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     @objc public func clearRecentRepositories(_ sender: Any?) { model.recents.clear() }
     @objc public func showProfileSwitcher(_ sender: Any?) { toggleProfilePopover() }
 
+    /// Repository ▸ Profile ▸ <name>.
+    @objc public func selectProfile(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        model.profiles.setActive(id)
+    }
+
+    /// File ▸ Browse Remote Repositories… (and the new-tab page).
+    @objc public func browseRemoteRepositories(_ sender: Any?) {
+        _ = RepositoryBrowserWindowController.show(
+            accounts: model.accounts,
+            clone: { [weak self] url in
+                self?.window?.makeKeyAndOrderFront(nil)
+                self?.presentClone(url: url)
+            },
+            switchProfile: { [weak self] id in self?.model.profiles.setActive(id) },
+            openSettings: { pane in
+                NSApp.sendAction(
+                    pane == "network" ? Selector(("showSettingsNetwork:")) : Selector(("showSettingsAccounts:")),
+                    to: nil, from: nil)
+            })
+    }
+
     // MARK: Phase 4 actions (Repository / Branch / File menus)
 
     private var activeOperations: OperationsController? { (container.current as? WorkbenchController)?.operations }
@@ -581,10 +651,12 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     @objc public func cloneRepository(_ sender: Any?) { presentClone() }
 
     /// File ▸ Clone… (⇧⌘N) and the new-tab page: a standard sheet; the clone opens in a new tab.
-    public func presentClone() {
+    public func presentClone(url: String = "") {
         guard let window, window.attachedSheet == nil else { return }
         let host = NSHostingController(rootView: AnyView(EmptyView()))
-        let clone = CloneModel(engine: model.engine, preferences: model.preferences)
+        let clone = CloneModel(engine: model.engine, preferences: model.preferences, url: url) { [weak self] in
+            self?.model.accounts.execContext() ?? .anonymous
+        }
         clone.finish = { [weak self, weak host] path in
             if let host { self?.window?.endSheet(host.view.window ?? NSWindow()) }
             if let path { self?.model.open(URL(fileURLWithPath: path)) }
