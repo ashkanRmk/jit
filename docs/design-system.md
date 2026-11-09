@@ -137,8 +137,10 @@ rise; Reduce Motion → fade only. Nothing loops.
 
 Renders (real screen captures): `docs/phases/01-shell-and-tabs/screenshots/`.
 
-- **Toolbar** (unified `NSToolbar`, system glass): `[sidebar toggle] [tab strip] [⌄ all tabs] [inspector
-  toggle] [profile capsule]`. Visual window title hidden (the strip names the repository); title and
+- **Toolbar** (unified `NSToolbar`, system glass): `[sidebar toggle] [sidebar tracking separator] [tab strip]
+  [⌄ all tabs] [inspector toggle] [profile capsule]`. The sidebar toggle sits beside the window controls over
+  the sidebar (macOS standard); an `NSTrackingSeparatorToolbarItem` follows the active tab's sidebar divider so
+  the strip starts at the sidebar's edge. Tabs without a sidebar (new tab) drop the separator. Visual window title hidden (the strip names the repository); title and
   subtitle stay set for Mission Control, the Window menu and VoiceOver.
 - **Glass tab strip:** an unbordered toolbar item (otherwise AppKit wraps a custom view in its own glass
   platter → nested glass) hosting one `GlassTabStrip`. Capsule tabs 28 pt tall, equal width 132–232 pt,

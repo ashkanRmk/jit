@@ -22,6 +22,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     private let chrome = ChromeState()
     private var profilePopover: NSPopover?
     private weak var profileItem: NSToolbarItem?
+    private weak var pendingSeparatorSplitView: NSSplitView?
     private weak var stripView: NSView?
     private weak var profileHost: NSView?
     private static let trafficLightsWidth: CGFloat = 86
@@ -33,6 +34,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     static let stripIdentifier = NSToolbarItem.Identifier("jit.tabs")
     static let overflowIdentifier = NSToolbarItem.Identifier("jit.tabs.overflow")
     static let profileIdentifier = NSToolbarItem.Identifier("jit.profile")
+    /// Tracks the active workbench's sidebar divider, so the sidebar toggle sits beside the window controls
+    /// over the sidebar and the tab strip starts at the sidebar's edge (macOS standard, as in Mail/Notes).
+    static let sidebarSeparatorIdentifier = NSToolbarItem.Identifier("jit.sidebar.separator")
 
     public init(model: AppModel) {
         self.model = model
@@ -66,6 +70,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.onOpenFailure = { [weak self] url, error in self?.presentOpenFailure(url, error) }
         observeProfiles()
         observeForeground()
+        updateSidebarSeparator()
         updateChromeWidth()
         recordFrame()
     }
@@ -114,8 +119,28 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         let controller = controllers[tab.id] ?? makeController(for: tab)
         controllers[tab.id] = controller
         container.show(controller)
+        updateSidebarSeparator()
         updateTitle()
         updateChromeWidth()
+    }
+
+    /// Present only while the active tab has a sidebar; follows that tab's split view.
+    private func updateSidebarSeparator() {
+        guard let toolbar = window?.toolbar else { return }
+        let index = toolbar.items.firstIndex { $0.itemIdentifier == Self.sidebarSeparatorIdentifier }
+        guard let workbench = container.current as? WorkbenchController else {
+            if let index { toolbar.removeItem(at: index) }
+            return
+        }
+        if let index, let item = toolbar.items[index] as? NSTrackingSeparatorToolbarItem {
+            item.splitView = workbench.splitView
+            item.dividerIndex = 0
+        } else {
+            let after = toolbar.items.firstIndex { $0.itemIdentifier == .toggleSidebar }.map { $0 + 1 } ?? 0
+            pendingSeparatorSplitView = workbench.splitView
+            toolbar.insertItem(withItemIdentifier: Self.sidebarSeparatorIdentifier, at: after)
+            pendingSeparatorSplitView = nil
+        }
     }
 
     private func makeController(for tab: TabModel) -> NSViewController {
@@ -195,11 +220,12 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         chrome.showsProfileName = width >= ProfileMetrics.nameHiddenBelowWindowWidth
         profileHost?.layoutSubtreeIfNeeded()
         let profileWidth = max(ProfileMetrics.avatar + Space.s6, profileHost?.fittingSize.width ?? 160)
-        var leading = Self.trafficLightsWidth
+        // The sidebar toggle sits right after the traffic lights; an expanded sidebar pushes the strip to
+        // the sidebar's trailing edge (the tracking separator).
+        var leading = Self.trafficLightsWidth + Self.systemItemWidth
         if let workbench = container.current as? WorkbenchController, !workbench.isSidebarCollapsed {
             leading = max(leading, workbench.sidebarWidth)
         }
-        leading += Self.systemItemWidth  // sidebar toggle
         let trailing = 2 * Self.systemItemWidth + profileWidth + Self.trailingInset
         let strip = max(TabMetrics.minWidth + TabMetrics.newTabButton, width - leading - trailing)
         if abs((stripWidth?.constant ?? 0) - strip) > 0.5 { stripWidth?.constant = strip }
@@ -215,7 +241,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
+        toolbarDefaultItemIdentifiers(toolbar) + [Self.sidebarSeparatorIdentifier]
     }
 
     public func toolbar(
@@ -223,6 +249,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch identifier {
+        case Self.sidebarSeparatorIdentifier:
+            guard let splitView = pendingSeparatorSplitView else { return nil }
+            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: splitView, dividerIndex: 0)
         case Self.stripIdentifier:
             let item = NSToolbarItem(itemIdentifier: identifier)
             let host = NSHostingView(rootView: TabStripView(model: model))

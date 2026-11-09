@@ -27,6 +27,10 @@ Git CLI. No Rust/FFI (ADR-0002), no web views, Electron, Tauri, local servers, d
 - Every mutation is serialized per repository and validated against the snapshot it was prepared on.
 - Destructive actions require explicit, specific confirmation.
 - Colors, type, spacing, radii and motion come from `DesignSystem` tokens — never hardcoded in views.
+- Follow standard macOS conventions (Human Interface Guidelines) for window chrome, controls and their placement:
+  system toolbar items and positions (e.g. the sidebar toggle beside the window controls with a sidebar
+  tracking separator), standard menus, shortcuts, sheets and popovers. Jit's own visual identity lives in
+  content (graph, diff, lists), never in replacing standard chrome behaviour.
 - Liquid Glass on chrome only (toolbar, tab bar, sidebar, popovers, sheets), via system components or the
   official glass APIs; content (graph, diff, code, lists) stays opaque. No hand-made blur stacks.
 - No mock data, placeholder buttons or fake success in shipped UI. Unbuilt = absent or "Planned".
