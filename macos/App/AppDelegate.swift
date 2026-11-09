@@ -67,6 +67,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         ProcessRunner.terminateAllRunning()
     }
 
+    /// Running writes (stage, discard, commit…) finish before Jit quits; Git processes are only killed after
+    /// that, or after 10 s.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model, model.hasPendingWrites else { return .terminateNow }
+        let reply = TerminateReply()
+        model.whenWritesFinish { reply.send() }
+        // One-shot limit: a hung hook must not keep Jit from quitting.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { MainActor.assumeIsolated { reply.send() } }
+        return .terminateLater
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     /// Folders opened via Finder/Dock or `open -a Jit <folder>` open as repository tabs.
@@ -253,5 +264,17 @@ final class LaunchProbe {
         let startMs = Double(start.tv_sec) * 1000 + Double(start.tv_usec) / 1000
         let nowMs = Double(now.tv_sec) * 1000 + Double(now.tv_usec) / 1000
         return nowMs - startMs
+    }
+}
+
+/// Answers a deferred quit exactly once.
+@MainActor
+private final class TerminateReply {
+    private var sent = false
+
+    func send() {
+        guard !sent else { return }
+        sent = true
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 }

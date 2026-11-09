@@ -38,6 +38,34 @@ public final class BlameModel {
 
     public init(session: RepositorySession) {
         self.session = session
+        observeLifecycle()
+    }
+
+    /// Inactive tabs drop the blamed text and attribution; blame restarts when the tab shows again.
+    private func observeLifecycle() {
+        withObservationTracking {
+            _ = session.lifecycle
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                switch self.session.lifecycle {
+                case .inactive, .suspended, .closed:
+                    if !self.content.isEmpty {
+                        self.task?.cancel()
+                        self.content = []
+                        self.lineRanges = []
+                        self.owners = []
+                        self.commits = []
+                        self.onReload?()
+                    }
+                case .active:
+                    if self.isOpen, self.content.isEmpty { self.restart() }
+                default:
+                    break
+                }
+                self.observeLifecycle()
+            }
+        }
     }
 
     public func open(path: String, revision: ObjectID?) {

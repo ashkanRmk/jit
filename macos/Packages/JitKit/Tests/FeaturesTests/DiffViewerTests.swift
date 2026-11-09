@@ -122,3 +122,63 @@ import Testing
         #expect(view.displayText("\tx") == "→   x")
     }
 }
+
+@Suite @MainActor struct DiffReleaseTests {
+    @Test func inactiveTabReleasesDiffBuffersAndReloadsOnReturn() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await sandbox.makeRepository()
+        try repo.write("f.txt", "a\n")
+        try await repo.commit("One")
+        try repo.write("f.txt", "a\nb\n")
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
+        session.activate()
+        let model = DiffViewModel(session: session)
+        func wait(_ condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now + .seconds(5)
+            while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        }
+        try await wait { session.lifecycle == .active }
+        model.open(.unstaged(path: "f.txt"))
+        try await wait { model.state == .loaded }
+        #expect(model.document != nil && model.source != nil)
+        session.deactivate()
+        try await wait { model.isReleased }
+        #expect(model.document == nil && model.source == nil && model.target != nil)
+        session.activate()
+        try await wait { model.state == .loaded }
+        #expect(model.document != nil && !model.isReleased)
+        session.close()
+    }
+}
+
+@Suite @MainActor struct DiffAccessibilityTests {
+    @Test func visibleDiffRowsExposeSpokenLabels() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await sandbox.makeRepository()
+        try repo.write("f.txt", "keep\nold\n")
+        try await repo.commit("One")
+        try repo.write("f.txt", "keep\nnew\n")
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
+        session.activate()
+        let model = DiffViewModel(session: session)
+        model.layout = .unified
+        let controller = DiffViewController(model: model)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 500), styleMask: [.titled], backing: .buffered,
+            defer: false)
+        window.contentView = controller.view
+        model.open(.unstaged(path: "f.txt"))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while model.state != .loaded, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        controller.view.layoutSubtreeIfNeeded()
+        let labels = (controller.codeView.accessibilityChildren() ?? []).compactMap {
+            ($0 as? NSAccessibilityElement)?.accessibilityLabel()
+        }
+        #expect(labels.contains("Removed line 2: old"))
+        #expect(labels.contains("Added line 2: new"))
+        #expect(labels.contains("Line 1: keep"))
+        #expect(labels.contains { $0.hasPrefix("Hunk @@") })
+        #expect(controller.codeView.accessibilityRole() == .list)
+        session.close()
+    }
+}

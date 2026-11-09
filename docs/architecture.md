@@ -119,3 +119,30 @@ FSEvents (refs/HEAD) ─► RepositorySession ─► HistoryController (main act
   `insertRows`, no reload. Refs changes: labels in place or background reload + atomic swap (ADR-0024).
 - Commit details/compare run on `RepositoryHandle` (LRU of 32 details); selecting another commit cancels
   the previous request (and its Git process).
+
+## Working directory, diff and commit (Phase 3: ADR-0011–0014, 0025–0029)
+```
+RepositorySession ── status ─► WorkingDirectoryModel ─► WorkingDirectoryView (List; sections, drag, menu)
+        │                                │ selection
+        │ stage/unstage/discard/apply/commit (write gate)          ▼
+        ▼                          DiffViewModel ── openDiff ─► DiffDocument (PatchStorage + packed rows)
+RepositoryHandle ── WriteGate (FIFO, ADR-0027)                │                    │
+   ├─ stage / unstage (pathspec on stdin)                     ▼                    ▼
+   ├─ discard (token → recovery copy → Trash / restore)  DiffViewController ─ CodeLinesView (ADR-0011)
+   ├─ apply(SelectionRequest): token → PatchBuilder → check →  ├─ Highlighter (off-main lexers, ADR-0012)
+   │     recovery → apply → verify → rollback (ADR-0013)        └─ WordDiff (Myers, ADR-0029)
+   ├─ commit (identity env, hooks as Git, ADR-0014/0028)  BlameModel ─ blame --incremental (pull stream)
+   └─ openDiff / lineStats / blame (reads, never gated)   CommitComposerModel ─ CommitDrafts
+```
+- **One serialization point:** every mutation (`stage`, `unstage`, `discard`, `apply`, `commit`) runs in
+  `RepositoryHandle.performExclusive`; reads never wait for it. Each finished mutation bumps `RepoRevision`
+  and invalidates status; `RepositorySession.pendingWrites` drives busy states.
+- **Byte-exact diffs (ADR-0026):** one canonical `git diff` argv; parsing keeps Git's bytes and 16-byte line
+  records; single-file working-tree diffs are read with full context so expansion and full-file layout are
+  table changes over the same buffer. A `SnapshotToken` (HEAD, index record, worktree fingerprint + blob id)
+  is taken before and after the read.
+- **Line actions (ADR-0013):** the pure `PatchBuilder` produces the patch and, independently, the expected
+  target bytes; `SelectionApplier` refuses on a changed token, checks, keeps a recovery copy for discards,
+  applies, verifies and rolls back.
+- **Memory:** inactive tabs drop diff documents, rows, spans and blame text (targets kept, reloaded on
+  return); strings exist only for visible rows.

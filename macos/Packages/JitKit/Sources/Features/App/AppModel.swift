@@ -116,6 +116,19 @@ public final class AppModel {
     }
 
     /// Writes everything now (app termination).
+    /// Some tab is running a mutation (stage, discard, line apply, commit).
+    public var hasPendingWrites: Bool { tabs.contains { $0.session?.isBusy == true } }
+
+    /// Calls `done` once no tab is writing (Observation on `pendingWrites`; no polling).
+    public func whenWritesFinish(_ done: @escaping @MainActor () -> Void) {
+        guard hasPendingWrites else { return done() }
+        withObservationTracking {
+            _ = tabs.map { $0.session?.pendingWrites }
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.whenWritesFinish(done) }
+        }
+    }
+
     public func flush() {
         scheduleSave()
         sessionStore?.flush()

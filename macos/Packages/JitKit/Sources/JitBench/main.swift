@@ -70,6 +70,11 @@ func measure(
 var arguments = Array(CommandLine.arguments.dropFirst())
 
 // `JitBench renderer-spike`: spike S1 for ADR-0011 (TextKit 2 vs CodeLinesView).
+if arguments.first == "phase3" {
+    try await Phase3Bench.run()
+    exit(0)
+}
+
 if arguments.first == "renderer-spike" {
     try await RendererSpike.run()
     exit(0)

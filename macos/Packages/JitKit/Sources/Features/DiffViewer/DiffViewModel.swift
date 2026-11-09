@@ -94,6 +94,48 @@ public final class DiffViewModel {
 
     public init(session: RepositorySession) {
         self.session = session
+        observeLifecycle()
+    }
+
+    /// The document was dropped while the tab was hidden; it reloads when the tab shows again.
+    public private(set) var isReleased = false
+
+    /// Inactive tabs release diff buffers (P3.11): document, rows, spans; the target is kept.
+    private func observeLifecycle() {
+        withObservationTracking {
+            _ = session.lifecycle
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.lifecycleChanged()
+                self.observeLifecycle()
+            }
+        }
+    }
+
+    private func lifecycleChanged() {
+        switch session.lifecycle {
+        case .inactive, .suspended, .closed:
+            guard document != nil || state == .loading else { return }
+            loadTask?.cancel()
+            highlightTask?.cancel()
+            highlight = nil
+            document = nil
+            source = nil
+            selection.clear()
+            wordPairs = [:]
+            wordCache = [:]
+            state = .idle
+            isReleased = target != nil
+            onSourceChange?()
+        case .active:
+            if isReleased, let target {
+                isReleased = false
+                load(target, keepPosition: false)
+            }
+        default:
+            break
+        }
     }
 
     static var storedLayout: DiffLayout {

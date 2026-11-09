@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.10 complete; P3.11 next)
+Status: **complete** (P3.0–P3.11); carry-overs below
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -148,17 +148,32 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   cancel kills hook, conflicts block), `CommitComposerTests` (3 incl. `profileSwitchDuringCommitUsesSnapshot`,
   drafts + amend), Scenario C now ends with a commit by the active profile; screenshots
   `composer-{light,dark}.png`. Hook output appears when Git finishes (not streamed live).
+- **P3.11 Performance, memory & accessibility verification** — `JitBench phase3` (release): diff open →
+  first paint 41.5 ms p50, 50k-line diff +3.0 MB, 200 open/close cycles Δ 0.5 MB, status with 1k changed
+  files 20.1 ms, stage one line end to end 51.9 ms, blame first lines 5.1 ms; idle release app with the
+  repository open 0.0 % CPU (`docs/performance.md` Phase 3). Inactive tabs release diff documents, rows,
+  spans and blame text and reload on return (`DiffReleaseTests`). Diff rows expose spoken labels to
+  accessibility (`DiffAccessibilityTests`). Quitting now waits (event-driven, at most 10 s) for running
+  writes before Git children are killed. Docs: architecture, design system (syntax/diff/blame), security,
+  performance; ADRs 0011–0014, 0025–0029 written.
 
 ## Verified
-- Tests: `scripts/build/test-core.sh` — **367 passed** (43 + 242 + 68 + 14 across the four test targets);
-  skipped: none. Xcode app tests not run yet this phase. Lint clean (`scripts/build/lint.sh`).
-- Real workflow: debug app on a clone with an upstream (1 ahead), a second branch and staged/unstaged/untracked
-  changes — breadcrumb, `3 changes`, Terminal and search render in both themes (screenshots above).
-  Not yet exercised by pointer: branch popover, overflow at a narrow width, Show Labels toggle.
+- Tests: `scripts/build/test-core.sh` — **369 passed** (43 + 242 + 70 + 14 across the four test targets); skipped: none.
+  Xcode app tests (`scripts/build/test-app.sh`): **23 passed, 0 failed** (xcresult summary). Lint clean.
+- Property tests: 150 cases in every `test-core` run; 50,000-case local run: pending.
+- Real workflow (debug app, generated repositories, screenshots in `screenshots/`): command bar; working
+  directory panel (normal, conflicts); discard sheet; diffs in the inspector and in Focused Diff (unified,
+  side by side, full file, highlighted, selection capsule, no-newline note, binary); blame; composer.
+  Pointer interaction was not driven (the window opened behind the user's apps and driving their mouse was
+  declined): every flow is covered by model-level tests on real repositories instead, including Scenario C.
 
 ## Decisions
 - ADR-0027: FIFO write gate inside `RepositoryHandle`; reads never take it; every finished mutation bumps
   `RepoRevision` and invalidates status.
+- ADR-0011: custom `CodeLinesView` over TextKit 2 (measured). ADR-0012: hand-written lexers (tree-sitter not
+  prototyped). ADR-0013: partial staging with token, check, verify, rollback. ADR-0014: hooks as Git runs
+  them. ADR-0025: recovery store. ADR-0026: canonical diff + byte model. ADR-0028: identity via env only.
+  ADR-0029: own Myers word diff.
 
 ## Deviations from plan
 - The command bar lives in the graph pane (where the Phase 2 bar was), constrained to the pane's safe area,
@@ -177,8 +192,11 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   been exercised.
 
 ## Known issues / carry-overs
-- `LiveProcessGroups.killAll` sends SIGTERM to every live group at app quit, write commands included; Phase 3
-  writes (stage/unstage) are short, but quitting must wait for gated writes before P3.4 lands.
+- Quitting waits up to 10 s for running writes, then kills remaining Git children (a hung hook cannot block
+  quitting); not covered by an automated test (needs the app lifecycle).
+- Reduce Transparency / Increase Contrast screenshots of the Phase 3 surfaces need the system setting turned
+  on by the user (`scripts/testing/capture-accessibility.sh`); not captured. A real VoiceOver pass and
+  Instruments (Hangs, Animation Hitches, Allocations, GPU) were not run.
 - Narrow-window overflow screenshot and Reduce Transparency screenshots (bar and panel) still to capture.
 - Clean-state screenshot not captured: a clean tree has no WIP row, so the panel only shows its clean state
   briefly when the tree becomes clean while selected (verified by `cleanTreeLoadsLastCommitSubject`).
@@ -196,4 +214,5 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   hides the rename source); the commit-inspector diff path was exercised in tests only, not by pointer.
 - Copy detection (`-C`) is not part of the canonical command; the copy header is covered by parsing Git's
   own `-C` output.
-- Next: P3.4 patch builder and selection apply (safety core).
+- Hook output appears when Git finishes, not streamed live (ADR-0014). Blame text is not syntax-highlighted.
+- Next: Phase 4 (not started).
