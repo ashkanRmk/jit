@@ -114,7 +114,11 @@ extension RepositoryHandle {
         guard let first = message?.split(whereSeparator: \.isNewline).first.map(String.init) else { return "" }
         for prefix in ["Merge branch '", "Merge remote-tracking branch '", "Merge tag '", "Merge commit '"] {
             if first.hasPrefix(prefix), let end = first.dropFirst(prefix.count).firstIndex(of: "'") {
-                return String(first[first.index(first.startIndex, offsetBy: prefix.count)..<end])
+                var name = String(first[first.index(first.startIndex, offsetBy: prefix.count)..<end])
+                for full in ["refs/heads/", "refs/remotes/", "refs/tags/"] where name.hasPrefix(full) {
+                    name.removeFirst(full.count)
+                }
+                return name
             }
         }
         return first

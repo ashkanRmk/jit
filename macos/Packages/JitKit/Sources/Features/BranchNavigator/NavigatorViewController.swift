@@ -4,8 +4,8 @@ import GitCore
 import Services
 
 /// Left sidebar (design §3.5): Local / Remote / Tags in a view-based `NSOutlineView` (row reuse, so 10k
-/// branches stay responsive) on the system's glass sidebar material. Read-only plus copy actions —
-/// checkout and every branch mutation are Phase 4.
+/// branches stay responsive) on the system's glass sidebar material. Double-click checks out; the context
+/// menus carry the Phase 4 branch operations.
 @MainActor
 final class NavigatorViewController: NSViewController {
     struct Actions {
@@ -19,16 +19,21 @@ final class NavigatorViewController: NSViewController {
     let model: AppModel
     var actions = Actions()
     var repository: RepositoryHandle?
+    /// Phase 4 write actions (checkout, branch operations, stashes).
+    var operations: OperationsController?
 
     private let outline = NavigatorOutlineView()
     private let filterField = NSSearchField()
     private var roots: [NavigatorNode] = []
     private var refs: RefSnapshot?
+    private var stashes: [StashEntry]?
     private var expanded = Set<String>()
     private var savedExpansion: Set<String>?
     private var isRestoringExpansion = false
 
     static let expandedKey = "navigator.expanded"
+    /// Stored with the expansion set once a tab has seen the Stashes section (collapsing it then sticks).
+    static let stashesSeenMarker = "marker/stashes"
 
     init(tab: TabModel, model: AppModel) {
         self.tab = tab
@@ -36,8 +41,12 @@ final class NavigatorViewController: NSViewController {
         super.init(nibName: nil, bundle: nil)
         if case .array(let values) = tab.ui[Self.expandedKey] {
             expanded = Set(values.compactMap { if case .string(let s) = $0 { s } else { nil } })
+            // Tabs saved before Phase 4 have no Stashes section yet: start it expanded.
+            if !values.contains(.string(Self.stashesSeenMarker)) {
+                expanded.formUnion(["section/Stashes", Self.stashesSeenMarker])
+            }
         } else {
-            expanded = ["section/Local", "section/Remote"]
+            expanded = ["section/Local", "section/Remote", "section/Stashes", Self.stashesSeenMarker]
         }
     }
 
@@ -68,7 +77,7 @@ final class NavigatorViewController: NSViewController {
         outline.controller = self
         outline.target = self
         outline.action = #selector(rowClicked)
-        outline.doubleAction = #selector(rowClicked)
+        outline.doubleAction = #selector(rowDoubleClicked)
         outline.menu = NSMenu()
         outline.menu?.delegate = self
         outline.setAccessibilityLabel("Branches and tags")
@@ -91,6 +100,13 @@ final class NavigatorViewController: NSViewController {
             scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
         view = root
+    }
+
+    /// New stash list from the session (P4.16).
+    func update(stashes: [StashEntry]?) {
+        guard stashes != self.stashes else { return }
+        self.stashes = stashes
+        rebuild()
     }
 
     /// New refs from the history controller.
@@ -118,7 +134,7 @@ final class NavigatorViewController: NSViewController {
     private func rebuild() {
         guard let refs else { return }
         let filter = filterField.stringValue
-        roots = NavigatorTreeBuilder.build(refs, filter: filter)
+        roots = NavigatorTreeBuilder.build(refs, filter: filter, stashes: stashes)
         outline.reloadData()
         if !filter.isEmpty {
             // Auto-expand everything leading to a match while filtering.
@@ -185,15 +201,31 @@ final class NavigatorViewController: NSViewController {
         view.window?.makeFirstResponder(outline)
     }
 
+    /// Double-click checks out: a local branch is switched to; a remote branch checks out its local tracking
+    /// branch (created when missing); a stash is applied only from its menu.
+    @objc func rowDoubleClicked() {
+        let row = outline.clickedRow
+        guard row >= 0, let node = outline.item(atRow: row) as? NavigatorNode else { return }
+        if let ref = node.ref, ref.kind == .local || ref.kind == .remote, let operations {
+            if ref.isHead { return showInGraph(row: row) }
+            operations.checkout(ref: ref)
+        } else {
+            showInGraph(row: row)
+        }
+    }
+
     @objc func rowClicked() {
         let row = outline.clickedRow >= 0 ? outline.clickedRow : outline.selectedRow
         showInGraph(row: row)
     }
 
     func showInGraph(row: Int) {
-        guard row >= 0, let node = outline.item(atRow: row) as? NavigatorNode, let commit = node.ref?.commit else {
+        guard row >= 0, let node = outline.item(atRow: row) as? NavigatorNode else { return }
+        if let stash = node.stash, let oid = ObjectID(hex: stash.oid) {
+            operations?.inspectCommit(oid)
             return
         }
+        guard let commit = node.ref?.commit else { return }
         actions.showInGraph(commit)
     }
 
@@ -289,13 +321,38 @@ extension NavigatorViewController: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let row = outline.clickedRow
-        guard row >= 0, let node = outline.item(atRow: row) as? NavigatorNode, let ref = node.ref else { return }
         func item(_ title: String, _ action: @escaping () -> Void) {
             menu.addItem(ClosureMenuItem(title: title, action: action))
         }
+        if row >= 0, let node = outline.item(atRow: row) as? NavigatorNode, let stash = node.stash, let operations {
+            item("Apply \(stash.name)") { operations.apply(stash, pop: false) }
+            item("Pop \(stash.name)") { operations.apply(stash, pop: true) }
+            item("Show Changes") { [weak self] in self?.showInGraph(row: row) }
+            menu.addItem(.separator())
+            item("Copy SHA") { Pasteboard.copy(stash.oid) }
+            menu.addItem(.separator())
+            item("Drop \(stash.name)…") { operations.drop(stash) }
+            return
+        }
+        if row >= 0, let node = outline.item(atRow: row) as? NavigatorNode, node.kind == .section(.stashes),
+            let operations
+        {
+            item("Stash Changes…") { operations.createStash() }
+            return
+        }
+        guard row >= 0, let node = outline.item(atRow: row) as? NavigatorNode, let ref = node.ref else { return }
         let format = refs?.format ?? .sha1
         switch ref.kind {
         case .tag:
+            if let operations, let commit = ref.commit {
+                let hex = commit.hex(format)
+                item("Check Out \(ref.shortName)…") { operations.switchTo(.detach(hex)) }
+                item("New Branch Here…") { operations.newBranch(at: ref.fullName, label: ref.shortName) }
+                item("Merge \(ref.shortName) into \(operations.currentBranch ?? "HEAD")…") {
+                    operations.merge(source: ref.fullName, label: ref.shortName)
+                }
+                menu.addItem(.separator())
+            }
             item("Copy Tag Name") { Pasteboard.copy(ref.shortName) }
             item("Copy SHA") { Pasteboard.copy((ref.commit ?? ref.object).hex(format)) }
             if ref.commit != nil { item("Show in Graph") { [weak self] in self?.showInGraph(row: row) } }
@@ -303,6 +360,10 @@ extension NavigatorViewController: NSMenuDelegate {
                 item("Show Tag Message") { [weak self] in self?.showTagMessage(ref, row: row) }
             }
         default:
+            if let operations {
+                Self.branchWriteItems(ref, operations: operations).forEach(menu.addItem)
+                menu.addItem(.separator())
+            }
             item("Copy Branch Name") { Pasteboard.copy(ref.shortName) }
             item("Copy SHA") { Pasteboard.copy((ref.commit ?? ref.object).hex(format)) }
             menu.addItem(.separator())
@@ -314,6 +375,61 @@ extension NavigatorViewController: NSMenuDelegate {
             item("Solo") { [weak self] in self?.actions.solo(ref.fullName) }
             item("Show in Graph") { [weak self] in self?.showInGraph(row: row) }
         }
+    }
+}
+
+extension NavigatorViewController {
+    /// Branch write actions shared by the navigator and graph label menus (design §3.6).
+    static func branchWriteItems(_ ref: GitRef, operations: OperationsController) -> [NSMenuItem] {
+        let current = operations.currentBranch ?? "HEAD"
+        // Git writes the argument into its merge message ("Merge branch 'feature/x'"), so pass the short name
+        // unless a tag or other ref makes it ambiguous.
+        let source = operations.unambiguousName(for: ref)
+        var items: [NSMenuItem] = []
+        func add(_ title: String, _ action: @escaping () -> Void) {
+            items.append(ClosureMenuItem(title: title, action: action))
+        }
+        switch ref.kind {
+        case .local:
+            let name = ref.shortName
+            if !ref.isHead { add("Switch to \(name)") { operations.checkout(ref: ref) } }
+            add("New Branch from \(name)…") { operations.newBranch(at: ref.fullName, label: name) }
+            if !ref.isHead {
+                items.append(.separator())
+                add("Merge \(name) into \(current)…") { operations.merge(source: source, label: name) }
+                add("Rebase \(current) onto \(name)…") { operations.rebase(onto: source, label: name) }
+            }
+            items.append(.separator())
+            if ref.isHead { add("Push…") { operations.push() } }
+            add("Rename \(name)…") { operations.rename(name) }
+            if ref.upstream != nil || ref.upstreamGone {
+                add("Unset Upstream") { operations.setUpstream(name, to: nil) }
+            }
+            add(ref.upstream == nil ? "Set Upstream…" : "Change Upstream…") { operations.setUpstream(for: name) }
+            if !ref.isHead { add("Delete \(name)…") { operations.delete(branch: name) } }
+            if let remote = operations.webRemoteURL, let url = WebLink.map(remoteURL: remote, target: .branch(name)) {
+                add("Copy Link to Branch") { Pasteboard.copy(url.absoluteString) }
+            }
+        case .remote:
+            guard let branch = ref.remoteBranchName else { return [] }
+            add("Check Out \(branch)") { operations.checkout(ref: ref) }
+            add("New Branch from \(ref.shortName)…") { operations.newBranch(at: ref.fullName, label: ref.shortName) }
+            items.append(.separator())
+            add("Merge \(ref.shortName) into \(current)…") {
+                operations.merge(source: ref.fullName, label: ref.shortName)
+            }
+            add("Rebase \(current) onto \(ref.shortName)…") {
+                operations.rebase(onto: ref.fullName, label: ref.shortName)
+            }
+            items.append(.separator())
+            add("Delete \(ref.shortName) on Remote…") { operations.deleteRemote(ref: ref) }
+            if let remote = operations.webRemoteURL, let url = WebLink.map(remoteURL: remote, target: .branch(branch)) {
+                add("Copy Link to Branch") { Pasteboard.copy(url.absoluteString) }
+            }
+        case .tag, .other:
+            break
+        }
+        return items
     }
 }
 
@@ -404,6 +520,15 @@ final class NavigatorCellView: NSTableCellView {
             title.stringValue = DisplayText.sanitize(node.title)
             icon.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
             setAccessibilityLabel("Folder \(node.title)")
+        case .stash(let entry):
+            title.stringValue = DisplayText.sanitize(entry.message)
+            icon.image = NSImage(systemSymbolName: "tray", accessibilityDescription: nil)
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .abbreviated
+            badge.stringValue = formatter.localizedString(for: entry.date, relativeTo: Date())
+            toolTip =
+                "\(entry.name)\(entry.branch.map { " · on \($0)" } ?? "")\(entry.hasUntracked ? " · includes untracked files" : "")"
+            setAccessibilityLabel("Stash \(entry.message), \(entry.name), \(badge.stringValue)")
         case .note(let text):
             title.stringValue = text
             title.textColor = .tertiaryLabelColor

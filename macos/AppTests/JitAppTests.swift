@@ -322,10 +322,11 @@ final class Harness {
         #expect(controller.validateMenuItem(item(#selector(MainWindowController.reopenClosedTab(_:)))))
     }
 
-    @Test func testNoBranchOrGitMenus() {
+    @Test func testMenusOnlyWhenTheyHaveWorkingItems() {
         let menu = MainMenu.build(recentsDelegate: MenuDelegateStub(), windowDelegate: MenuDelegateStub())
         let titles = menu.items.map(\.title)
-        #expect(titles == ["Jit", "File", "Edit", "View", "Repository", "Window", "Help"])
+        // Phase 4 adds the Branch menu with working items; there is still no Git menu.
+        #expect(titles == ["Jit", "File", "Edit", "View", "Repository", "Branch", "Window", "Help"])
         // ⌘1–⌘3 stay reserved for workbench modes.
         func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
         let commandDigits = all(menu).filter {
@@ -336,3 +337,32 @@ final class Harness {
 }
 
 final class MenuDelegateStub: NSObject, NSMenuDelegate {}
+
+@MainActor @Suite struct Phase4MenuTests {
+    func items(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(items) }
+
+    @Test func phase4ShortcutsMatchTheRegistry() {
+        let menu = MainMenu.build(recentsDelegate: MenuDelegateStub(), windowDelegate: MenuDelegateStub())
+        let all = items(menu)
+        func item(_ title: String) -> NSMenuItem? { all.first { $0.title == title } }
+        #expect(item("Clone Repository…")?.keyEquivalent == "N")
+        #expect(item("Clone Repository…")?.keyEquivalentModifierMask == .command)
+        #expect(item("Show Activity")?.keyEquivalent == "a")
+        #expect(item("Show Activity")?.keyEquivalentModifierMask == [.command, .option])
+        #expect(item("Stash Changes…")?.keyEquivalent == "s")
+        #expect(item("Stash Changes…")?.keyEquivalentModifierMask == [.command, .option])
+        for title in ["Fetch", "Pull", "Push", "Remotes…", "New Branch…", "Abort Operation…"] {
+            #expect(item(title) != nil, "\(title)")
+        }
+    }
+
+    @Test func noTwoItemsShareAShortcut() {
+        let menu = MainMenu.build(recentsDelegate: MenuDelegateStub(), windowDelegate: MenuDelegateStub())
+        var seen: [String: String] = [:]
+        for item in items(menu) where !item.keyEquivalent.isEmpty && !item.isHidden {
+            let key = "\(item.keyEquivalentModifierMask.rawValue)-\(item.keyEquivalent)"
+            #expect(seen[key] == nil, "\(item.title) and \(seen[key] ?? "") share a shortcut")
+            seen[key] = item.title
+        }
+    }
+}

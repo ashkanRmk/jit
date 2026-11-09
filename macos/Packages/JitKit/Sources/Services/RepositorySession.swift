@@ -62,7 +62,7 @@ public final class RepositorySession {
     /// The UI disables conflicting actions while non-empty (design §4.7). Phase 4 lifts this into
     /// OperationCenter.
     public private(set) var pendingWrites: [String] = []
-    public var isBusy: Bool { !pendingWrites.isEmpty }
+    public var isBusy: Bool { !pendingWrites.isEmpty || operations.isBusy }
 
     /// Activity of this repository (Phase 4): running and recent operations.
     public let operations = OperationCenter()
@@ -286,6 +286,8 @@ public final class RepositorySession {
                 guard !Task.isCancelled else { return }
                 self.apply(status)
                 self.lifecycle = .active
+                // Requests made before the handle existed (stash list for the command bar) run now.
+                if self.stashes == nil { self.loadStashes() }
                 self.loadTask = nil
             } catch .cancelled {
                 return
@@ -343,7 +345,9 @@ public final class RepositorySession {
 
     private func apply(_ newStatus: RepositoryStatus) {
         refreshCount += 1
-        if newStatus.operation != status?.operation || (newStatus.summary?.conflicted ?? 0) != (status?.summary?.conflicted ?? 0) {
+        if newStatus.operation != status?.operation
+            || (newStatus.summary?.conflicted ?? 0) != (status?.summary?.conflicted ?? 0)
+        {
             refreshOperationState()
         }
         Self.log.debug(

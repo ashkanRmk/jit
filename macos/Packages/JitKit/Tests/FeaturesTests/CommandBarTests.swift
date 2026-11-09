@@ -25,11 +25,9 @@ import Testing
             labelsAllowed: labels)
     }
 
-    @Test func phaseThreeShipsExactlyLocationChangesTerminalAndFind() {
-        #expect(CommandBarGroup.shipped == [.location, .changes, .terminal, .find])
-        // Sync, branch, stash and undo/redo are absent until Phases 4 and 8 build them.
-        #expect(!CommandBarGroup.shipped.contains(.sync))
-        #expect(!CommandBarGroup.shipped.contains(.stash))
+    @Test func phaseFourShipsSyncBranchAndStash() {
+        #expect(CommandBarGroup.shipped == [.location, .changes, .sync, .branch, .stash, .terminal, .find])
+        // Undo/redo is absent until Phase 8 builds it.
         #expect(!CommandBarGroup.shipped.contains(.history))
     }
 

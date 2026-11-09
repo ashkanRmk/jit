@@ -30,6 +30,7 @@ final class WorkbenchController: NSSplitViewController {
     lazy var diffController = DiffViewController(model: diffModel)
     lazy var blameModel = BlameModel(session: session)
     lazy var blameController = BlameViewController(model: blameModel)
+    lazy var operations = OperationsController(session: session, model: model)
     private var needsWidthRestore = true
     private var isApplyingWidths = false
 
@@ -70,7 +71,8 @@ final class WorkbenchController: NSSplitViewController {
         let main = NSSplitViewItem(
             viewController: MainPaneController(
                 graph: graph, session: session, tab: tab, actions: actions, diffModel: diffModel,
-                diffController: diffController, blameModel: blameModel, blameController: blameController))
+                diffController: diffController, blameModel: blameModel, blameController: blameController,
+                operations: operations))
         main.minimumThickness = PanelMetrics.contentColumnMax - 160
 
         let inspector = NSSplitViewItem(
@@ -111,6 +113,17 @@ final class WorkbenchController: NSSplitViewController {
         workingDirectory.openBlame = { path in blame.open(path: path, revision: nil) }
         inspector.openBlame = { path, oid in blame.open(path: path, revision: oid) }
         diff.onBlame = { path, oid in blame.open(path: path, revision: oid) }
+        let operations = self.operations
+        graph.operations = operations
+        navigator.operations = operations
+        operations.selectCommit = { [weak graph] oid in graph?.select(oid: oid) }
+        operations.inspectCommit = { [weak self] oid in
+            inspector.show(selection: [oid], wip: false)
+            self?.setInspectorCollapsed(false)
+        }
+        observeStashes(navigator: navigator)
+        session.loadStashes()
+        operations.showWorkingDirectory = { [weak graph] in _ = graph?.selectWorkingDirectory() }
         workingDirectory.openDiff = { file in
             guard let file else {
                 diff.close()
@@ -120,7 +133,9 @@ final class WorkbenchController: NSSplitViewController {
             case .unstaged: diff.open(.unstaged(path: file.path))
             case .staged:
                 diff.open(.staged(path: file.path, renamedFrom: file.change == .renamed ? file.originalPath : nil))
-            case .conflicts: diff.close()
+            case .conflicts:
+                diff.close()
+                operations.openConflict(path: file.path)
             }
         }
         workingDirectory.openFileHistory = { [weak graph] path in
@@ -138,6 +153,7 @@ final class WorkbenchController: NSSplitViewController {
             blameForRefs.handle = graph?.history?.repository
             inspector.refs = refs
             inspector.format = refs.format
+            operations.refs = refs
         }
         graph.actions.escapeUnhandled = { [weak self] in self?.setInspectorCollapsed(true) }
         graph.actions.showInNavigator = { [weak self, weak navigator] fullName in
@@ -153,6 +169,19 @@ final class WorkbenchController: NSSplitViewController {
             solo: { [weak graph] name in graph?.solo(name) },
             togglePin: { [weak graph] name in graph?.togglePin(name) },
             isPinned: { [weak graph] name in graph?.viewModel.pinned.contains(name) ?? false })
+    }
+
+    /// Stash list changes (FSEvents on refs/stash → session) rebuild the navigator's Stashes section.
+    private func observeStashes(navigator: NavigatorViewController) {
+        withObservationTracking {
+            _ = session.stashes
+        } onChange: { [weak self, weak navigator] in
+            Task { @MainActor in
+                guard let self, let navigator else { return }
+                navigator.update(stashes: self.session.stashes)
+                self.observeStashes(navigator: navigator)
+            }
+        }
     }
 
     private static func host<V: View>(_ view: V) -> NSViewController {
@@ -282,14 +311,19 @@ final class MainPaneController: NSViewController {
     let diffController: DiffViewController
     let blameModel: BlameModel
     let blameController: BlameViewController
+    let operations: OperationsController
     private let focusContainer = NSView()
     private let blameContainer = NSView()
+    private let resolverContainer = NSView()
+    private weak var stateOverlay: NSView?
+    private var resolverController: ResolverViewController?
 
     init(
         graph: GraphViewController, session: RepositorySession, tab: TabModel, actions: WorkbenchActions,
         diffModel: DiffViewModel, diffController: DiffViewController, blameModel: BlameModel,
-        blameController: BlameViewController
+        blameController: BlameViewController, operations: OperationsController
     ) {
+        self.operations = operations
         self.blameModel = blameModel
         self.blameController = blameController
         self.graph = graph
@@ -299,6 +333,60 @@ final class MainPaneController: NSViewController {
         self.diffModel = diffModel
         self.diffController = diffController
         super.init(nibName: nil, bundle: nil)
+    }
+
+    /// The error / first-load overlay is hidden once the repository is open, so it never intercepts clicks
+    /// meant for the graph or its command bar (an empty NSHostingView still hit-tests to itself).
+    private func observeOverlay() {
+        withObservationTracking {
+            stateOverlay?.isHidden = session.error == nil && session.info != nil && session.status != nil
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeOverlay() }
+        }
+    }
+
+    /// The conflict resolver covers the graph area (design §3.8) while open.
+    private func observeResolver() {
+        withObservationTracking {
+            _ = operations.resolver
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.applyResolver()
+                self?.observeResolver()
+            }
+        }
+    }
+
+    private func applyResolver() {
+        let model = operations.resolver
+        if resolverController?.model !== model {
+            resolverController?.view.removeFromSuperview()
+            resolverController?.removeFromParent()
+            resolverController = nil
+            if let model {
+                let controller = ResolverViewController(model: model)
+                addChild(controller)
+                let view = controller.view
+                view.frame = resolverContainer.bounds
+                view.autoresizingMask = [.width, .height]
+                resolverContainer.addSubview(view)
+                resolverController = controller
+            }
+        }
+        resolverContainer.isHidden = model == nil
+        if model != nil { view.window?.makeFirstResponder(resolverController?.view) }
+    }
+
+    /// External edits while the resolver is open: re-check the file after every status refresh.
+    private func observeRefreshes() {
+        withObservationTracking {
+            _ = session.refreshCount
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.operations.resolver?.checkDisk()
+                self?.observeRefreshes()
+            }
+        }
     }
 
     /// Blame covers the graph area (design §3.5) while open; Esc or the close button returns.
@@ -376,6 +464,8 @@ final class MainPaneController: NSViewController {
         overlay.translatesAutoresizingMaskIntoConstraints = false
         overlay.sizingOptions = []
         root.addSubview(overlay)
+        stateOverlay = overlay
+        observeOverlay()
         focusContainer.translatesAutoresizingMaskIntoConstraints = false
         focusContainer.isHidden = true
         focusContainer.wantsLayer = true
@@ -385,6 +475,26 @@ final class MainPaneController: NSViewController {
         blameContainer.isHidden = true
         root.addSubview(blameContainer)
         observeBlame()
+        resolverContainer.translatesAutoresizingMaskIntoConstraints = false
+        resolverContainer.isHidden = true
+        resolverContainer.wantsLayer = true
+        root.addSubview(resolverContainer)
+        observeResolver()
+        observeRefreshes()
+        let sheets = NSHostingView(rootView: OperationSheetsHost(controller: operations))
+        sheets.translatesAutoresizingMaskIntoConstraints = false
+        sheets.sizingOptions = []
+        root.addSubview(sheets)
+        NSLayoutConstraint.activate([
+            sheets.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            sheets.topAnchor.constraint(equalTo: root.topAnchor),
+            sheets.widthAnchor.constraint(equalToConstant: 1),
+            sheets.heightAnchor.constraint(equalToConstant: 1),
+            resolverContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            resolverContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            resolverContainer.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            resolverContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
         NSLayoutConstraint.activate([
             blameContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             blameContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),

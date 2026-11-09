@@ -227,7 +227,9 @@ extension RepositoryHandle {
     public nonisolated func upstream(of branch: String? = nil) async throws(GitCoreError)
         -> (remote: String, ref: String, shortName: String)?
     {
-        let target = branch.map { "refs/heads/\($0)@{upstream}" } ?? "@{upstream}"
+        // `<branch>@{upstream}`: Git does not accept a full ref name before `@{upstream}`.
+        if let branch { try Self.requireSafeName(branch, what: "branch") }
+        let target = branch.map { "\($0)@{upstream}" } ?? "@{upstream}"
         let output = try await gitEngine.run(
             GitCommand(
                 ["rev-parse", "--symbolic-full-name", target], in: workingDirectory, kind: .read,

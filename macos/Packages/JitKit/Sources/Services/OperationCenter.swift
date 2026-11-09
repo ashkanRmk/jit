@@ -152,7 +152,10 @@ public final class OperationCenter {
             record.waitingFor = nil
         }
         for index in records.indices where records[index].waitingFor != nil && records[index].state == .running {
-            records[index].waitingFor = records.last { $0.state == .running && $0.id != records[index].id && $0.started < records[index].started }?.title
+            records[index].waitingFor =
+                records.last {
+                    $0.state == .running && $0.id != records[index].id && $0.started < records[index].started
+                }?.title
         }
         finishedCount += 1
         // Keep running ones plus the newest `historyLimit` finished ones.

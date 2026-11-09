@@ -71,6 +71,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     /// that, or after 10 s.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model, model.hasPendingWrites else { return .terminateNow }
+        let running = model.runningOperations
+        if !running.isEmpty {
+            let alert = NSAlert()
+            alert.messageText =
+                running.count == 1 ? "An operation is still running." : "\(running.count) operations are still running."
+            alert.informativeText =
+                running.prefix(6).joined(separator: "\n")
+                + "\n\nQuitting cancels fetches, clones and pushes. Local operations (merge, rebase, commit) finish first."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Quit Anyway")
+            guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+            model.cancelCancellableOperations()
+        }
         let reply = TerminateReply()
         model.whenWritesFinish { reply.send() }
         // One-shot limit: a hung hook must not keep Jit from quitting.

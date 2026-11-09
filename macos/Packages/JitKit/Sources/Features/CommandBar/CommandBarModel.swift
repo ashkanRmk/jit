@@ -6,8 +6,8 @@ enum CommandBarGroup: String, CaseIterable, Sendable {
     case location, changes, sync, branch, stash, history, terminal, find
 
     /// Groups that exist in this build. An action appears only when the phase that implements it ships
-    /// ("Unbuilt = absent"): sync/branch/stash arrive in Phase 4, undo/redo in Phase 8.
-    static let shipped: [CommandBarGroup] = [.location, .changes, .terminal, .find]
+    /// ("Unbuilt = absent"): sync/branch/stash shipped with Phase 4; undo/redo arrive in Phase 8.
+    static let shipped: [CommandBarGroup] = [.location, .changes, .sync, .branch, .stash, .terminal, .find]
 
     /// The order in which groups move into the trailing `⋯` menu when the bar is too narrow. Location,
     /// changes, sync and find never overflow.

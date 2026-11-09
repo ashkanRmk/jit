@@ -20,6 +20,9 @@ struct CommandBarLeading: View {
                 switch group {
                 case .location: locationGroup
                 case .changes: if let changes { changesButton(changes) }
+                case .sync: if let operations = controller.operations { SyncGroup(operations: operations) }
+                case .branch: if let operations = controller.operations { newBranchButton(operations) }
+                case .stash: if let operations = controller.operations { StashGroup(operations: operations) }
                 case .terminal: terminalButton
                 default: EmptyView()
                 }
@@ -111,6 +114,16 @@ struct CommandBarLeading: View {
         .accessibilityLabel("\(CommandBarChanges.title(count, labels: true)), show working directory")
     }
 
+    private func newBranchButton(_ operations: OperationsController) -> some View {
+        Button {
+            operations.newBranch(at: "HEAD", label: controller.session.status?.branch.head ?? "HEAD")
+        } label: {
+            Label("Branch", systemImage: "plus.circle")
+        }
+        .buttonStyle(.glass)
+        .help("New branch from HEAD")
+    }
+
     private var terminalButton: some View {
         Button {
             RepositoryActions.openInTerminal(repositoryPath)
@@ -127,6 +140,12 @@ struct CommandBarLeading: View {
                 switch group {
                 case .terminal:
                     Button("Open in Terminal") { RepositoryActions.openInTerminal(repositoryPath) }
+                case .branch:
+                    Button("New Branch…") { controller.operations?.newBranch(at: "HEAD", label: "HEAD") }
+                case .stash:
+                    Button("Stash Changes…") { controller.operations?.createStash() }
+                    Button("Pop Latest Stash") { controller.operations?.popLatest() }
+                        .disabled(controller.session.stashes?.isEmpty ?? true)
                 default: EmptyView()
                 }
             }
@@ -142,6 +161,103 @@ struct CommandBarLeading: View {
     }
 }
 
+/// Fetch · Pull (split: fast-forward only / merge / rebase) · Push — one glass capsule group (design §3.4).
+struct SyncGroup: View {
+    let operations: OperationsController
+
+    private var branch: BranchHeader? { operations.session.status?.branch }
+    private var busy: Bool { operations.session.operations.isBusy }
+
+    var body: some View {
+        HStack(spacing: Space.s2) {
+            Menu {
+                Button("Fetch \(defaultRemoteLabel)") { operations.fetch() }
+                Button("Fetch All Remotes") { operations.fetchAll() }
+                Divider()
+                Button("Fetch and Prune Deleted Branches") { operations.fetch(prune: true) }
+                Button("Fetch Without Pruning") { operations.fetch(prune: false) }
+            } label: {
+                Label("Fetch", systemImage: "arrow.down.circle")
+            } primaryAction: {
+                operations.fetch()
+            }
+            .menuStyle(.button)
+            .fixedSize()
+            .help("Fetch (never integrates)")
+            Menu {
+                Button("Pull — Fast-Forward Only") { operations.pull(.fastForwardOnly) }
+                Button("Pull with Merge") { operations.pull(.merge) }
+                Button("Pull with Rebase") { operations.pull(.rebase) }
+            } label: {
+                Label(pullTitle, systemImage: "arrow.down.to.line")
+                    .monospacedDigit()
+            } primaryAction: {
+                operations.pull(.fastForwardOnly)
+            }
+            .menuStyle(.button)
+            .fixedSize()
+            .disabled(branch?.upstream == nil)
+            .help(branch?.upstream == nil ? "This branch has no upstream" : "Pull (fast-forward only)")
+            Button {
+                operations.push()
+            } label: {
+                Label(pushTitle, systemImage: "arrow.up.to.line")
+                    .monospacedDigit()
+            }
+            .disabled(branch?.isDetached ?? true)
+            .help(branch?.upstream == nil ? "Publish this branch" : "Push to \(branch?.upstream ?? "upstream")")
+        }
+        .buttonStyle(.glass)
+    }
+
+    private var defaultRemoteLabel: String {
+        branch?.upstream.flatMap { $0.split(separator: "/").first.map(String.init) } ?? "origin"
+    }
+
+    private var pullTitle: String {
+        if let behind = branch?.behind, behind > 0 { return "Pull ↓\(behind)" }
+        return "Pull"
+    }
+
+    private var pushTitle: String {
+        guard let branch else { return "Push" }
+        if branch.upstream == nil, !branch.isDetached { return "Publish" }
+        if let ahead = branch.ahead, ahead > 0 { return "Push ↑\(ahead)" }
+        return "Push"
+    }
+}
+
+/// Stash / Pop (P3.0 stash group): Stash opens the create sheet (⌥-click stashes now, including untracked);
+/// Pop pops `stash@{0}` and is disabled with a tooltip when there are no stashes.
+struct StashGroup: View {
+    let operations: OperationsController
+
+    var body: some View {
+        HStack(spacing: Space.s2) {
+            Button {
+                if NSEvent.modifierFlags.contains(.option) {
+                    operations.quickStash()
+                } else {
+                    operations.createStash()
+                }
+            } label: {
+                Label("Stash", systemImage: "tray.and.arrow.down")
+            }
+            .help("Stash changes (⌥⌘S) — ⌥-click to stash everything now")
+            .disabled(operations.session.status?.summary?.isClean ?? true)
+            Button {
+                operations.popLatest()
+            } label: {
+                Label("Pop", systemImage: "tray.and.arrow.up")
+            }
+            .disabled(operations.session.stashes?.isEmpty ?? true)
+            .help((operations.session.stashes?.isEmpty ?? true) ? "No stashes" : "Pop the latest stash")
+        }
+        .buttonStyle(.glass)
+        .onAppear { if operations.session.stashes == nil { operations.session.loadStashes() } }
+    }
+}
+
 /// Title + icon when the bar has room (or Show Labels is on), icon only otherwise.
 struct CommandBarLabelStyle: LabelStyle {
     let showsTitle: Bool
@@ -154,8 +270,8 @@ struct CommandBarLabelStyle: LabelStyle {
     }
 }
 
-/// Branch list with a filter: current first, then local and remote branches. Phase 3 reveals the chosen
-/// branch in the graph; switching branches arrives with Phase 4.
+/// Branch list with a filter: current first, then local and remote branches. Choosing a branch switches to
+/// it (a remote branch checks out its local tracking branch); the context menu reveals it in the graph.
 private struct BranchPopover: View {
     let controller: GraphViewController
     @Binding var isPresented: Bool
@@ -167,7 +283,7 @@ private struct BranchPopover: View {
             TextField("Filter branches", text: $filter)
                 .textFieldStyle(.roundedBorder)
                 .focused($filterFocused)
-                .onSubmit { if let first = sections.first?.refs.first { reveal(first) } }
+                .onSubmit { if let first = sections.first?.refs.first { choose(first) } }
             if sections.isEmpty {
                 Text(filter.isEmpty ? "No branches yet" : "No matching branches")
                     .typeStyle(.callout)
@@ -179,19 +295,26 @@ private struct BranchPopover: View {
                         Section(section.title) {
                             ForEach(section.refs, id: \.fullName) { ref in
                                 Button {
-                                    reveal(ref)
+                                    choose(ref)
                                 } label: {
                                     BranchRow(ref: ref)
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(ref.commit == nil)
+                                .contextMenu {
+                                    Button("Show in Graph") { reveal(ref) }
+                                    Button("New Branch Here…") {
+                                        isPresented = false
+                                        controller.operations?.newBranch(at: ref.fullName, label: ref.shortName)
+                                    }
+                                }
                             }
                         }
                     }
                 }
                 .frame(width: 320, height: 300)
             }
-            Text("Switching branches arrives with branch operations.")
+            Text("Choose a branch to switch to it. Right-click for more.")
                 .typeStyle(.caption)
                 .foregroundStyle(.token(.textTertiary))
         }
@@ -216,6 +339,12 @@ private struct BranchPopover: View {
             BranchSection(title: "Current", refs: current), BranchSection(title: "Local", refs: local),
             BranchSection(title: "Remote", refs: remote),
         ].filter { !$0.refs.isEmpty }
+    }
+
+    private func choose(_ ref: GitRef) {
+        isPresented = false
+        if ref.isHead { return reveal(ref) }
+        controller.operations?.checkout(ref: ref)
     }
 
     private func reveal(_ ref: GitRef) {
@@ -249,6 +378,6 @@ private struct BranchRow: View {
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Shows this branch in the graph")
+        .accessibilityHint(ref.isHead ? "Current branch" : "Switches to this branch")
     }
 }

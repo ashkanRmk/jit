@@ -49,22 +49,26 @@ public struct PresentableError: Sendable, Equatable, Error {
     public static func make(_ error: GitCoreError) -> PresentableError {
         switch error {
         case .cancelled:
-            return PresentableError(title: "Cancelled", explanation: "The operation was cancelled.", isCancellation: true)
+            return PresentableError(
+                title: "Cancelled", explanation: "The operation was cancelled.", isCancellation: true)
         case .noActiveProfile:
             return PresentableError(
                 title: "Choose a profile first",
-                explanation: "This operation creates commits, and Jit needs to know who they are by. Choose or create a profile — Jit never changes your Git configuration.",
+                explanation:
+                    "This operation creates commits, and Jit needs to know who they are by. Choose or create a profile — Jit never changes your Git configuration.",
                 actions: [.chooseProfile])
         case .staleSnapshot(let summary):
             return PresentableError(
                 title: "The repository changed", explanation: summary, actions: [.refresh])
         case .indexLocked(let path):
-            let age = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date).map {
-                " The lock file is \(RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date())) old."
-            } ?? ""
+            let age =
+                (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date).map {
+                    " The lock file is \(RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date())) old."
+                } ?? ""
             return PresentableError(
                 title: "Another Git process is using this repository",
-                explanation: "Git found index.lock in the repository: another program (a terminal, an editor, or a crashed Git) is working here.\(age) Try again when it finishes.",
+                explanation:
+                    "Git found index.lock in the repository: another program (a terminal, an editor, or a crashed Git) is working here.\(age) Try again when it finishes.",
                 actions: [.retry, .openInTerminal], technicalDetail: path)
         case .refused(let summary):
             return PresentableError(title: summary, explanation: "Nothing was changed.")
@@ -88,7 +92,8 @@ public struct PresentableError: Sendable, Equatable, Error {
         }
         switch failure.kind {
         case .invalidRepository:
-            return error("This folder is no longer a Git repository.", "It may have been moved or deleted.", [.revealInFinder])
+            return error(
+                "This folder is no longer a Git repository.", "It may have been moved or deleted.", [.revealInFinder])
         case .detachedHead:
             return error("You're not on a branch.", "Create a branch here or switch to one first.", [.createBranch])
         case .dirtyWorkingTree, .untrackedWouldBeOverwritten:
@@ -100,14 +105,18 @@ public struct PresentableError: Sendable, Equatable, Error {
                     : "These files have changes that the operation would overwrite. Nothing was changed.",
                 [.stashAndRetry, .showWorkingDirectory])
         case .unmergedIndex:
-            return error("There are unresolved conflicts.", "Resolve them, or abort the operation.", [.resolveConflicts, .abortOperation])
+            return error(
+                "There are unresolved conflicts.", "Resolve them, or abort the operation.",
+                [.resolveConflicts, .abortOperation])
         case .authenticationFailed:
             return error(
                 "This remote needs credentials.",
                 "Jit runs Git without prompts. Public HTTPS and SSH keys loaded in ssh-agent work today; account and SSH key setup arrives with profiles & accounts.",
                 [.openInTerminal])
         case .expiredToken:
-            return error("The access token has expired.", "The remote rejected the token. Account setup arrives with profiles & accounts.", [.openInTerminal])
+            return error(
+                "The access token has expired.",
+                "The remote rejected the token. Account setup arrives with profiles & accounts.", [.openInTerminal])
         case .sshPublicKeyDenied:
             return error(
                 "The server refused your SSH key.",
@@ -121,11 +130,13 @@ public struct PresentableError: Sendable, Equatable, Error {
         case .sshHostKeyChanged:
             return error(
                 "Warning: the server's SSH host key has changed.",
-                "This can mean someone is intercepting the connection, or the server was reinstalled. Verify the new key with the server's administrator before connecting. Jit will not retry.")
+                "This can mean someone is intercepting the connection, or the server was reinstalled. Verify the new key with the server's administrator before connecting. Jit will not retry."
+            )
         case .tlsFailure:
             return error(
                 "The server's certificate couldn't be verified.",
-                "The connection was stopped to protect you. Custom certificate authorities arrive with profiles & accounts; Jit never disables verification.")
+                "The connection was stopped to protect you. Custom certificate authorities arrive with profiles & accounts; Jit never disables verification."
+            )
         case .proxyFailure:
             return error("The proxy refused or couldn't be reached.", "Check your network's proxy settings.", [.retry])
         case .hostNotFound:
@@ -133,7 +144,8 @@ public struct PresentableError: Sendable, Equatable, Error {
                 "The server's name couldn't be resolved.",
                 "Check the remote URL and your connection. Private servers may need a VPN.", [.retry])
         case .connectionTimedOut:
-            return error("The connection timed out.", "The server didn't answer. Check your connection or VPN.", [.retry])
+            return error(
+                "The connection timed out.", "The server didn't answer. Check your connection or VPN.", [.retry])
         case .connectionRefused:
             return error("The server refused the connection.", "It may be down, or the port may be wrong.", [.retry])
         case .remoteRepositoryNotFound:
@@ -146,7 +158,9 @@ public struct PresentableError: Sendable, Equatable, Error {
                 "Pull first (fast-forward or rebase), or force push with lease if you mean to overwrite them.",
                 [.pullFastForward, .pullRebase, .forcePushWithLease])
         case .hookRejected:
-            return error("The remote rejected the push.", "Its hook or branch protection declined it — see the server's message.")
+            return error(
+                "The remote rejected the push.", "Its hook or branch protection declined it — see the server's message."
+            )
         case .mergeConflicts:
             return error("Stopped with conflicts.", "Resolve the conflicted files, then continue.", [.resolveConflicts])
         case .indexLocked:

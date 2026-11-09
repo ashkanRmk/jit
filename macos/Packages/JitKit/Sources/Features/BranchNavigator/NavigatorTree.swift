@@ -12,12 +12,15 @@ final class NavigatorNode {
         case ref(GitRef)
         /// "No tags", "main — no commits".
         case note(String)
+        /// A `stash@{n}` entry (P4.16).
+        case stash(StashEntry)
     }
 
     enum Section: String, CaseIterable {
         case local = "Local"
         case remote = "Remote"
         case tags = "Tags"
+        case stashes = "Stashes"
     }
 
     let kind: Kind
@@ -39,11 +42,16 @@ final class NavigatorNode {
         return nil
     }
 
+    var stash: StashEntry? {
+        if case .stash(let entry) = kind { return entry }
+        return nil
+    }
+
     var isExpandable: Bool { !children.isEmpty }
 
     /// Number of refs below (section headers show it).
     var refCount: Int {
-        if ref != nil { return 1 }
+        if ref != nil || stash != nil { return 1 }
         return children.reduce(0) { $0 + $1.refCount }
     }
 
@@ -65,7 +73,8 @@ final class NavigatorNode {
 /// Builds the navigator tree from a `RefSnapshot` (design §3.5). Pure and testable.
 enum NavigatorTreeBuilder {
     /// - Parameter filter: fuzzy subsequence over short names; empty keeps everything.
-    static func build(_ refs: RefSnapshot, filter: String = "") -> [NavigatorNode] {
+    /// - Parameter stashes: shown as a "Stashes" section once loaded (`nil` hides it).
+    static func build(_ refs: RefSnapshot, filter: String = "", stashes: [StashEntry]? = nil) -> [NavigatorNode] {
         let keep: (GitRef) -> Bool = { filter.isEmpty || FuzzyMatch.matches(filter, $0.shortName) }
         var sections: [NavigatorNode] = []
 
@@ -102,6 +111,25 @@ enum NavigatorTreeBuilder {
             }
             sections.append(
                 NavigatorNode(kind: .section(.tags), title: "Tags", id: "section/Tags", children: tagChildren))
+        }
+
+        if let stashes {
+            let matching = stashes.filter { filter.isEmpty || FuzzyMatch.matches(filter, $0.message) }
+            var children = matching.map {
+                NavigatorNode(kind: .stash($0), title: $0.message, id: "stash/\($0.oid)")
+            }
+            if children.isEmpty, filter.isEmpty {
+                children = [
+                    NavigatorNode(
+                        kind: .note("No stashes"), title: "",
+                        id: "note/nostashes")
+                ]
+            }
+            if !children.isEmpty {
+                sections.append(
+                    NavigatorNode(kind: .section(.stashes), title: "Stashes", id: "section/Stashes", children: children)
+                )
+            }
         }
         return sections
     }

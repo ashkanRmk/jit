@@ -27,6 +27,7 @@ public final class PreferencesStore {
     static let graphDensityKey = "graphDensity"
     static let restoreTabsKey = "restoreTabsOnLaunch"
     static let commandBarLabelsKey = "commandBarShowsLabels"
+    static let cloneParentKey = "cloneParentDirectory"
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -47,6 +48,11 @@ public final class PreferencesStore {
         didSet { defaults.set(commandBarShowsLabels, forKey: Self.commandBarLabelsKey) }
     }
 
+    /// Where the clone sheet creates repositories (remembered; defaults to ~/Developer if it exists, else home).
+    public var cloneParentDirectory: String {
+        didSet { defaults.set(cloneParentDirectory, forKey: Self.cloneParentKey) }
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         appearance = defaults.string(forKey: Self.appearanceKey).flatMap(Appearance.init(rawValue:)) ?? .system
@@ -54,5 +60,9 @@ public final class PreferencesStore {
         graphDensity =
             defaults.string(forKey: Self.graphDensityKey).flatMap(GraphDensity.init(rawValue:)) ?? .comfortable
         commandBarShowsLabels = defaults.object(forKey: Self.commandBarLabelsKey) as? Bool ?? true
+        let developer = NSHomeDirectory() + "/Developer"
+        cloneParentDirectory =
+            defaults.string(forKey: Self.cloneParentKey)
+            ?? (FileManager.default.fileExists(atPath: developer) ? developer : NSHomeDirectory())
     }
 }

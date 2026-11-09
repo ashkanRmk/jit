@@ -38,10 +38,11 @@ public struct ConflictDocument: Sendable {
     public let workingTreeHash: FileHash
     public let workingTree: [UInt8]?
 
-    /// The working-tree file still holds Git's conflict (same number of marker blocks) — not edited yet.
+    /// The working-tree file still holds Git's conflict markers — not resolved by hand yet. (Git's merge may
+    /// coalesce nearby hunks that `zdiff3` keeps apart, so the counts need not match.)
     public var workingTreeLooksUnedited: Bool {
         guard let workingTree else { return false }
-        return Self.markerBlockCount(workingTree) == conflictCount
+        return Self.markerBlockCount(workingTree) > 0
     }
 
     public var conflictCount: Int {
@@ -406,6 +407,12 @@ public struct ConflictLabels: Sendable, Equatable {
     public var theirs: String
     /// Rebase inverts ours/theirs: shown once per session.
     public var explanation: String?
+
+    public init(ours: String, theirs: String, explanation: String? = nil) {
+        self.ours = ours
+        self.theirs = theirs
+        self.explanation = explanation
+    }
 
     public static func make(for state: RepoOperationState, currentBranch: String?) -> ConflictLabels {
         let branch = currentBranch.map { "Current branch \($0)" } ?? "Current HEAD"

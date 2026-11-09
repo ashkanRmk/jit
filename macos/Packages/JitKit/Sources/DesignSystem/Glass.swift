@@ -76,3 +76,28 @@ public struct FloatingGlassCapsule<Content: View>: View {
             .jitGlass(in: Capsule(), interactive: false)
     }
 }
+
+/// A floating bar with a subtle semantic tint (the Phase 4 operation banner): tinted Liquid Glass, or an
+/// opaque tinted surface under Reduce Transparency. Text on it uses primary/secondary label colors only.
+public struct TintedGlassBar<S: Shape>: ViewModifier {
+    let shape: S
+    let tint: ColorToken
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    public func body(content: Content) -> some View {
+        if reduceTransparency {
+            content
+                .background(ColorToken.conflictBackground.color, in: shape)
+                .overlay(shape.stroke(tint.color.opacity(0.6), lineWidth: Border.hairline))
+        } else {
+            content.glassEffect(.regular.tint(tint.color.opacity(0.22)), in: shape)
+        }
+    }
+}
+
+extension View {
+    /// Tinted glass for a floating status bar (one per surface, never on rows).
+    public func tintedGlassBar<S: Shape>(in shape: S, tint: ColorToken) -> some View {
+        modifier(TintedGlassBar(shape: shape, tint: tint))
+    }
+}

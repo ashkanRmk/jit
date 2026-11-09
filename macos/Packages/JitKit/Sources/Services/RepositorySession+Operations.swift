@@ -20,7 +20,9 @@ extension RepositorySession {
         _ title: String, cancellation: OperationCancellation = .notCancellable,
         refresh: Set<InvalidationKind> = Set(InvalidationKind.allCases),
         summarize: @escaping @Sendable (T) -> OperationSummary,
-        _ body: @escaping @Sendable (RepositoryHandle, AsyncStream<OperationProgress>.Continuation) async throws(GitCoreError) -> T
+        _ body:
+            @escaping @Sendable (RepositoryHandle, AsyncStream<OperationProgress>.Continuation)
+            async throws(GitCoreError) -> T
     ) async -> Result<T, PresentableError> {
         guard let handle, lifecycle != .closed else {
             return .failure(PresentableError.make(.cancelled))
@@ -83,7 +85,8 @@ extension RepositorySession {
         case .merge: title = "Pull with merge"
         case .rebase: title = "Pull with rebase"
         }
-        return await perform(title, cancellation: .cancellable, summarize: OutcomeText.describe) { handle, progress throws(GitCoreError) in
+        return await perform(title, cancellation: .cancellable, summarize: OutcomeText.describe) {
+            handle, progress throws(GitCoreError) in
             try await handle.pull(mode, context: context, progress: progress)
         }
     }
@@ -118,7 +121,9 @@ extension RepositorySession {
         }
     }
 
-    public func switchTo(_ target: SwitchTarget, expected: RepoStateToken?) async -> Result<SwitchOutcome, PresentableError> {
+    public func switchTo(_ target: SwitchTarget, expected: RepoStateToken?) async -> Result<
+        SwitchOutcome, PresentableError
+    > {
         await perform(Self.title(for: target), summarize: OutcomeText.describe) { handle, _ throws(GitCoreError) in
             try await handle.switchTo(target, expected: expected)
         }
@@ -134,8 +139,12 @@ extension RepositorySession {
         }
     }
 
-    public func renameBranch(_ old: String, to new: String, expected: RepoStateToken?) async -> Result<Void, PresentableError> {
-        await perform("Rename \(old) to \(new)", refresh: [.refs, .head, .config]) { _ in OperationSummary("Renamed.") } _: {
+    public func renameBranch(_ old: String, to new: String, expected: RepoStateToken?) async -> Result<
+        Void, PresentableError
+    > {
+        await perform("Rename \(old) to \(new)", refresh: [.refs, .head, .config]) { _ in
+            OperationSummary("Renamed.")
+        } _: {
             handle, _ throws(GitCoreError) in
             try await handle.renameBranch(old, to: new, expected: expected)
         }
@@ -144,7 +153,9 @@ extension RepositorySession {
     public func deleteBranch(_ name: String, token: ConfirmationToken, expected: RepoStateToken?) async
         -> Result<Void, PresentableError>
     {
-        await perform("Delete branch \(name)", refresh: [.refs, .config]) { _ in OperationSummary("Deleted.") } _: {
+        await perform("Delete branch \(name)", refresh: [.refs, .config]) { _ in
+            OperationSummary("Deleted.")
+        } _: {
             handle, _ throws(GitCoreError) in
             try await handle.deleteBranch(name, token: token, expected: expected)
         }
@@ -153,7 +164,8 @@ extension RepositorySession {
     public func deleteRemoteBranch(remote: String, branch: String, token: ConfirmationToken) async
         -> Result<PushOutcome, PresentableError>
     {
-        await perform("Delete \(remote)/\(branch)", refresh: [.refs], summarize: OutcomeText.describe) { handle, _ throws(GitCoreError) in
+        await perform("Delete \(remote)/\(branch)", refresh: [.refs], summarize: OutcomeText.describe) {
+            handle, _ throws(GitCoreError) in
             try await handle.deleteRemoteBranch(remote: remote, branch: branch, token: token)
         }
     }
@@ -171,7 +183,8 @@ extension RepositorySession {
     public func merge(_ request: MergeRequest, context: ExecContext, expected: RepoStateToken?) async
         -> Result<IntegrationOutcome, PresentableError>
     {
-        await perform("Merge \(Self.shortRef(request.source))", summarize: OutcomeText.describe) { handle, _ throws(GitCoreError) in
+        await perform("Merge \(Self.shortRef(request.source))", summarize: OutcomeText.describe) {
+            handle, _ throws(GitCoreError) in
             try await handle.merge(request, context: context, expected: expected)
         }
     }
@@ -179,7 +192,8 @@ extension RepositorySession {
     public func rebase(onto: String, context: ExecContext, expected: RepoStateToken?) async
         -> Result<IntegrationOutcome, PresentableError>
     {
-        await perform("Rebase onto \(Self.shortRef(onto))", summarize: OutcomeText.describe) { handle, _ throws(GitCoreError) in
+        await perform("Rebase onto \(Self.shortRef(onto))", summarize: OutcomeText.describe) {
+            handle, _ throws(GitCoreError) in
             try await handle.rebase(onto: onto, context: context, expected: expected)
         }
     }
@@ -207,14 +221,18 @@ extension RepositorySession {
         }
     }
 
-    public func skipCurrent(context: ExecContext, token: ConfirmationToken) async -> Result<IntegrationOutcome, PresentableError> {
+    public func skipCurrent(context: ExecContext, token: ConfirmationToken) async -> Result<
+        IntegrationOutcome, PresentableError
+    > {
         await perform("Skip commit", summarize: OutcomeText.describe) { handle, _ throws(GitCoreError) in
             try await handle.skipCurrent(context: context, token: token)
         }
     }
 
     public func abortOperation(token: ConfirmationToken) async -> Result<Void, PresentableError> {
-        await perform("Abort") { _ in OperationSummary("Aborted; the repository is back where it was.") } _: {
+        await perform("Abort") { _ in
+            OperationSummary("Aborted; the repository is back where it was.")
+        } _: {
             handle, _ throws(GitCoreError) in
             try await handle.abortOperation(token: token)
         }
@@ -226,7 +244,9 @@ extension RepositorySession {
         (try? await handle?.conflicts()) ?? []
     }
 
-    public func saveResolution(_ path: String, content: [UInt8], expected: FileHash) async -> Result<FileHash, PresentableError> {
+    public func saveResolution(_ path: String, content: [UInt8], expected: FileHash) async -> Result<
+        FileHash, PresentableError
+    > {
         guard let handle else { return .failure(PresentableError.make(.cancelled)) }
         do {
             let hash = try await handle.saveResolution(path, content: content, expected: expected)
@@ -257,8 +277,12 @@ extension RepositorySession {
 
     // MARK: Stash
 
-    public func stashPush(_ request: StashPushRequest, context: ExecContext) async -> Result<StashEntry?, PresentableError> {
-        await perform("Stash changes", refresh: [.index, .worktree, .refs]) { _ in OperationSummary("Stashed.") } _: {
+    public func stashPush(_ request: StashPushRequest, context: ExecContext) async -> Result<
+        StashEntry?, PresentableError
+    > {
+        await perform("Stash changes", refresh: [.index, .worktree, .refs]) { _ in
+            OperationSummary("Stashed.")
+        } _: {
             handle, _ throws(GitCoreError) in
             try await handle.stashPush(request, context: context)
         }
@@ -267,7 +291,8 @@ extension RepositorySession {
     public func applyStash(_ entry: StashEntry, pop: Bool, context: ExecContext) async
         -> Result<StashApplyOutcome, PresentableError>
     {
-        await perform(pop ? "Pop \(entry.name)" : "Apply \(entry.name)", refresh: [.index, .worktree, .refs]) { outcome in
+        await perform(pop ? "Pop \(entry.name)" : "Apply \(entry.name)", refresh: [.index, .worktree, .refs]) {
+            outcome in
             switch outcome {
             case .applied: OperationSummary(pop ? "Popped." : "Applied.")
             case .conflicts(let paths, _):
@@ -281,7 +306,9 @@ extension RepositorySession {
     }
 
     public func dropStash(_ entry: StashEntry, token: ConfirmationToken) async -> Result<Void, PresentableError> {
-        await perform("Drop \(entry.name)", refresh: [.refs]) { _ in OperationSummary("Dropped.") } _: { handle, _ throws(GitCoreError) in
+        await perform("Drop \(entry.name)", refresh: [.refs]) { _ in
+            OperationSummary("Dropped.")
+        } _: { handle, _ throws(GitCoreError) in
             try await handle.dropStash(index: entry.index, oid: entry.oid, token: token)
         }
     }
@@ -310,11 +337,13 @@ public enum OutcomeText {
         if outcome.cancelled {
             return OperationSummary(
                 outcome.changedRefs == 0
-                    ? "Fetch cancelled — no refs changed." : "Fetch cancelled — \(outcome.changedRefs) refs had already changed.")
+                    ? "Fetch cancelled — no refs changed."
+                    : "Fetch cancelled — \(outcome.changedRefs) refs had already changed.")
         }
         return OperationSummary(
             outcome.changedRefs == 0
-                ? "Already up to date." : "\(outcome.changedRefs) \(outcome.changedRefs == 1 ? "ref" : "refs") updated.")
+                ? "Already up to date." : "\(outcome.changedRefs) \(outcome.changedRefs == 1 ? "ref" : "refs") updated."
+        )
     }
 
     public static func describe(_ outcome: PullOutcome) -> OperationSummary {
@@ -337,7 +366,8 @@ public enum OutcomeText {
             OperationSummary(
                 "Stopped with \(paths.count) conflicted \(paths.count == 1 ? "file" : "files").", needsAttention: true)
         case .stoppedInProgress(let message):
-            OperationSummary(message.isEmpty ? "Stopped; the operation is still in progress." : message, needsAttention: true)
+            OperationSummary(
+                message.isEmpty ? "Stopped; the operation is still in progress." : message, needsAttention: true)
         case .finished: OperationSummary("Done.")
         }
     }
@@ -346,16 +376,21 @@ public enum OutcomeText {
         if outcome.cancelled {
             let pushed = outcome.refs.first?.status == .fastForward
             return OperationSummary(
-                pushed ? "Push cancelled — but the remote already has your commits." : "Push cancelled — the remote is unchanged.")
+                pushed
+                    ? "Push cancelled — but the remote already has your commits."
+                    : "Push cancelled — the remote is unchanged.")
         }
         switch outcome.rejection {
         case nil:
             if outcome.refs.allSatisfy({ $0.status == .upToDate }) { return OperationSummary("Everything up to date.") }
             if outcome.refs.first?.status == .deleted { return OperationSummary("Deleted on the remote.") }
             return OperationSummary("Pushed.")
-        case .nonFastForward?: return OperationSummary("Rejected: the remote has commits you don't have.", needsAttention: true)
-        case .staleLease?: return OperationSummary("Rejected: the remote moved since you last fetched.", needsAttention: true)
-        case .remoteHook(let reason)?: return OperationSummary("Rejected by the remote (\(reason)).", needsAttention: true)
+        case .nonFastForward?:
+            return OperationSummary("Rejected: the remote has commits you don't have.", needsAttention: true)
+        case .staleLease?:
+            return OperationSummary("Rejected: the remote moved since you last fetched.", needsAttention: true)
+        case .remoteHook(let reason)?:
+            return OperationSummary("Rejected by the remote (\(reason)).", needsAttention: true)
         case .other(let reason)?: return OperationSummary("Rejected (\(reason)).", needsAttention: true)
         }
     }

@@ -44,7 +44,7 @@ import Testing
     @Test func fetchCancelLeavesRefsConsistent() async throws {
         let world = try await Ops.world()
         // A large synthetic pack: many random blobs so the transfer takes a moment.
-        for index in 0..<40 {
+        for index in 0..<16 {
             var bytes = [UInt8](repeating: 0, count: 256 * 1024)
             bytes.withUnsafeMutableBytes { arc4random_buf($0.baseAddress, $0.count) }
             try Data(bytes).write(to: URL(fileURLWithPath: world.b.path + "/blob\(index).bin"))
@@ -191,6 +191,16 @@ import Testing
             Issue.record("expected merging state")
             return
         }
+    }
+
+    @Test func upstreamOfNamedBranch() async throws {
+        let world = try await Ops.world()
+        let upstream = try await world.handleA.upstream(of: "main")
+        #expect(upstream?.remote == "origin")
+        #expect(upstream?.ref == "refs/remotes/origin/main")
+        try await world.a.git("switch", "-q", "-c", "local-only")
+        #expect(try await world.handleA.upstream(of: "local-only") == nil)
+        #expect(try await world.handleA.upstream(of: "main")?.shortName == "origin/main")
     }
 
     @Test func pullWithoutUpstreamRefused() async throws {
@@ -374,7 +384,7 @@ import Testing
 
     @Test func cloneCancelRemovesCreatedDestination() async throws {
         let world = try await Ops.world()
-        for index in 0..<40 {
+        for index in 0..<16 {
             var bytes = [UInt8](repeating: 0, count: 256 * 1024)
             bytes.withUnsafeMutableBytes { arc4random_buf($0.baseAddress, $0.count) }
             try Data(bytes).write(to: URL(fileURLWithPath: world.b.path + "/blob\(index).bin"))

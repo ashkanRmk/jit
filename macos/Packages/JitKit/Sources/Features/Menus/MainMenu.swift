@@ -1,7 +1,7 @@
 import AppKit
 import Services
 
-/// The main menu (design §3.6). Only menus with working items exist — no Branch or Git menus yet.
+/// The main menu (design §3.6). Only menus with working items exist.
 /// Items target the first responder; `MainWindowController` and the app delegate implement them.
 @MainActor
 public enum MainMenu {
@@ -19,6 +19,7 @@ public enum MainMenu {
         main.addItem(submenu(editMenu()))
         main.addItem(submenu(viewMenu()))
         main.addItem(submenu(repositoryMenu()))
+        main.addItem(submenu(branchMenu()))
         let window = windowMenu()
         window.delegate = windowDelegate
         main.addItem(submenu(window))
@@ -67,6 +68,7 @@ public enum MainMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("New Tab", #selector(MainWindowController.newTab(_:)), "t"))
         menu.addItem(item("Open Repository…", #selector(MainWindowController.openRepository(_:)), "o"))
+        menu.addItem(item("Clone Repository…", #selector(MainWindowController.cloneRepository(_:)), "N", .command))
         let recent = item("Open Recent", nil)
         let recentMenu = NSMenu(title: "Open Recent")
         recentMenu.delegate = recentsDelegate
@@ -153,6 +155,24 @@ public enum MainMenu {
         let menu = NSMenu(title: "Repository")
         menu.addItem(item("Refresh", #selector(MainWindowController.refreshRepository(_:)), "r"))
         menu.addItem(.separator())
+        menu.addItem(item("Fetch", #selector(MainWindowController.fetchRepository(_:))))
+        menu.addItem(item("Fetch All Remotes", #selector(MainWindowController.fetchAllRemotes(_:))))
+        menu.addItem(item("Pull", #selector(MainWindowController.pullRepository(_:))))
+        menu.addItem(item("Pull with Merge", #selector(MainWindowController.pullWithMerge(_:))))
+        menu.addItem(item("Pull with Rebase", #selector(MainWindowController.pullWithRebase(_:))))
+        menu.addItem(item("Push", #selector(MainWindowController.pushRepository(_:))))
+        menu.addItem(.separator())
+        menu.addItem(
+            item("Stash Changes…", #selector(MainWindowController.stashChanges(_:)), "s", [.command, .option]))
+        menu.addItem(item("Pop Latest Stash", #selector(MainWindowController.popStash(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("Resolve Conflicts", #selector(MainWindowController.resolveConflicts(_:))))
+        menu.addItem(item("Continue Operation", #selector(MainWindowController.continueOperation(_:))))
+        menu.addItem(item("Abort Operation…", #selector(MainWindowController.abortOperation(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("Remotes…", #selector(MainWindowController.showRemotes(_:))))
+        menu.addItem(item("Show Activity", #selector(MainWindowController.showActivity(_:)), "a", [.command, .option]))
+        menu.addItem(.separator())
         menu.addItem(
             item(
                 "Reveal in Finder", #selector(MainWindowController.revealRepositoryInFinder(_:)), "r",
@@ -171,6 +191,13 @@ public enum MainMenu {
         discardedMenu.delegate = RecentlyDiscardedMenu.shared
         discarded.submenu = discardedMenu
         menu.addItem(discarded)
+        return menu
+    }
+
+    /// Branch operations on the current branch; per-branch actions live in the navigator and graph menus.
+    private static func branchMenu() -> NSMenu {
+        let menu = NSMenu(title: "Branch")
+        menu.addItem(item("New Branch…", #selector(MainWindowController.newBranch(_:))))
         return menu
     }
 

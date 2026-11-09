@@ -121,6 +121,8 @@ import Testing
         let all = clock.now - started
         print("blameFirstLinesOf5kLineFile: first block \(firstBlock ?? .zero), all 5000 lines \(all) (debug build)")
         #expect(total == 5000)
-        #expect(try #require(firstBlock) < .milliseconds(200))
+        // Release budget 200 ms (≈30 ms measured in isolation); debug builds under the full parallel suite get the
+        // standard PerfBudget headroom.
+        #expect(try #require(firstBlock) < PerfBudget.limit(.milliseconds(200)))
     }
 }
