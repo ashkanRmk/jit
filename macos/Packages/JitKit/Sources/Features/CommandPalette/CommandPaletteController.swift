@@ -1,6 +1,7 @@
 import AppKit
 import DesignSystem
 import GitCore
+import Observation
 import SwiftUI
 
 /// The ⌘K panel (design §3.1): a borderless child `NSPanel` of the main window, centered in its upper third,
@@ -12,6 +13,7 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
     private var panel: PalettePanel?
     private let model: CommandPaletteModel
     private(set) var isOpen = false
+    private weak var host: NSView?
 
     init(window: MainWindowController) {
         windowController = window
@@ -34,17 +36,16 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         position(panel, over: parent)
+        fitToContent()
+        observeContent()
         parent.addChildWindow(panel, ordered: .above)
-        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        let final = panel.frame
+        // Appear: fade (opacity only; the top edge stays anchored, so the design's 4 pt rise is omitted).
         panel.alphaValue = 0
-        if !reduceMotion { panel.setFrame(final.offsetBy(dx: 0, dy: -Space.s2), display: false) }
         panel.makeKeyAndOrderFront(nil)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = PaletteMotion.appear
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
-            if !reduceMotion { panel.animator().setFrame(final, display: true) }
         }
     }
 
@@ -67,9 +68,39 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Height follows the results; the top edge stays where the palette opened.
+    private func fitToContent() {
+        guard let panel, let host, let top = panel.anchorTop else { return }
+        host.invalidateIntrinsicContentSize()
+        host.layoutSubtreeIfNeeded()
+        let height = ceil(host.intrinsicContentSize.height)
+        guard height > 0 else { return }
+        guard abs(panel.frame.height - height) > 0.5 else { return }
+        panel.setFrame(
+            NSRect(x: panel.frame.minX, y: top - height, width: CommandPaletteView.width, height: height), display: true
+        )
+    }
+
+    private func observeContent() {
+        guard isOpen else { return }
+        withObservationTracking {
+            _ = model.rows.count
+            _ = model.query
+            _ = model.isIndexingFiles
+            _ = model.fileIndexError
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.fitToContent()
+                self?.observeContent()
+            }
+        }
+    }
+
     private func makePanel() -> PalettePanel {
         let host = NSHostingView(rootView: CommandPaletteView(model: model))
+        // The intrinsic size reports the content height; `fitToContent()` applies it with the top edge anchored.
         host.sizingOptions = [.intrinsicContentSize]
+        self.host = host
         let panel = PalettePanel(
             contentRect: NSRect(origin: .zero, size: host.fittingSize),
             styleMask: [.borderless, .fullSizeContentView], backing: .buffered, defer: true)
