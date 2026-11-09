@@ -76,6 +76,13 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
 - Enterprise rig (Phase 5, ADR-0039): `scripts/testing/enterprise-rig/up.sh` / `down.sh [--clean]` / `status.sh`
   (TLS git server, proxies, GitLab API stub, user-level sshd on 127.0.0.1; state in `~/Library/Caches/jit-rig`);
   rig tests: `JIT_RIG=1 swift test --package-path macos/Packages/JitKit --filter "Rig|Diagnostics"`
+- Release (Phase 7, ADR-0046/0047): `scripts/release/release.sh [--version X.Y.Z] [--adhoc] [--skip-notarize] [--from-step N]`
+  runs steps `scripts/release/01-build-app.sh … 09-validate.sh` → `build/release/<version>/` (DMG, `validation.txt`).
+  Version/bundle ID only in `macos/App/Config/Version.xcconfig`; identity in git-ignored `scripts/release/release.local.env`.
+  The DMG Finder layout needs Finder automation permission (`JIT_DMG_LAYOUT=0` skips it)
+- Bundled Git (ADR-0019): `scripts/build/build-git.sh` (pinned in `scripts/build/git-version.env`) → `build/git-runtime/<v>/git`;
+  `scripts/build/test-bundled-git.sh [--network] [--suite]` (relocation checks; `--suite` runs all tests against it with GIT_TRACE)
+- Benchmarks against another app (e.g. installed from the DMG): `JIT_BENCH_APP=/Applications/Jit.app scripts/benchmarks/run-all.sh`
 - Credentials: remote Git always runs with `-c credential.helper=` + `jit-git-helper` (ADR-0016); never add another
   credential path. Test hook for sentinel scans: `ProcessRunner.spawnObserver`.
 - State: `JIT_APP_SUPPORT=<dir>` replaces `~/Library/Application Support/Jit` (tests, screenshots, benchmarks —

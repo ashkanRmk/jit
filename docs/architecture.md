@@ -205,3 +205,18 @@ cloneRepository(_:engine:) — free function (no repository yet)
   reasons via `CommandAvailability`; ranking off the main actor.
 - **Accessibility**: `CodeLinesView` row elements (headings, rotors, custom line actions through
   `CodeLinesDelegate`), `GraphTableView` rotors.
+
+## Phase 7 — packaging (ADR-0019, 0045–0049)
+- **Bundle layout**: `Jit.app/Contents/MacOS/Jit`, `Contents/Helpers/jit-git-helper`,
+  `Contents/Resources/{Assets.car, AppIcon.icns, git/}`. `git/` holds the relocatable Git runtime: `bin/git`,
+  `libexec/git-core` (symlinks plus `git-remote-http`, `git-http-fetch`, `git-sh-i18n--envsubst` and shell
+  helpers), templates, an empty `etc/gitconfig`, `LICENSE`, `VERSION`, `SOURCE.txt`. arm64 only.
+- **Git resolution** (`GitLocator`, file-existence only): `JIT_GIT_PATH` (debug) → custom Git
+  (`PreferencesStore.customGitPath`, validated by `GitEngine.validateGit(at:)`) → bundled
+  (`Configuration.bundledGitPath(in: .main)`) → Homebrew/`/usr/local` (debug) → Apple's Git in an installed
+  Xcode/CLT → `gitNotFound` (error card → Settings ▸ Git). `GitEngine.setUserGitPath(_:)` switches at run
+  time; a stale probe is never cached (generation counter).
+- **Release metadata**: `Version.xcconfig` is the single source of the bundle ID, version, build and copyright.
+  `JitSourceCommit` is stamped by `scripts/release/01-build-app.sh`, and `ReleaseInfo` (Features/About) feeds
+  the About panel and Acknowledgements.
+- **Release pipeline**: `scripts/release/01…09` + `release.sh` (`docs/release.md`).

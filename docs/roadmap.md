@@ -9,7 +9,9 @@
 > `phase/04-git-workflows-and-conflicts`, see
 > [`phases/04-git-workflows-and-conflicts/progress.md`](phases/04-git-workflows-and-conflicts/progress.md)); **Phase 5 implemented**
 > ([`progress.md`](phases/05-profiles-and-providers/progress.md)); **Phase 6 implemented with carry-overs** (branch
-> `phase/06-polish-and-performance`, see [`progress.md`](phases/06-polish-and-performance/progress.md)); Phases 7–8 are plans. Each phase folder under
+> `phase/06-polish-and-performance`, see [`progress.md`](phases/06-polish-and-performance/progress.md)); **Phase 7 implemented,
+blocked on credentials** (Developer ID signing, notarization and clean-VM acceptance pending; branch
+`phase/07-packaging-and-release`, see [`progress.md`](phases/07-packaging-and-release/progress.md)); Phase 8 is a plan. Each phase folder under
 > [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
 > such as **§7.4** point into that file.
@@ -202,8 +204,8 @@ Assigned across the phase designs; check here before adding one (Phase 6 audits 
 | 0016 | Credential delivery: bundled helper binary `jit-git-helper` (Swift executable target `JitGitHelper`, at `Contents/Helpers/`) + one-shot authenticated local IPC (broker lives in `Services`, since it needs Keychain/Security; `GitCore` only passes an opaque endpoint); secrets never in argv, URLs, env dumps or logs. Post-V1 the same helper gains editor subcommands for interactive rebase. | P5 |
 | 0017 | OAuth: `ASWebAuthenticationSession`, auth code + PKCE + state for GitLab; for GitHub, PKCE if GitHub supports it for public clients at implementation time, otherwise device flow. Public clients only; registered client IDs are an external prerequisite. | P5 |
 | 0018 | Custom CA and proxy: URLSession trust evaluation scoped to configured hosts; Git gets `-c http.<url>.sslCAInfo` / `-c http.<url>.proxy` scoped per invocation. | P5 |
-| 0019 | Bundled Git runtime (build source, universal, relocatable, signed; GPLv2 source-offer obligations). | P7 (feasibility in P0) |
-| 0020 | Updates: V1 ships without auto-update unless an opt-in mechanism is approved. | P7 |
+| 0019 | **Accepted.** Git 2.56.0 built from the pinned kernel.org tarball, relocatable, system libcurl, pruned to 16 files, empty bundled system config, GPLv2 offer. | P7 |
+| 0020 | **Accepted.** V1 ships without any updater or update network traffic; opt-in Sparkle is a Phase 8 candidate. | P7 |
 
 Additional ADRs discovered while designing each phase use reserved number ranges so phases never
 collide: **0021–0024** P2, **0025–0029** P3, **0030–0034** P4, **0035–0039** P5, **0040–0044** P6,
