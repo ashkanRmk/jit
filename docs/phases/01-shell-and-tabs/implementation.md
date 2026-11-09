@@ -2,6 +2,12 @@
 
 Design: [`design.md`](design.md). Exit gate: §6 below + [`../../roadmap.md`](../../roadmap.md) §9.
 
+> **Outcome (2026-11-09):** implemented on `phase/01-shell-and-tabs`; what was built, measured, changed and
+> carried over is recorded in [`progress.md`](progress.md) (the checkboxes below are the original plan).
+> Notable changes: Phase 0 was not merged yet (branch cut from `phase/00-foundation` at the owner's request);
+> UI automation (XCUITest) replaced by model-level app tests plus real-input checks; the tab strip is a hosted
+> SwiftUI glass container in an unbordered toolbar item (spike in `specs/P1.2-tab-bar.md`).
+
 ## 1. Preconditions
 
 - [ ] Phase 0 PR merged; `docs/phases/00-foundation/progress.md` status complete (or carry-overs accepted).

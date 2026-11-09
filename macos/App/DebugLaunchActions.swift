@@ -1,28 +1,83 @@
 #if DEBUG
     import AppKit
+    import Features
     import SwiftUI
 
     /// Debug-only launch arguments used for repeatable manual checks and design screenshots:
     /// - `-JitAppearance light|dark` (AppDelegate) forces the appearance. (`-JitOpen <path>` works in all builds.)
     /// - `-JitShowGallery YES`: open the Design System gallery (`-JitGallerySection <name>` picks a section).
-    /// - `-JitSnapshot <file.png>` (+ optional `-JitSnapshotWindow <title or scene id>`): after the UI settles, render
-    ///   the window's view hierarchy (including its frame view) to a PNG and quit. This draws the opaque
-    ///   content exactly; Liquid Glass is composited by the window server and is only approximated, so
-    ///   glass review needs real screen captures.
-    struct DebugLaunchActions: ViewModifier {
-        @Environment(\.openWindow) private var openWindow
+    /// - `-JitShowDropOverlay YES`: show the folder drop overlay.
+    /// - `-JitShowSettings general|profiles`, `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`: open those
+    ///   surfaces for screenshots.
+    /// - `-JitSnapshot <file.png>` (+ optional `-JitSnapshotWindow <title or id>`): after the UI settles, render
+    ///   the window's view hierarchy to a PNG and quit. This draws opaque content exactly; Liquid Glass is
+    ///   composited by the window server and only approximated — prefer real captures
+    ///   (`scripts/testing/screenshot.sh`) where Screen Recording is allowed.
+    @MainActor
+    enum DebugLaunchActions {
+        private static var galleryWindow: NSWindow?
 
-        func body(content: Content) -> some View {
-            content.task {
-                let defaults = UserDefaults.standard
-                if defaults.bool(forKey: "JitShowGallery") { openWindow(id: "design-system") }
-                if let output = defaults.string(forKey: "JitSnapshot") {
-                    try? await Task.sleep(for: .seconds(defaults.double(forKey: "JitSnapshotDelay").nonZero ?? 2))
+        static func run(model: AppModel, controller: MainWindowController?) {
+            let defaults = UserDefaults.standard
+            NSApp.mainMenu?.addItem(debugMenu())
+            if defaults.bool(forKey: "JitShowGallery") { showGallery() }
+            if let pane = defaults.string(forKey: "JitShowSettings") {
+                NSApp.sendAction(
+                    pane == "profiles" ? Selector(("showSettingsProfiles:")) : Selector(("showSettings:")), to: nil,
+                    from: nil)
+            }
+            if defaults.bool(forKey: "JitShowProfilePopover") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    NSApp.sendAction(#selector(MainWindowController.showProfileSwitcher(_:)), to: nil, from: nil)
+                }
+            }
+            if defaults.bool(forKey: "JitShowProfileEditor") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    controller?.presentProfileEditor(nil, prefillFromGitConfig: false)
+                }
+            }
+            if defaults.bool(forKey: "JitShowDropOverlay") {
+                controller?.showDropOverlayForScreenshot()
+            }
+            if let output = defaults.string(forKey: "JitSnapshot") {
+                let delay = defaults.double(forKey: "JitSnapshotDelay")
+                DispatchQueue.main.asyncAfter(deadline: .now() + (delay == 0 ? 2 : delay)) {
                     WindowSnapshot.write(windowTitled: defaults.string(forKey: "JitSnapshotWindow"), to: output)
                     NSApp.terminate(nil)
                 }
             }
         }
+
+        private static func debugMenu() -> NSMenuItem {
+            let item = NSMenuItem(title: "Debug", action: nil, keyEquivalent: "")
+            let menu = NSMenu(title: "Debug")
+            let gallery = NSMenuItem(
+                title: "Design System", action: #selector(DebugTarget.showGallery), keyEquivalent: "d")
+            gallery.keyEquivalentModifierMask = [.command, .option]
+            gallery.target = DebugTarget.shared
+            menu.addItem(gallery)
+            item.submenu = menu
+            return item
+        }
+
+        static func showGallery() {
+            if galleryWindow == nil {
+                let host = NSHostingController(rootView: DesignSystemGallery().frame(minWidth: 900, minHeight: 600))
+                let window = NSWindow(contentViewController: host)
+                window.title = "Design System"
+                window.identifier = NSUserInterfaceItemIdentifier("design-system")
+                window.setContentSize(NSSize(width: 1180, height: 820))
+                window.isReleasedWhenClosed = false
+                galleryWindow = window
+            }
+            galleryWindow?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    @MainActor
+    final class DebugTarget: NSObject {
+        static let shared = DebugTarget()
+        @objc func showGallery() { DebugLaunchActions.showGallery() }
     }
 
     @MainActor
@@ -43,9 +98,5 @@
             try? data.write(to: URL(fileURLWithPath: path))
             print("snapshot: \(path)")
         }
-    }
-
-    extension Double {
-        fileprivate var nonZero: Double? { self == 0 ? nil : self }
     }
 #endif

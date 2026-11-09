@@ -1,25 +1,180 @@
 import AppKit
+import DesignSystem
+import Features
 import GitCore
+import Observation
+import Services
 import os
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+/// AppKit lifecycle: one main window with repository tabs (ADR-0007), a Settings window, and a menu bar
+/// built in code. Startup reads the small session file synchronously, shows the window with cached
+/// tab titles, and only then — after the first frame — lets the active tab load Git data.
+@main
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
+    static func main() {
+        LaunchProbe.startIfRequested()
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        withExtendedLifetime(delegate) { app.run() }
+    }
+
+    private var model: AppModel?
+    private var windowController: MainWindowController?
+    private var settings: SettingsWindowController?
+    private var memoryPressure: MemoryPressureMonitor?
+    private var recentsMenu: NSMenu?
+    private let preferences = PreferencesStore()
+
     func applicationWillFinishLaunching(_ notification: Notification) {
-        #if DEBUG
-            // `-JitAppearance light|dark` forces the app appearance for screenshots.
-            switch UserDefaults.standard.string(forKey: "JitAppearance") {
-            case "light": NSApp.appearance = NSAppearance(named: .aqua)
-            case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-            default: break
-            }
-        #endif
+        // Before any window exists, so a dark launch never flashes light.
+        applyAppearance()
+        observeAppearance()
+        NSApp.mainMenu = MainMenu.build(recentsDelegate: self, windowDelegate: self)
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let location = StoreLocation.applicationSupport()
+        let sessionStore = SessionStore(location: location)
+        let model = AppModel(
+            engine: GitEngine(), preferences: preferences, recents: RecentsStore(location: location),
+            profiles: ProfileStore(location: location), sessionStore: sessionStore)
+        let savedSession = sessionStore.load().value
+        let controller = MainWindowController(model: model)
+        self.model = model
+        windowController = controller
+        model.restore(savedSession)
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+        LaunchProbe.firstContentAppeared()
+
+        // After the first frame: the active tab may start Git work.
+        DispatchQueue.main.async {
+            controller.updateForeground()
+            self.runLaunchHooks(model)
+        }
+        memoryPressure = MemoryPressureMonitor { [weak model] in model?.handleMemoryPressure() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        windowController?.recordFrame()
+        model?.flush()
         // No Git child may outlive Jit.
         ProcessRunner.terminateAllRunning()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// Folders opened via Finder/Dock or `open -a Jit <folder>` open as repository tabs.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { model?.open(url) }
+    }
+
+    // MARK: - Appearance
+
+    private func applyAppearance() {
+        #if DEBUG
+            // `-JitAppearance light|dark` forces the appearance for screenshots.
+            switch UserDefaults.standard.string(forKey: "JitAppearance") {
+            case "light":
+                NSApp.appearance = NSAppearance(named: .aqua)
+                return
+            case "dark":
+                NSApp.appearance = NSAppearance(named: .darkAqua)
+                return
+            default: break
+            }
+        #endif
+        switch preferences.appearance {
+        case .system: NSApp.appearance = nil
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+
+    private func observeAppearance() {
+        withObservationTracking {
+            _ = preferences.appearance
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.applyAppearance()
+                self?.observeAppearance()
+            }
+        }
+    }
+
+    @objc func setAppearance(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let value = PreferencesStore.Appearance(rawValue: raw) {
+            preferences.appearance = value
+        }
+    }
+
+    // MARK: - App-level menu actions
+
+    @objc func showSettings(_ sender: Any?) { settingsController().show() }
+
+    @objc func showSettingsProfiles(_ sender: Any?) { settingsController().show(.profiles) }
+
+    private func settingsController() -> SettingsWindowController {
+        if let settings { return settings }
+        guard let model else { fatalError("Settings requested before launch finished") }
+        let controller = SettingsWindowController(
+            preferences: preferences, profiles: model.profiles, engine: model.engine)
+        settings = controller
+        return controller
+    }
+
+    @objc func showJitHelp(_ sender: Any?) {
+        // Opens the project README in the user's browser; Jit itself makes no network request.
+        if let url = URL(string: "https://github.com/ashkanRmk/jit#readme") { NSWorkspace.shared.open(url) }
+    }
+
+    /// ⌘W in windows other than the main window (Settings) closes that window.
+    @objc func closeTab(_ sender: Any?) { NSApp.keyWindow?.performClose(sender) }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == MainMenu.AppSelectors.setAppearance {
+            menuItem.state = (menuItem.representedObject as? String) == preferences.appearance.rawValue ? .on : .off
+        }
+        if menuItem.action == #selector(closeTab(_:)) { return NSApp.keyWindow != nil }
+        return true
+    }
+
+    // MARK: - Dynamic menus
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let model else { return }
+        switch menu.title {
+        case "Open Recent": MainMenu.updateRecentsMenu(menu, recents: model.recents)
+        case "Window": MainMenu.updateWindowMenu(menu, tabs: model.tabs, activeID: model.activeTabID)
+        default: break
+        }
+    }
+
+    // MARK: - Launch hooks (manual checks, UI tests, benchmarks)
+
+    private func runLaunchHooks(_ model: AppModel) {
+        let environment = ProcessInfo.processInfo.environment
+        // `-JitOpen <path>` or env `JIT_OPEN=<path>` (all builds); `-JitUITestOpenRepository <path>` (debug):
+        // NSOpenPanel isn't reliably scriptable. Use the env form with `open`, where AppKit treats path
+        // arguments as files to open.
+        var path = environment["JIT_OPEN"] ?? UserDefaults.standard.string(forKey: "JitOpen")
+        #if DEBUG
+            path = path ?? UserDefaults.standard.string(forKey: "JitUITestOpenRepository")
+        #endif
+        if let path { model.open(URL(fileURLWithPath: path)) }
+        if environment["JIT_BENCHMARK_TAB_SWITCH"] != nil, let controller = windowController {
+            Task { await Benchmarks.tabSwitch(model: model, controller: controller) }
+        }
+        if let repository = environment["JIT_STRESS_OPEN_CLOSE"] {
+            Task { await Benchmarks.openCloseStress(model: model, path: repository) }
+        }
+        #if DEBUG
+            DebugLaunchActions.run(model: model, controller: windowController)
+        #endif
+    }
 }
 
 /// Benchmark mode (`-JitBenchmarkLaunch`, optional env `JIT_BENCHMARK_OUTPUT=<file>`): measures process start (kernel
@@ -36,7 +191,7 @@ final class LaunchProbe {
         interval = Self.signposter.beginInterval("Launch")
         Self.current = self
         // Ends when the first window becomes key, or — when launched in the background, where it never
-        // becomes key — when the root view first appears (`firstContentAppeared`).
+        // becomes key — when the window is first shown (`firstContentAppeared`).
         observers.append(
             NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
@@ -46,8 +201,7 @@ final class LaunchProbe {
     /// The active probe, if launched with `-JitBenchmarkLaunch`.
     static var current: LaunchProbe?
 
-    /// Called from `JitApp.init()`, before any scene or app-delegate callback, so the root view can
-    /// never appear before the probe exists.
+    /// Called first thing in `main()`, before any window or app-delegate callback.
     static func startIfRequested() {
         guard current == nil, ProcessInfo.processInfo.arguments.contains("-JitBenchmarkLaunch") else { return }
         _ = LaunchProbe()
@@ -62,8 +216,8 @@ final class LaunchProbe {
     private var isFinished = false
 
     /// `trigger`: "key" (first window became key — the launch.sh method, via LaunchServices) or
-    /// "content" (root view appeared; used when the app is launched in the background and never
-    /// becomes active). Only "key" measurements are comparable baselines.
+    /// "content" (window shown; used when the app is launched in the background and never becomes
+    /// active). Only "key" measurements are comparable baselines.
     private func finish(trigger: String) {
         guard !isFinished else { return }
         isFinished = true
@@ -73,14 +227,7 @@ final class LaunchProbe {
         DispatchQueue.main.async { [self] in
             Self.signposter.endInterval("Launch", interval)
             let milliseconds = Self.millisecondsSinceProcessStart()
-            let line = String(format: "first_window_ms=%.1f trigger=%@\n", milliseconds, trigger)
-            print(line, terminator: "")
-            fflush(stdout)
-            // A path-valued launch argument would be taken by AppKit as a file to open, so the output
-            // file comes from the environment (`open --env JIT_BENCHMARK_OUTPUT=…`).
-            if let path = ProcessInfo.processInfo.environment["JIT_BENCHMARK_OUTPUT"] {
-                try? line.write(toFile: path, atomically: true, encoding: .utf8)
-            }
+            Benchmarks.report(String(format: "first_window_ms=%.1f trigger=%@\n", milliseconds, trigger))
             NSApp.terminate(nil)
         }
     }

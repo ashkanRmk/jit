@@ -12,11 +12,11 @@ Views never hardcode colors, fonts, blurs or glass — enforced by `StylingLintT
 
 | Rule | Detail |
 |---|---|
-| Where | Window toolbar and its items, (Phase 1) tab bar, sidebar, floating controls, popovers, menus, sheets, profile switcher, command palette. |
+| Where | Window toolbar and its items, the tab strip, sidebar, floating controls, popovers, menus, sheets, profile switcher, command palette. |
 | Never | Rows/cells (graph, file, diff lines), anything inside scrolling content, cards, text blocks over busy content, behind code. |
-| How | System components first: `.toolbar`, `NavigationSplitView` / `NSSplitViewController` sidebars, `.buttonStyle(.glass)` (`secondaryGlassButton()`), `.buttonStyle(.glassProminent)` + `accent.tint` (`primaryGlassButton()`), popovers, sheets. Custom glass only via `jitGlass(in:interactive:)` — the single call site of `glassEffect(_:in:)` — grouped with `GlassControlGroup` (`GlassEffectContainer`); `FloatingGlassCapsule` for floating controls; `glassEffectID(_:in:)` for morphs. Content under chrome uses `scrollEdgeEffectStyle(.soft, for: .top)`. |
+| How | System components first: `.toolbar`, `NavigationSplitView` / `NSSplitViewController` sidebars, `.buttonStyle(.glass)` (`secondaryGlassButton()`), `.buttonStyle(.glassProminent)` + `accent.tint` (`primaryGlassButton()`), popovers, sheets. Custom glass only through `DesignSystem` helpers — `jitGlass(in:interactive:)` and the tab strip's `GlassTabStrip` / `glassTab(isSelected:isHovered:id:in:)` are the only call sites of `glassEffect(_:in:)` — grouped with `GlassControlGroup` / `GlassTabStrip` (`GlassEffectContainer`); `FloatingGlassCapsule` for floating controls; `glassEffectID(_:in:)` for morphs. Content under chrome uses `scrollEdgeEffectStyle(.soft, for: .top)`. |
 | Grouping | Neighbouring custom glass shares one container. No glass in glass. No `NSVisualEffectView` stacks, CIFilter or `.blur` (lint-enforced). |
-| Tint | Untinted by default; `accent.tint` only on the single primary action of a surface. Never lane/status colors on glass. |
+| Tint | Untinted by default; `accent.tint` only on the single primary action of a surface and (at 38 %) on the selected tab. Never lane colors on glass. One status exception: the "No Profile" toolbar capsule uses the system prominent toolbar-item style tinted `status.warning`, because it is a state the user must act on before committing. |
 | Accessibility | Reduce Transparency: system components go opaque by themselves; `jitGlass` switches to `surface.chromeOpaque` + hairline `border.strong`. Increase Contrast: tokens switch to their high-contrast values. Reduce Motion: glass morphs and rises become opacity-only. |
 | Efficiency | Static when idle; morphs only on user action, ≤ 240 ms. |
 
@@ -93,7 +93,7 @@ Chrome text uses the system's fonts. Counts use `.monospacedDigit()`. SF Symbols
   `Radius.concentric(outer:inset:)`. Glass uses capsules or system shapes, not these values.
 - Borders: hairline 0.5 pt, emphasis 1 pt. Glass gets no custom borders.
 - Shadows: `level1` (y 1, blur 3, 6 %), `level2` (y 4, blur 12, 10 %) — content, light appearance only.
-- Panels: window min 960×600; sidebar 200 / 248 / 380; inspector 340 / 440; content column max 520.
+- Panels: window min 960×600; sidebar 200 / 248 / 380; inspector 340 / 360 / 560; content column max 520.
 - Density: compact 22 pt rows, comfortable 26 pt (default).
 
 ## Motion (`MotionToken`)
@@ -101,6 +101,40 @@ hover 100 ms ease-out · press 60 ms ease-out · select 150 ms cubic(0.2, 0, 0, 
 cubic(0.2, 0, 0, 1) · glassMorph 220 ms smooth · feedback 180 ms in / 120 ms out. Reveal = fade + 4 pt
 rise; Reduce Motion → fade only. Nothing loops.
 
+## Phase 1 chrome and content patterns
+
+Renders (real screen captures): `docs/phases/01-shell-and-tabs/screenshots/`.
+
+- **Toolbar** (unified `NSToolbar`, system glass): `[sidebar toggle] [tab strip] [⌄ all tabs] [inspector
+  toggle] [profile capsule]`. Visual window title hidden (the strip names the repository); title and
+  subtitle stay set for Mission Control, the Window menu and VoiceOver.
+- **Glass tab strip:** an unbordered toolbar item (otherwise AppKit wraps a custom view in its own glass
+  platter → nested glass) hosting one `GlassTabStrip`. Capsule tabs 28 pt tall, equal width 132–232 pt,
+  4 pt apart; 6 pt status dot (none = clean, hollow `text.tertiary` = not loaded, `accent.base` = changes,
+  `status.warning` = operation, `status.danger` = conflicts/error), system body font, primary/secondary
+  label color for selected/other, close button on hover or selection. Selected capsule: `accent.tint` at
+  38 % (`GlassTint.selectedOpacity`); hover: interactive glass. Selection morphs with `glassEffectID`
+  (`motion.glassMorph`); neighbors slide with `motion.select` while dragging. In overflow the container
+  sits inside the horizontal scroll content so glass clips with it; the new-tab `+` is its own small
+  container next to it (siblings, never nested).
+- **Reduce Transparency:** tabs become `surface.chromeOpaque` capsules with `border.strong` hairlines,
+  selected `accent.muted` with an accent edge. **Increase Contrast:** the selected capsule gains an
+  accent edge. **Reduce Motion:** no morph or slide; a short linear cross-fade.
+- **Profile capsule:** content only (18 pt avatar with initials, display name above 1100 pt window width);
+  the toolbar item's system platter supplies the glass. Profile swatches (`ProfileColor`): indigo, lagoon,
+  fern, amber, coral, violet, orchid, graphite — neighbors of the lane palette, never lane-identical.
+- **Profile switcher:** system `NSPopover` (system glass, no custom radius/shadow), 320 pt, rows with a
+  28 pt avatar, `type.headline` name, `type.callout` `name <email>`, accent checkmark.
+- **New-tab page:** opaque `surface.canvas`, 640 pt column; `type.title` wordmark in `text.tertiary`, one
+  `primaryGlassButton` (extra-large), recents in one opaque `contentCard` (no glass cards).
+- **Drop overlay:** opaque `surface.canvas` at 92 % + dashed 2 pt `accent.base` outline at `radius.md` —
+  covers content, so never glass.
+- **Workbench:** system glass sidebar (system list styling, no custom fills); main `surface.canvas` with the
+  header (`type.display` name, `type.callout` branch/upstream with monospaced digits, warning chip for
+  operations) and four opaque stat cards; inspector `surface.panel`. Loading placeholder appears after
+  150 ms, static (no shimmer).
+
 ## Open items
-- Real screen captures of glass chrome, Reduce Transparency and Increase Contrast were not possible in
-  the Phase 0 session (see `docs/phases/00-foundation/progress.md`).
+- Reduce Transparency is verified by real captures (`docs/phases/01-shell-and-tabs/screenshots/*-reducetransparency-*`).
+  Increase Contrast captures still need the system setting toggled by a person
+  (`scripts/testing/capture-accessibility.sh increasecontrast`).

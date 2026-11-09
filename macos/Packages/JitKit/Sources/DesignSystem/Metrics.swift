@@ -65,7 +65,8 @@ public enum PanelMetrics {
     public static let sidebarDefault: CGFloat = 248
     public static let sidebarMax: CGFloat = 380
     public static let inspectorMin: CGFloat = 340
-    public static let inspectorDefault: CGFloat = 440
+    public static let inspectorDefault: CGFloat = 360
+    public static let inspectorMax: CGFloat = 560
     public static let contentColumnMax: CGFloat = 520
 }
 

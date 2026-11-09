@@ -1,18 +1,20 @@
 # Architecture
 
-Status: Phase 0. This describes what exists; planned parts are marked **(planned, Phase N)**.
+Status: Phase 1. This describes what exists; planned parts are marked **(planned, Phase N)**.
 Decisions: ADR-0002 (pure Swift), ADR-0003 (XcodeGen), ADR-0004 (package layout), ADR-0005 (process,
-concurrency, memory), ADR-0006 (macOS 26+, Liquid Glass).
+concurrency, memory), ADR-0006 (macOS 26+, Liquid Glass), ADR-0007 (state and persistence), ADR-0008
+(file watching).
 
 ## Layers
 
 ```
-Chrome (system Liquid Glass): toolbar, sidebar, popovers, sheets          ┐ SwiftUI + AppKit
-Content (opaque): foundation card, gallery; later graph, diff, lists      ┘ Features (@MainActor view models)
-          │  async calls, value types
-Services (planned, Phase 1): RepositorySession actors, file watching, profiles
-          │
-GitCore (Foundation/Darwin only): GitEngine actor, GitLocator, ProcessRunner, RepositoryDiscovery
+Chrome (Liquid Glass): toolbar + glass tab strip, system sidebar, popovers, sheets  ┐ AppKit shell + SwiftUI
+Content (opaque): new-tab page, workbench header/status, inspector; later graph, diff ┘ Features (@MainActor)
+          │  @Observable models, async calls, value types
+Services: AppModel's stores (session, recents, preferences, profiles), RepositorySession,
+          │  RepositoryWatcher (FSEvents), JSON persistence — imports GitCore directly (no bridge)
+GitCore (Foundation/Darwin only): GitEngine actor, RepositoryHandle actor (per repository), StatusParser,
+          │  OperationStateDetector, GitLocator, ProcessRunner, RepositoryDiscovery
           │  posix_spawn, argv arrays
 git CLI (installed; bundled from Phase 7)
 ```
@@ -21,27 +23,52 @@ git CLI (installed; bundled from Phase 7)
 
 | Target | Contents today |
 |---|---|
-| `GitCore` | `GitVersion`, `GitLocator` (+ `FileProbe`), `ProcessEnvironment`, `ProcessRunner`, `GitEngine` (actor), `GitCommand`, `RepositoryDiscovery`/`RepositoryInfo`, `GitCoreError` + redaction |
+| `GitCore` | `GitVersion`, `GitLocator`, `ProcessEnvironment`, `ProcessRunner`, `GitEngine` (actor), `GitCommand`, `RepositoryDiscovery`/`RepositoryInfo`, `RepositoryHandle` (actor), `StatusParser`/`StatusSnapshot`/`StatusEntries`/`StatusSummary`/`BranchHeader`, `OperationStateDetector`, `InvalidationKind`, `GitIdentity`, `GitCoreError` + redaction |
 | `GitTestKit` | `GitSandbox` (temp dir, isolated `HOME`/config, fixed identity/dates), `TestRepo` |
-| `DesignSystem` | color tokens (data + dynamic `NSColor`), type, metrics, motion, glass helpers, content styles |
-| `Features` | `FoundationModel` + `FoundationView`; `DesignSystemGallery` (`#if DEBUG`) |
-| `JitBench` | `spawn-latency`, `discovery` micro-benchmarks → JSON |
-| App `Jit` | `JitApp` (one `Window` + debug gallery window, menus), `AppDelegate` (launch probe, quit cleanup), `DebugLaunchActions` (debug only) |
-| `JitAppTests` | model + engine against real repositories |
+| `Services` | `StoreLocation`, `JSONFile`, `DebouncedWriter`, `SessionStore`/`SessionState`/`JSONValue`, `RecentsStore`, `PreferencesStore`, `ProfileStore`/`GitProfile`/`ProfileSnapshot`/`ProfileValidation`, `RepositorySession` + `StatusDot`, `RepositoryWatcher` + `FSEventClassifier`, `MemoryPressureMonitor` |
+| `DesignSystem` | color tokens, type, metrics (+ tab/profile/overlay metrics), motion, glass helpers (+ `GlassTabStrip`, `glassTab`), profile swatches, content styles |
+| `Features` | `AppModel`, `TabModel`, `TabOrdering`, `LayoutState`; AppKit shell (`MainWindowController`, `WorkbenchController`, content container + drop target), tab strip, new-tab page, workbench views, profile capsule/switcher/editor, `SettingsWindowController`, `MainMenu`, `RepositoryActions`; `DesignSystemGallery` (`#if DEBUG`) |
+| `JitBench` | `spawn-latency`, `discovery`, `status-parse` → JSON |
+| App `Jit` | `AppDelegate` (`@main`, AppKit lifecycle, appearance, menus, settings, launch hooks), `LaunchProbe`, `Benchmarks` (env-gated tab-switch and open/close stress), `DebugLaunchActions` (debug only) |
+| `JitAppTests` | `AppModel`, tab ordering, layout and menu validation against real repositories |
 
-## Data flow (Phase 0)
+## State (ADR-0007)
 
-1. The app creates `GitEngine()` at launch — no I/O.
-2. ⌘O / drop / `-JitOpen` → `FoundationModel.open(url)` cancels any running discovery and starts a
-   `Task` on the main actor; after 150 ms without a result it shows the spinner.
-3. `GitEngine.gitInfo()` locates Git by file existence (Homebrew, then Apple's real Git binary inside the
-   selected developer directory or the Command Line Tools — never the `/usr/bin/git` shim), probes
-   `git --version` once (one shared probe for concurrent callers), checks `GitVersion.minimum` (2.39)
-   and caches the result; if the cached binary disappears, the next command re-locates once.
-4. `RepositoryDiscovery` runs `rev-parse` (layout), `rev-parse --show-toplevel` (work trees only),
-   `symbolic-ref -q HEAD` and `rev-parse -q --verify HEAD^{commit}`; stderr (C locale) is classified
-   into typed errors.
-5. The model publishes `.loaded(info, git)` or `.failed(url, error)`; the view animates the change.
+- One main window. `AppModel` (`@MainActor @Observable`) owns the ordered `TabModel`s, the active tab, an
+  in-memory reopen stack (10), and the stores. `TabModel` carries only what the tab strip shows (title,
+  branch, status dot); a repository tab also owns a `RepositorySession`.
+- `RepositorySession` (`Services`): lifecycle `unloaded → loading → active ⇄ inactive → suspended`,
+  `closed`; separate observable `info`, `status`, `error`. It owns the `RepositoryHandle` and, while
+  active, the watcher. Only the visible tab of a foreground window is active (`AppModel.setForeground`,
+  driven by app activation, miniaturize and occlusion notifications). Memory pressure suspends inactive
+  sessions and drops their cached controllers.
+- The window controller keeps one content controller per loaded tab (instant switching): a hosted
+  new-tab page or a `WorkbenchController` (`NSSplitViewController`: system sidebar, main, system inspector).
+
+## Persistence (ADR-0007)
+
+`~/Library/Application Support/Jit` (`0700`; `JIT_APP_SUPPORT` overrides): `session.json` (window frame,
+layout widths, tabs with cached title/branch, per-tab collapse flags and an opaque `ui` blob, active tab),
+`recents.json` (20, de-duplicated by resolved path), `profiles.json`. Versioned; unreadable or
+unknown-version files are backed up and reset. Writes are atomic (`0600` temp + `fsync` + `rename`), off the
+main actor, debounced by one cancellable one-shot task, flushed at quit. Preferences in `UserDefaults`.
+
+## Data flow (Phase 1)
+
+1. Launch: `applicationWillFinishLaunching` applies the appearance preference and builds the menu bar;
+   `applicationDidFinishLaunching` reads the JSON files synchronously, restores tabs from cached titles
+   (sessions `unloaded`), and shows the window. One main-queue turn later the window reports foreground
+   and only the active tab's session loads.
+2. Opening (⌘O, recents, drop, Finder, `JIT_OPEN`): `GitEngine.openRepository(at:)` discovers once and
+   returns a `RepositoryHandle`; the resolved top level focuses an existing tab, replaces the active
+   new-tab page, or becomes a new tab.
+3. `RepositorySession` asks the handle for `status()`: one `git --no-optional-locks status
+   --porcelain=v2 -z --branch` parsed byte-level, plus operation markers read from the git dir. The
+   session publishes `status`; `AppModel` mirrors title/branch/dot into the `TabModel`, recents and the
+   window title/subtitle.
+4. While active, FSEvents batches are classified into invalidations → `handle.invalidate` → one coalesced
+   refresh (ADR-0008). Hiding the tab or leaving the foreground stops the stream and cancels work; coming
+   back revalidates once.
 
 ## Process model (ADR-0005)
 
@@ -60,13 +87,17 @@ git CLI (installed; bundled from Phase 7)
 
 ## Glass vs content
 
-System components provide all glass in Phase 0 (window toolbar, `NavigationSplitView` sidebar,
-`.glass`/`.glassProminent` buttons, popovers, sheets). Custom glass exists only in the gallery, through
-`DesignSystem`'s `jitGlass(in:)`. Content is opaque `surface.*` tokens and runs under the toolbar with the
-soft scroll-edge effect. Rules: `docs/design-system.md`.
+System components provide glass for the toolbar items, split-view sidebar, popovers, sheets and
+`.glassProminent` buttons. The one custom glass surface is the tab strip: a SwiftUI `GlassEffectContainer`
+(`DesignSystem.GlassTabStrip`) hosted in an **unbordered** toolbar item, so the toolbar adds no second
+platter around it. Content (new-tab page, workbench main and inspector, drop overlay) is opaque
+`surface.*` and runs under the toolbar with the soft scroll-edge effect. Rules: `docs/design-system.md`.
 
 ## Concurrency rules
 
 - Swift 6 language mode, complete strict concurrency, typed throws (`throws(GitCoreError)`).
-- View models are `@MainActor @Observable`; they call `GitEngine` from `Task {}` and never block.
+- View models are `@MainActor @Observable`; they call `GitCore` actors from `Task {}` and never block.
+- `RepositoryHandle` is the single per-repository serialization point (mutations join it in Phase 3+).
+- No timers anywhere in the app: debounced writes and the 150 ms loading placeholder are one-shot
+  cancellable tasks; FSEvents latency provides event coalescing.
 - Debug builds assert `dispatchPrecondition(.notOnQueue(.main))` on every spawn path.

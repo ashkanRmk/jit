@@ -28,6 +28,8 @@ targets:
       - package: JitKit
         product: DesignSystem
       - package: JitKit
+        product: Services
+      - package: JitKit
         product: Features
     settings:
       base:
@@ -43,6 +45,8 @@ targets:
     dependencies:
       - package: JitKit
         product: Features
+      - package: JitKit
+        product: Services
       - package: JitKit
         product: GitCore
       - package: JitKit

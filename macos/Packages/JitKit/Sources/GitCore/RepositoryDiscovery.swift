@@ -72,7 +72,7 @@ struct RepositoryDiscovery {
         )
     }
 
-    private func resolveHead(in path: String) async throws(GitCoreError) -> RepositoryInfo.Head {
+    func resolveHead(in path: String) async throws(GitCoreError) -> RepositoryInfo.Head {
         let symbolic = try await run(["symbolic-ref", "-q", "HEAD"], in: path, accepted: [0, 1])
         let commit = try await run(["rev-parse", "-q", "--verify", "HEAD^{commit}"], in: path, accepted: [0, 1])
         let sha = commit.exitCode == 0 ? Self.splitLines(commit.stdout).first : nil
