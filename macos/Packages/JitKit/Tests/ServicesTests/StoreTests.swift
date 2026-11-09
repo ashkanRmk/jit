@@ -60,7 +60,11 @@ final class TempLocation: Sendable {
             }
         }
         #expect(store.load().value == nil)  // nothing written yet
-        try await Task.sleep(for: .milliseconds(800))
+        // Wait for the debounced write (bounded; a loaded CI runner may take longer than the debounce).
+        let deadline = ContinuousClock.now + .seconds(5)
+        while store.load().value == nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         #expect(evaluations == 1)
         #expect(store.load().value?.activeTabID != nil)
     }

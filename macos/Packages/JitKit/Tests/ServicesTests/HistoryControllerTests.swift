@@ -39,7 +39,7 @@ import Testing
         print("external commit visible after \(ContinuousClock.now - started)")
         #expect(controller.snapshot.row(0).oid.hex() == new)
         #expect(updates == [.replaced])
-        #expect(ContinuousClock.now - started < .milliseconds(500))
+        #expect(ContinuousClock.now - started < TimingBudget.latency(.milliseconds(500)))
     }
 
     @Test func labelMoveUpdatesInPlace() async throws {

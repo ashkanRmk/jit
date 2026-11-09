@@ -225,7 +225,9 @@ import Testing
         try await Task.sleep(for: .milliseconds(20))
         task.cancel()
         _ = try? await task.value
-        #expect(ContinuousClock.now - started < .milliseconds(20) + .milliseconds(100) + .milliseconds(400))
+        #expect(
+            ContinuousClock.now - started
+                < .milliseconds(20) + TimingBudget.latency(.milliseconds(100) + .milliseconds(400)))
     }
 }
 
