@@ -35,6 +35,11 @@ public final class GitSandbox: Sendable {
             "GIT_COMMITTER_EMAIL": "tests@jit.invalid",
             "GIT_COMMITTER_DATE": fixedDate,
         ]
+        // Release check (P7.3): trace every Git child into one file to catch helpers missing from the
+        // pruned bundled Git (`scripts/build/test-bundled-git.sh --suite`).
+        if let trace = ProcessInfo.processInfo.environment["JIT_TEST_GIT_TRACE"], trace.hasPrefix("/") {
+            environment["GIT_TRACE"] = trace
+        }
         environment.merge(extraEnvironment) { _, extra in extra }
         self.environment = environment
         engine = GitEngine(configuration: .init(environmentOverrides: environment))
