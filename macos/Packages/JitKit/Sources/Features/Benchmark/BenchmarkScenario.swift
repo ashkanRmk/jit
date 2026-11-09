@@ -168,32 +168,48 @@ public enum BenchmarkScenarioRunner {
                 return
             }
             let files = workingDirectory.allFiles.filter { $0.section != .conflicts && !$0.isDirectory }
-            // large-diff: the fixture's large file is named `large-*` (gen-repos.sh); otherwise the first file.
-            let large = files.first { ($0.path as NSString).lastPathComponent.hasPrefix("large-") } ?? files[0]
-            let sequence: [WDFile] = scenario == .largeDiff ? [large] : Array(files.prefix(max(runs, 10)))
-            recorder.reset()
             let diff = workbench.diffModel
-            for (index, file) in sequence.enumerated() {
-                let repeats = scenario == .largeDiff ? runs + 1 : 1
-                for repeatIndex in 0..<repeats {
-                    if scenario == .largeDiff {
-                        // Alternate with nothing selected so every selection is a real switch.
+            /// Selects `file` `repeats` times (alternating with no selection so each is a real switch).
+            func measure(_ file: WDFile, repeats: Int, clearFirst: Bool = true) async -> [Double] {
+                var samples: [Double] = []
+                for _ in 0..<repeats {
+                    if clearFirst {
                         workingDirectory.selection = []
                         try? await Task.sleep(for: .milliseconds(50))
-                        if repeatIndex == 1 { recorder.reset() }
                     }
+                    recorder.reset()
                     workingDirectory.selection = [file.id]
                     _ = await waitFor { diff.switchSignpost == nil && diff.state != .loading }
+                    samples += recorder.durations(Signposts.diffSwitch)
                     try? await Task.sleep(for: .milliseconds(30))
                 }
-                if index == 0, scenario == .diffSwitch { recorder.reset() }  // first switch warms caches
+                return samples
             }
-            report(BenchmarkMath.line(scenario, "diff.switch", recorder.durations(Signposts.diffSwitch)))
-            report(BenchmarkMath.line(scenario, "core.diffParse", recorder.durations(Signposts.coreDiffParse)))
-            report(
-                String(
-                    format: "scenario=%@ metric=footprint value=%.1f unit=MB\n", scenario.rawValue,
-                    BenchmarkMath.footprintMB()))
+            if scenario == .largeDiff {
+                // The fixture's files (gen-repos.sh): a 50,000-line file in 200 hunks and a 5 MB single-line file.
+                for (label, name) in [("table", "large-table.swift"), ("minified", "large-minified.js")] {
+                    guard let file = files.first(where: { $0.path == name }) else { continue }
+                    _ = await measure(file, repeats: 1)  // warm-up
+                    let samples = await measure(file, repeats: runs)
+                    report(BenchmarkMath.line(scenario, "diff.switch.\(label)", samples))
+                    report(
+                        String(
+                            format: "scenario=%@ metric=footprint.%@ value=%.1f unit=MB\n", scenario.rawValue, label,
+                            BenchmarkMath.footprintMB()))
+                }
+            } else {
+                var samples: [Double] = []
+                for (index, file) in files.prefix(max(runs, 10) + 1).enumerated() {
+                    // File to file, as a user arrows down the list (no empty state in between).
+                    let measured = await measure(file, repeats: 1, clearFirst: false)
+                    if index > 0 { samples += measured }  // the first switch warms caches
+                }
+                report(BenchmarkMath.line(scenario, "diff.switch", samples))
+                report(
+                    String(
+                        format: "scenario=%@ metric=footprint value=%.1f unit=MB\n", scenario.rawValue,
+                        BenchmarkMath.footprintMB()))
+            }
         case .multiTab:
             for url in repositories {
                 guard await openAndWaitForRows(url, model: model, controller: controller) else {

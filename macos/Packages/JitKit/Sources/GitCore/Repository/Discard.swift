@@ -82,6 +82,21 @@ extension RepositoryHandle {
         return try await Self.readToken(path, engine: gitEngine, topLevel: topLevel)
     }
 
+    /// `git ls-files -s -z` record for `path` (empty when untracked).
+    static func readIndexEntry(_ path: String, engine: GitEngine, topLevel: String) async throws(GitCoreError)
+        -> [UInt8]
+    {
+        do {
+            return try await engine.run(
+                GitCommand(
+                    ["--literal-pathspecs", "ls-files", "-s", "-z", "--", path], in: topLevel, kind: .read,
+                    timeout: .seconds(60), stdoutLimit: 16 * 1024 * 1024)
+            ).stdout
+        } catch {
+            throw RepositoryDiscovery.classify(error, path: topLevel)
+        }
+    }
+
     static func readToken(_ path: String, engine: GitEngine, topLevel: String) async throws(GitCoreError)
         -> DiscardToken
     {
@@ -230,6 +245,41 @@ extension RepositoryHandle {
     }
 }
 
+/// Fast 64-bit content hash: 8 bytes per step (multiply-xorshift mix), tail bytes folded in with the length.
+struct ContentHash {
+    private(set) var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+    private var length: UInt64 = 0
+
+    mutating func combine(_ bytes: UnsafeRawBufferPointer) {
+        var offset = 0
+        let count = bytes.count
+        while offset + 8 <= count {
+            let word = bytes.loadUnaligned(fromByteOffset: offset, as: UInt64.self)
+            state = (state ^ word) &* 0xBF58_476D_1CE4_E5B9
+            state ^= state >> 29
+            offset += 8
+        }
+        var tail: UInt64 = 0
+        var shift: UInt64 = 0
+        while offset < count {
+            tail |= UInt64(bytes[offset]) << shift
+            shift += 8
+            offset += 1
+        }
+        if shift > 0 { state = (state ^ tail ^ 0xFF) &* 0x94D0_49BB_1331_11EB }
+        length &+= UInt64(count)
+    }
+
+    /// Chunk boundaries that are not multiples of 8 hash differently from one contiguous read; callers read
+    /// whole files in 1 MiB chunks, so equal files always hash equally.
+    var value: UInt64 {
+        var z = state ^ length
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
 enum Fingerprint {
     static func read(_ path: String) throws(GitCoreError) -> WorktreeFingerprint? {
         var info = stat()
@@ -247,9 +297,13 @@ enum Fingerprint {
                 throw .io(summary: "Couldn’t read “\((path as NSString).lastPathComponent)”.")
             }
             defer { try? handle.close() }
+            // Word-at-a-time content hash (in-memory comparison only, never persisted): the byte-wise FNV loop
+            // cost ≈ 8 ms per 4 MB file on every diff open (P6.4 trace of the large-diff scenario).
+            var content = ContentHash()
             while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
-                chunk.withUnsafeBytes { hash.combine($0) }
+                chunk.withUnsafeBytes { content.combine($0) }
             }
+            withUnsafeBytes(of: content.value) { hash.combine($0) }
         case UInt16(S_IFLNK):
             if let target = try? FileManager.default.destinationOfSymbolicLink(atPath: path) {
                 hash.combine(target)

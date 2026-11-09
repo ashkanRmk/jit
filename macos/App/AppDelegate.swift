@@ -213,7 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 Task {
                     await BenchmarkScenarioRunner.run(
                         scenario, model: model, controller: controller, report: Benchmarks.report)
-                    NSApp.terminate(nil)
+                    // `JIT_BENCH_HOLD=1` keeps the app running for `heap` / `vmmap` / `leaks`.
+                    if environment["JIT_BENCH_HOLD"] == nil { NSApp.terminate(nil) }
                 }
             }
         }

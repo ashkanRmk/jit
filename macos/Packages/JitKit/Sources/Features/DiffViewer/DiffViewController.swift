@@ -97,6 +97,13 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
 
     @objc private func frameChanged() { codeView.reloadData() }
 
+    /// Breaks the controller → view → chrome host → `DiffChromeView` → controller cycle (P6.6). Called once when
+    /// the tab's workbench is removed for good.
+    func tearDown() {
+        chrome?.removeFromSuperview()
+        chrome = nil
+    }
+
     private func sourceChanged() {
         codeView.showsWhitespace = model.showsWhitespace
         codeView.dataSource = model.source
@@ -198,6 +205,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
     /// Bumped to focus the find field (observed by the chrome).
     var findRequested = 0 {
         didSet { chrome?.rootView = DiffChromeView(model: model, controller: self, findRequest: findRequested) }
+        // (chrome is nil after tearDown, so a late find request cannot recreate the cycle.)
     }
 
     @objc public func jitFindNext(_ sender: Any?) { model.nextMatch(forward: true) }

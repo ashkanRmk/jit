@@ -28,6 +28,24 @@ public final class PreferencesStore {
     static let restoreTabsKey = "restoreTabsOnLaunch"
     static let commandBarLabelsKey = "commandBarShowsLabels"
     static let cloneParentKey = "cloneParentDirectory"
+    static let codeTextSizeKey = "codeTextSize"
+
+    /// App-level text size step for code and diff views (P6.10): View ▸ Larger / Smaller Code Text.
+    public enum CodeTextSize: Int, CaseIterable, Sendable {
+        case small = -1, medium = 0, large = 1, extraLarge = 2
+
+        public var title: String {
+            switch self {
+            case .small: "Small"
+            case .medium: "Medium"
+            case .large: "Large"
+            case .extraLarge: "Extra Large"
+            }
+        }
+    }
+
+    /// Posted on the main thread when `codeTextSize` changes (code views re-measure).
+    public static let codeTextSizeDidChange = Notification.Name("JitCodeTextSizeDidChange")
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -44,6 +62,13 @@ public final class PreferencesStore {
     }
 
     /// View ▸ Command Bar ▸ Show Labels. Off: icon-only buttons with tooltips at every width.
+    public var codeTextSize: CodeTextSize {
+        didSet {
+            defaults.set(codeTextSize.rawValue, forKey: Self.codeTextSizeKey)
+            NotificationCenter.default.post(name: Self.codeTextSizeDidChange, object: nil)
+        }
+    }
+
     public var commandBarShowsLabels: Bool {
         didSet { defaults.set(commandBarShowsLabels, forKey: Self.commandBarLabelsKey) }
     }
@@ -57,6 +82,7 @@ public final class PreferencesStore {
         self.defaults = defaults
         appearance = defaults.string(forKey: Self.appearanceKey).flatMap(Appearance.init(rawValue:)) ?? .system
         restoreTabsOnLaunch = defaults.object(forKey: Self.restoreTabsKey) as? Bool ?? true
+        codeTextSize = CodeTextSize(rawValue: defaults.integer(forKey: Self.codeTextSizeKey)) ?? .medium
         graphDensity =
             defaults.string(forKey: Self.graphDensityKey).flatMap(GraphDensity.init(rawValue:)) ?? .comfortable
         commandBarShowsLabels = defaults.object(forKey: Self.commandBarLabelsKey) as? Bool ?? true

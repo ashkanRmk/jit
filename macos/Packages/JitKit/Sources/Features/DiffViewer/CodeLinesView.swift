@@ -1,6 +1,7 @@
 import AppKit
 import CoreText
 import DesignSystem
+import Services
 
 /// What one cell (one column of one row) shows.
 public struct CodeCell: Sendable, Equatable {
@@ -76,7 +77,20 @@ public final class CodeLinesView: NSView {
     }
     public weak var delegate: any CodeLinesDelegate?
 
-    public let font = TypeToken.monoBody.nsFont
+    public private(set) var font = CodeTextScale.font(step: CodeLinesView.preferredTextSizeStep)
+    /// View ▸ Larger / Smaller Code Text (P6.10). Follows the preference unless set explicitly.
+    public var textSizeStep = CodeLinesView.preferredTextSizeStep {
+        didSet {
+            guard textSizeStep != oldValue else { return }
+            font = CodeTextScale.font(step: textSizeStep)
+            measureFont()
+            clearCache()
+            reloadData()
+        }
+    }
+    /// The saved preference (`PreferencesStore.codeTextSize`, standard defaults).
+    static var preferredTextSizeStep: Int { UserDefaults.standard.integer(forKey: "codeTextSize") }
+    nonisolated(unsafe) private var textSizeObserver: (any NSObjectProtocol)?
     public private(set) var rowHeight: CGFloat = TypeToken.monoBody.lineHeight
     public private(set) var characterWidth: CGFloat = 7
     /// Spaces per tab.
@@ -112,12 +126,19 @@ public final class CodeLinesView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         measureFont()
+        textSizeObserver = NotificationCenter.default.addObserver(
+            forName: PreferencesStore.codeTextSizeDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.textSizeStep = Self.preferredTextSizeStep }
+        }
         setAccessibilityRole(.list)
         setAccessibilityLabel("Diff")
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    deinit { textSizeObserver.map(NotificationCenter.default.removeObserver) }
 
     public override var isFlipped: Bool { true }
     public override var isOpaque: Bool { true }
@@ -139,10 +160,17 @@ public final class CodeLinesView: NSView {
         return leadingGutter + CGFloat(numbers * digits) * characterWidth + CGFloat(numbers) * Space.s4 + Space.s5
     }
 
+    /// Longest part of one line that is laid out and drawn (UTF-16 units). A minified file's single 5 MB line
+    /// otherwise costs hundreds of MB of glyph storage and GPU surfaces (P6.6, large-diff benchmark); the rest
+    /// of such a line is summarized as "+N characters not shown". Copy and line actions use the document.
+    public static let maxRenderedCharacters = 10_000
+
     public var columnWidth: CGFloat {
         let columns = CGFloat(dataSource?.columnCount ?? 1)
         let visible = (enclosingScrollView?.contentSize.width ?? bounds.width) / columns
-        let content = gutterWidth + CGFloat(dataSource?.maxColumnCharacters ?? 0) * characterWidth + Space.s8
+        // Room for the longest rendered prefix plus its "not shown" note.
+        let characters = min(dataSource?.maxColumnCharacters ?? 0, Self.maxRenderedCharacters + 40)
+        let content = gutterWidth + CGFloat(characters) * characterWidth + Space.s8
         return columns == 1 ? max(visible, content) : visible
     }
 
@@ -371,7 +399,13 @@ public final class CodeLinesView: NSView {
     }
 
     private func makeTextLine(_ cell: CodeCell, row: Int, column: Int, source: any CodeLinesDataSource) -> CTLine {
-        let display = displayText(cell.text)
+        let fullLength = (cell.text as NSString).length
+        var text = cell.text
+        if fullLength > Self.maxRenderedCharacters {
+            let cut = (cell.text as NSString).rangeOfComposedCharacterSequence(at: Self.maxRenderedCharacters).location
+            text = (cell.text as NSString).substring(to: cut)
+        }
+        let display = displayText(text)
         let attributed = NSMutableAttributedString(
             string: display,
             attributes: [
@@ -379,14 +413,15 @@ public final class CodeLinesView: NSView {
                 .foregroundColor: cell.isFullWidth ? ColorToken.textSecondary.nsColor : ColorToken.textPrimary.nsColor,
             ])
         let length = (display as NSString).length
-        for (range, color) in source.syntax(row: row, column: column) {
-            let mapped = displayRange(range, in: cell.text)
+        for (range, color) in source.syntax(row: row, column: column)
+        where NSMaxRange(range) <= (text as NSString).length {
+            let mapped = displayRange(range, in: text)
             if NSMaxRange(mapped) <= length { attributed.addAttribute(.foregroundColor, value: color, range: mapped) }
         }
         let emphasisColor = (cell.kind == .added ? ColorToken.diffAddMark : ColorToken.diffDeleteMark).nsColor
             .withAlphaComponent(0.28)
-        for range in source.emphasis(row: row, column: column) {
-            let mapped = displayRange(range, in: cell.text)
+        for range in source.emphasis(row: row, column: column) where NSMaxRange(range) <= (text as NSString).length {
+            let mapped = displayRange(range, in: text)
             if NSMaxRange(mapped) <= length {
                 attributed.addAttribute(.backgroundColor, value: emphasisColor, range: mapped)
             }
@@ -397,6 +432,13 @@ public final class CodeLinesView: NSView {
                     .foregroundColor, value: ColorToken.textDisabled.nsColor, range: NSRange(location: index, length: 1)
                 )
             }
+        }
+        if text.utf16.count < fullLength {
+            let hidden = fullLength - (text as NSString).length
+            attributed.append(
+                NSAttributedString(
+                    string: "  … +\(hidden.formatted()) characters not shown",
+                    attributes: [.font: TypeToken.caption.nsFont, .foregroundColor: ColorToken.textTertiary.nsColor]))
         }
         if let note = cell.note {
             attributed.append(

@@ -492,6 +492,17 @@ final class GraphViewController: NSViewController {
         if !showsWIP { updateWIP() }
     }
 
+    /// Breaks the controller → view → hosting view → SwiftUI view → controller cycles of the command bar and the
+    /// state overlay, and stops history work. Called once when the tab's workbench is removed for good.
+    func tearDown() {
+        barHost?.removeFromSuperview()
+        overlayHost?.removeFromSuperview()
+        barHost = nil
+        overlayHost = nil
+        history?.onUpdate = nil
+        history = nil
+    }
+
     /// Ends `graph.firstPage` and the tab's `repo.open` once rows are on screen.
     private func firstRowsShown() {
         if let token = firstPageSignpost {
