@@ -38,6 +38,7 @@ final class WorkingDirectoryModel {
         }
     }
     @ObservationIgnored var openDiff: (WDFile?) -> Void = { _ in }
+    @ObservationIgnored var openBlame: (String) -> Void = { _ in }
     /// The section under a drag (drop highlight).
     var dropTarget: WDSection?
 
@@ -155,6 +156,11 @@ final class WorkingDirectoryModel {
                 debugDiffOpened = true
                 selection = [file.id]
             }
+            // `-JitBlame <path>`: opens blame of the working-copy file (screenshots).
+            if let path = UserDefaults.standard.string(forKey: "JitBlame"), !debugBlameOpened {
+                debugBlameOpened = true
+                openBlame(path)
+            }
             if let path = UserDefaults.standard.string(forKey: "JitDiscardSheet"), !debugSheetShown,
                 let file = newList.unstaged.first(where: { $0.path == path })
             {
@@ -166,6 +172,7 @@ final class WorkingDirectoryModel {
 
     @ObservationIgnored private var debugSheetShown = false
     @ObservationIgnored private var debugDiffOpened = false
+    @ObservationIgnored private var debugBlameOpened = false
 
     var allFiles: [WDFile] { list.conflicts + list.staged + list.unstaged }
 

@@ -39,6 +39,8 @@ public struct CodeCell: Sendable, Equatable {
     var maxColumnCharacters: Int { get }
     /// Widest line number, for the gutter.
     var maxLineNumber: Int { get }
+    /// Number columns per text column (2 for a unified diff: old and new; 1 otherwise).
+    var lineNumberColumns: Int { get }
     func cell(row: Int, column: Int) -> CodeCell
     func isSelected(row: Int, column: Int) -> Bool
     /// UTF-16 ranges to highlight (search matches); `current` is the focused match.
@@ -50,6 +52,7 @@ public struct CodeCell: Sendable, Equatable {
 }
 
 extension CodeLinesDataSource {
+    public var lineNumberColumns: Int { columnCount == 1 ? 2 : 1 }
     public func emphasis(row: Int, column: Int) -> [NSRange] { [] }
     public func syntax(row: Int, column: Int) -> [(NSRange, NSColor)] { [] }
 }
@@ -82,6 +85,15 @@ public final class CodeLinesView: NSView {
     public var leadingGutter: CGFloat = 0 { didSet { reloadData() } }
     /// Drawn in `leadingGutter` for each row (blame).
     public var drawLeadingGutter: ((_ row: Int, _ rect: NSRect) -> Void)?
+    /// A click inside `leadingGutter`.
+    public var onGutterClick: ((Int) -> Void)?
+    /// Tooltip text for a row (blame hover).
+    public var toolTipProvider: ((Int) -> String?)? {
+        didSet {
+            removeAllToolTips()
+            if toolTipProvider != nil { addToolTip(bounds, owner: self, userData: nil) }
+        }
+    }
 
     private var cache: [CacheKey: CTLine] = [:]
     private var cacheOrder: [CacheKey] = []
@@ -121,7 +133,7 @@ public final class CodeLinesView: NSView {
 
     public var gutterWidth: CGFloat {
         let digits = max(3, String(dataSource?.maxLineNumber ?? 0).count)
-        let numbers = (dataSource?.columnCount ?? 1) == 1 ? 2 : 1
+        let numbers = dataSource?.lineNumberColumns ?? 2
         return leadingGutter + CGFloat(numbers * digits) * characterWidth + CGFloat(numbers) * Space.s4 + Space.s5
     }
 
@@ -251,7 +263,7 @@ public final class CodeLinesView: NSView {
             let numberWidth = CGFloat(digits) * characterWidth
             var x = rect.minX + leadingGutter + Space.s3
             let numbers: [Int?] =
-                source.columnCount == 1 ? [cell.oldNumber, cell.newNumber] : [cell.oldNumber ?? cell.newNumber]
+                source.lineNumberColumns == 2 ? [cell.oldNumber, cell.newNumber] : [cell.oldNumber ?? cell.newNumber]
             for number in numbers {
                 if let number {
                     let text = String(number)
@@ -394,6 +406,10 @@ public final class CodeLinesView: NSView {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard let row = row(at: point) else { return }
+        if leadingGutter > 0, point.x < leadingGutter, let onGutterClick {
+            onGutterClick(row)
+            return
+        }
         delegate?.codeLines(self, clickedRow: row, column: column(at: point), modifiers: event.modifierFlags)
     }
 
@@ -413,6 +429,14 @@ public final class CodeLinesView: NSView {
         guard let text = delegate?.codeLinesCopyText(self) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        if toolTipProvider != nil {
+            removeAllToolTips()
+            addToolTip(bounds, owner: self, userData: nil)
+        }
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -445,5 +469,14 @@ public final class CodeLinesView: NSView {
             accessibilityRows = accessibilityRows.filter { (first...last).contains($0.key) }
         }
         return result
+    }
+}
+
+extension CodeLinesView: NSViewToolTipOwner {
+    public func view(
+        _ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?
+    ) -> String {
+        guard let row = row(at: point) else { return "" }
+        return toolTipProvider?(row) ?? ""
     }
 }

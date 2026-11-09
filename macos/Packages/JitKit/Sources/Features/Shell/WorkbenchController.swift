@@ -27,6 +27,8 @@ final class WorkbenchController: NSSplitViewController {
     let inspectorModel = InspectorModel()
     lazy var diffModel = DiffViewModel(session: session)
     lazy var diffController = DiffViewController(model: diffModel)
+    lazy var blameModel = BlameModel(session: session)
+    lazy var blameController = BlameViewController(model: blameModel)
     private var needsWidthRestore = true
     private var isApplyingWidths = false
 
@@ -67,7 +69,7 @@ final class WorkbenchController: NSSplitViewController {
         let main = NSSplitViewItem(
             viewController: MainPaneController(
                 graph: graph, session: session, tab: tab, actions: actions, diffModel: diffModel,
-                diffController: diffController))
+                diffController: diffController, blameModel: blameModel, blameController: blameController))
         main.minimumThickness = PanelMetrics.contentColumnMax - 160
 
         let inspector = NSSplitViewItem(
@@ -95,6 +97,14 @@ final class WorkbenchController: NSSplitViewController {
         inspector.diff = diffModel
         inspector.diffController = diffController
         let diff = diffModel
+        let blame = blameModel
+        blame.revealCommit = { [weak graph, weak blame] oid in
+            blame?.close()
+            graph?.select(oid: oid)
+        }
+        workingDirectory.openBlame = { path in blame.open(path: path, revision: nil) }
+        inspector.openBlame = { path, oid in blame.open(path: path, revision: oid) }
+        diff.onBlame = { path, oid in blame.open(path: path, revision: oid) }
         workingDirectory.openDiff = { file in
             guard let file else {
                 diff.close()
@@ -114,10 +124,12 @@ final class WorkbenchController: NSSplitViewController {
             inspector.show(selection: graph?.compareOrder(model.selection) ?? model.selection, wip: model.wipSelected)
             self?.setInspectorCollapsed(model.selection.isEmpty && !model.wipSelected)
         }
+        let blameForRefs = blameModel
         graph.actions.refsChanged = { [weak graph, weak navigator] refs in
             navigator?.update(refs: refs)
             navigator?.repository = graph?.history?.repository
             inspector.handle = graph?.history?.repository
+            blameForRefs.handle = graph?.history?.repository
             inspector.refs = refs
             inspector.format = refs.format
         }
@@ -262,12 +274,18 @@ final class MainPaneController: NSViewController {
     let actions: WorkbenchActions
     let diffModel: DiffViewModel
     let diffController: DiffViewController
+    let blameModel: BlameModel
+    let blameController: BlameViewController
     private let focusContainer = NSView()
+    private let blameContainer = NSView()
 
     init(
         graph: GraphViewController, session: RepositorySession, tab: TabModel, actions: WorkbenchActions,
-        diffModel: DiffViewModel, diffController: DiffViewController
+        diffModel: DiffViewModel, diffController: DiffViewController, blameModel: BlameModel,
+        blameController: BlameViewController
     ) {
+        self.blameModel = blameModel
+        self.blameController = blameController
         self.graph = graph
         self.session = session
         self.tab = tab
@@ -275,6 +293,32 @@ final class MainPaneController: NSViewController {
         self.diffModel = diffModel
         self.diffController = diffController
         super.init(nibName: nil, bundle: nil)
+    }
+
+    /// Blame covers the graph area (design §3.5) while open; Esc or the close button returns.
+    private func observeBlame() {
+        withObservationTracking {
+            _ = blameModel.isOpen
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.applyBlame()
+                self?.observeBlame()
+            }
+        }
+    }
+
+    private func applyBlame() {
+        let open = blameModel.isOpen
+        blameContainer.isHidden = !open
+        if open {
+            if blameController.view.superview !== blameContainer {
+                let view = blameController.view
+                view.frame = blameContainer.bounds
+                view.autoresizingMask = [.width, .height]
+                blameContainer.addSubview(view)
+            }
+            view.window?.makeFirstResponder(blameController.codeView)
+        }
     }
 
     /// Focused Diff (design §3.3): the viewer covers the graph area; 200 ms fade, instant with Reduce Motion.
@@ -331,6 +375,16 @@ final class MainPaneController: NSViewController {
         focusContainer.wantsLayer = true
         root.addSubview(focusContainer)
         observeFocus()
+        blameContainer.translatesAutoresizingMaskIntoConstraints = false
+        blameContainer.isHidden = true
+        root.addSubview(blameContainer)
+        observeBlame()
+        NSLayoutConstraint.activate([
+            blameContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            blameContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            blameContainer.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            blameContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
         NSLayoutConstraint.activate([
             focusContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             focusContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),

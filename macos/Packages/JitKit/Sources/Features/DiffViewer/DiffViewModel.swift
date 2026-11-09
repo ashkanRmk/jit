@@ -71,6 +71,19 @@ public final class DiffViewModel {
     public private(set) var pendingDiscard: LineDiscardRequest?
     @ObservationIgnored public var recovery = RecoveryStore()
 
+    /// Opens blame for the diff's file (working copy, or the commit for commit diffs).
+    @ObservationIgnored public var onBlame: (String, ObjectID?) -> Void = { _, _ in }
+
+    public func blame() {
+        guard let target, let path = document?.files.first?.newPath ?? target.path else { return }
+        switch target {
+        case .unstaged, .staged: onBlame(path, nil)
+        case .commit(let oid, _): onBlame(path, oid)
+        case .commits(_, let to, _, _): onBlame(path, to)
+        case .commitToWorktree: onBlame(path, nil)
+        }
+    }
+
     /// Tells the view to reload (new source) or redraw (highlights).
     @ObservationIgnored public var onSourceChange: (() -> Void)?
     @ObservationIgnored public var onRedraw: (() -> Void)?

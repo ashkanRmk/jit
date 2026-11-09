@@ -514,6 +514,9 @@ private struct ContextMenu: View {
         if files.count == 1, let file = files.first, file.change != .untracked, !file.isDirectory {
             Divider()
             Button("Show File History") { model.openFileHistory(file.path) }
+            if file.change != .deleted {
+                Button("Blame") { model.openBlame(file.path) }
+            }
         }
     }
 }

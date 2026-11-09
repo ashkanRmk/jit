@@ -199,6 +199,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
     @objc public func diffNextChange(_ sender: Any?) { model.nextChange(from: firstVisibleRow, forward: true) }
     @objc public func diffPreviousChange(_ sender: Any?) { model.nextChange(from: firstVisibleRow, forward: false) }
     @objc public func toggleFocusDiff(_ sender: Any?) { model.isFocused.toggle() }
+    @objc public func showBlame(_ sender: Any?) { model.blame() }
 
     @objc public func diffGoToLine(_ sender: Any?) {
         guard let window = view.window, model.source != nil else { return }
@@ -227,6 +228,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
             menuItem.state = model.isFocused ? .on : .off
             return model.target != nil
         case #selector(diffGoToLine(_:)), #selector(jitFind(_:)): return model.source != nil
+        case #selector(showBlame(_:)): return model.document?.files.first?.newPath != nil
         default: return true
         }
     }
@@ -349,6 +351,7 @@ struct DiffChromeView: View {
             Toggle("Syntax Highlighting", isOn: $model.highlightsSyntax)
             Divider()
             Button("Go to Line…") { controller.diffGoToLine(nil) }
+            Button("Blame File") { model.blame() }
         } label: {
             Image(systemName: "ellipsis")
         }
@@ -479,6 +482,7 @@ struct DiffChromeView: View {
             Toggle("Syntax Highlighting", isOn: $model.highlightsSyntax)
             Divider()
             Button("Go to Line…") { controller.diffGoToLine(nil) }
+            Button("Blame File") { model.blame() }
         } label: {
             Image(systemName: "ellipsis")
         }

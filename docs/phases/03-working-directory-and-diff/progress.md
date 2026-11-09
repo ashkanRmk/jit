@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.8 complete; P3.9 next)
+Status: **in progress** (P3.0–P3.9 complete; P3.10 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -122,6 +122,17 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   end to end through the viewer model on a real repo: stage one line, others stay unstaged, unstage it,
   discard another after confirmation, unrelated file preserved, recovery copy written),
   `chromeDoesNotSwallowBodyClicks`; screenshots `diff-selection-{light,dark}.png`.
+- **P3.9 Blame** — GitCore `RepositoryHandle.blame` (`git blame --incremental [-w] [-M] [rev] -- path`,
+  pull-based `AsyncThrowingStream` so buffering is bounded; cancellation kills the child; Git applies
+  `blame.ignoreRevsFile`), `blameContent` (working file or `cat-file blob rev:path`). `BlameModel` +
+  `BlameViewController` on `CodeLinesView`: 240 pt gutter grouping runs from one commit (initials avatar,
+  author, relative date, subject), age ramp on the gutter edge, hover tooltip (SHA, author, date, subject),
+  click selects the commit in the graph, lines appear first and gutters fill as Git streams, options -w / -M,
+  Esc / close. Opens over the graph area from: working-directory menu "Blame", commit file list "Blame at
+  This Commit", diff options "Blame File" and View ▸ Blame File (⇧⌘B). Debug arg `-JitBlame <path>`.
+  Evidence: `BlameTests` (all lines attributed once, at a revision, cancel, `ignoreRevsFile`, 5k-line file:
+  first block 6.1 ms / all 7.5 ms in a debug build vs the 200 ms target), `BlameModelTests`; screenshots
+  `blame-{light,dark}.png`. Blame text is not syntax-highlighted yet.
 
 ## Verified
 - Tests: `scripts/build/test-core.sh` — **335 passed** (43 + 227 + 52 + 13 across the four test targets);

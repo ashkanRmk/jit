@@ -135,6 +135,7 @@ public enum MainMenu {
         menu.addItem(commandBar)
         menu.addItem(.separator())
         menu.addItem(item("Focus Diff", #selector(DiffViewController.toggleFocusDiff(_:)), "\r", [.command, .option]))
+        menu.addItem(item("Blame File", #selector(DiffViewController.showBlame(_:)), "B", .command))
         menu.addItem(
             item(
                 "Next Change", #selector(DiffViewController.diffNextChange(_:)),

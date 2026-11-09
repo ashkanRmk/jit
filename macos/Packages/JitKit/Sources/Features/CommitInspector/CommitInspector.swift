@@ -37,6 +37,7 @@ final class InspectorModel {
     /// The diff viewer below the file list (P3.6).
     @ObservationIgnored var diff: DiffViewModel?
     @ObservationIgnored var diffController: DiffViewController?
+    @ObservationIgnored var openBlame: (String, ObjectID?) -> Void = { _, _ in }
     /// The file whose diff is open (commit / compare lists).
     private(set) var openedFilePath: String?
 
@@ -533,6 +534,9 @@ private struct FileRow: View {
             }
             .disabled((file.path as NSString).deletingLastPathComponent.isEmpty)
             Button("Copy Path") { Pasteboard.copy(file.path) }
+            if case .commit(let oid) = model.mode, file.status != .deleted {
+                Button("Blame at This Commit") { model.openBlame(file.path, oid) }
+            }
         }
         .accessibilityElement(children: .combine)
     }
