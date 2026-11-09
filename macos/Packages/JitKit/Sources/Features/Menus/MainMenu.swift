@@ -126,6 +126,11 @@ public enum MainMenu {
         }
         density.submenu = densityMenu
         menu.addItem(density)
+        let commandBar = item("Command Bar", nil)
+        let commandBarMenu = NSMenu(title: "Command Bar")
+        commandBarMenu.addItem(item("Show Labels", #selector(GraphViewController.toggleCommandBarLabels(_:))))
+        commandBar.submenu = commandBarMenu
+        menu.addItem(commandBar)
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu

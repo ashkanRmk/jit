@@ -26,6 +26,7 @@ public final class PreferencesStore {
     static let appearanceKey = "appearance"
     static let graphDensityKey = "graphDensity"
     static let restoreTabsKey = "restoreTabsOnLaunch"
+    static let commandBarLabelsKey = "commandBarShowsLabels"
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -41,11 +42,17 @@ public final class PreferencesStore {
         didSet { defaults.set(graphDensity.rawValue, forKey: Self.graphDensityKey) }
     }
 
+    /// View ▸ Command Bar ▸ Show Labels. Off: icon-only buttons with tooltips at every width.
+    public var commandBarShowsLabels: Bool {
+        didSet { defaults.set(commandBarShowsLabels, forKey: Self.commandBarLabelsKey) }
+    }
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         appearance = defaults.string(forKey: Self.appearanceKey).flatMap(Appearance.init(rawValue:)) ?? .system
         restoreTabsOnLaunch = defaults.object(forKey: Self.restoreTabsKey) as? Bool ?? true
         graphDensity =
             defaults.string(forKey: Self.graphDensityKey).flatMap(GraphDensity.init(rawValue:)) ?? .comfortable
+        commandBarShowsLabels = defaults.object(forKey: Self.commandBarLabelsKey) as? Bool ?? true
     }
 }
