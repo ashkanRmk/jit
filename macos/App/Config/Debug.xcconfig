@@ -1,0 +1,6 @@
+#include "Base.xcconfig"
+ONLY_ACTIVE_ARCH = YES
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG
+// Xcode's preview helper dylib fails library validation under Hardened Runtime with ad-hoc signing
+// ("different Team IDs"), so debug builds link into one executable.
+ENABLE_DEBUG_DYLIB = NO

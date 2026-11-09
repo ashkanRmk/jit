@@ -1,0 +1,12 @@
+# Xcode / SwiftPM
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+.build/
+.swiftpm/
+/build/
+# Benchmarks
+scripts/benchmarks/out/
+# macOS
+.DS_Store

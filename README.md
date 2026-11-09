@@ -3,30 +3,39 @@
 A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + AppKit), native Liquid
 Glass design, driving the Git CLI.
 
-**Status: planning.** No application code exists yet. The plan:
+**Status: Phase 0 (foundation) done on branch `phase/00-foundation`.** The app opens a folder and shows
+what its Swift Git core discovered (repository kind, top level, HEAD, Git version) with designed empty,
+loading and error states, plus a debug-only design-system gallery. Report:
+[`docs/phases/00-foundation/progress.md`](docs/phases/00-foundation/progress.md).
 
-- [`docs/master-prompt.md`](docs/master-prompt.md) — full product and engineering requirements.
-- [`docs/roadmap.md`](docs/roadmap.md) — phases, architecture, invariants, performance budget, risks.
-- [`docs/phases/`](docs/phases/) — one folder per phase with `design.md`, `implementation.md` and a
-  ready-to-paste `prompt.md` for starting that phase in Claude Code.
-
-| Phase | Folder |
-|---|---|
-| 0 — Foundation & design | [`docs/phases/00-foundation`](docs/phases/00-foundation/) |
-| 1 — Native shell & repository tabs | [`docs/phases/01-shell-and-tabs`](docs/phases/01-shell-and-tabs/) |
-| 2 — Git graph & navigation | [`docs/phases/02-graph-and-navigation`](docs/phases/02-graph-and-navigation/) |
-| 3 — Working directory & diff | [`docs/phases/03-working-directory-and-diff`](docs/phases/03-working-directory-and-diff/) |
-| 4 — Everyday workflows & conflicts | [`docs/phases/04-git-workflows-and-conflicts`](docs/phases/04-git-workflows-and-conflicts/) |
-| 5 — Profiles & providers | [`docs/phases/05-profiles-and-providers`](docs/phases/05-profiles-and-providers/) |
-| 6 — Polish & performance | [`docs/phases/06-polish-and-performance`](docs/phases/06-polish-and-performance/) |
-| 7 — Packaging & release | [`docs/phases/07-packaging-and-release`](docs/phases/07-packaging-and-release/) |
-| 8 — Post-V1 | [`docs/phases/08-post-v1`](docs/phases/08-post-v1/) |
-
-## Prerequisites (development)
-- macOS 26+ with **full Xcode** installed and selected (`xcode-select -p` must point into `Xcode.app`).
+## Prerequisites
+- macOS 26+ with **full Xcode 26+** selected (`xcode-select -p` must point into `Xcode.app`).
 - XcodeGen (`brew install xcodegen`).
-- Git 2.39+ (minimum confirmed in Phase 0).
+- Git 2.39+ (Homebrew or the Xcode Command Line Tools).
 
-No Rust toolchain is needed (ADR-0002).
+No Rust toolchain or third-party Swift packages are needed (ADR-0002).
 
-Build instructions are added in Phase 0.
+## Build and run
+```bash
+scripts/build/build-all.sh debug --test   # generate project, build Jit.app, run all tests
+open ~/Library/Developer/Xcode/DerivedData/Jit/Build/Products/Debug/Jit.app
+```
+Open the project in Xcode with `scripts/build/gen-xcodeproj.sh && open macos/Jit.xcodeproj`.
+All commands: [`CLAUDE.md`](CLAUDE.md#commands).
+
+## Layout
+```
+macos/App/                 thin app target (entry point, windows, menus, launch probe)
+macos/Packages/JitKit/     GitCore, GitTestKit, DesignSystem, Features, JitBench + tests
+macos/project.yml          XcodeGen spec (project is generated, not committed)
+scripts/build/             build, test, lint scripts
+scripts/benchmarks/        launch and idle benchmarks
+docs/                      product, architecture, design system, performance, security, release, ADRs, phases
+```
+
+## Documentation
+- [`docs/master-prompt.md`](docs/master-prompt.md) — requirements; [`docs/roadmap.md`](docs/roadmap.md) — plan.
+- [`docs/architecture.md`](docs/architecture.md), [`docs/design-system.md`](docs/design-system.md),
+  [`docs/performance.md`](docs/performance.md), [`docs/security.md`](docs/security.md),
+  [`docs/release.md`](docs/release.md), [`docs/product.md`](docs/product.md), [`docs/adr/`](docs/adr/).
+- [`docs/phases/`](docs/phases/) — one folder per phase (design, implementation plan, kickoff prompt, progress).

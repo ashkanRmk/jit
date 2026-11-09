@@ -1,6 +1,7 @@
 # Jit — Implementation Roadmap
 
-> Status: **planning**. Nothing described here is implemented yet. Each phase folder under
+> Status: **Phase 0 implemented** (branch `phase/00-foundation`, see
+> [`phases/00-foundation/progress.md`](phases/00-foundation/progress.md)); Phases 1–8 are plans. Each phase folder under
 > [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
 > such as **§7.4** point into that file.
@@ -38,8 +39,8 @@ Captured on the planning machine. Phase 0 re-verifies all of it.
 | Item | Found | Consequence |
 |---|---|---|
 | macOS | 27.2 (build 26B123), arm64 | Deployment target **macOS 26.0** (ADR-0006); clean-machine tests on 26 and latest. |
-| Xcode | Was not installed (CLT only); Xcode 27.2 install started from the App Store during planning | **Blocker for Phase 0 until installed and selected:** `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`, then `sudo xcodebuild -license accept` and `xcodebuild -runFirstLaunch`. |
-| Swift | 6.3.3 (CLT); Xcode 27.2's toolchain once installed | Swift 6 language mode with strict concurrency. |
+| Xcode | 27.2 (27B52) installed and selected (verified in Phase 0, 2026-11-09) | Resolved. |
+| Swift | 6.4.2 (Xcode 27.2 toolchain) | Swift 6 language mode with strict concurrency. |
 | XcodeGen | 2.46.0 (installed via Homebrew) | Generates the Xcode project from `macos/project.yml` (ADR-0003). |
 | Rust | 1.89.0 present but **not used** | Not a dependency (ADR-0002). |
 | Git | 2.54.0 | Development Git. Minimum supported Git version is decided in ADR-0006. |

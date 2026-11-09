@@ -463,3 +463,20 @@ rewrite them.
 | Tokens in code vs asset catalog | Implement code-defined dynamic `NSColor(name:dynamicProvider:)` | Light/dark/high-contrast switch live, no view hardcodes colors |
 | `LC_ALL=C` vs localized Git messages | Keep `C` for parsing; user-facing text comes from our mapping, raw stderr only in "Details" | Confirmed in ADR-0005 |
 | Does `swift test` on the CI runner see the same Git as local? | Print `GitLocator` result in a test | Tests use `GitTestKit`'s resolved Git consistently |
+
+## 8. Phase 0 outcome — where the implementation differs from this design (2026-11-09)
+
+- **Locator (§4.1):** instead of running the `/usr/bin/git` shim when the developer tools contain Git,
+  the locator returns the real binary (`<selected developer dir>/usr/bin/git` or
+  `/Library/Developer/CommandLineTools/usr/bin/git`), so the shim — which consults `xcode-select` at run
+  time — is never executed. Source label: "Apple developer tools".
+- **Process group (§4.1):** `POSIX_SPAWN_SETSID` instead of `SETPGROUP` — same group semantics, plus no
+  controlling terminal, so nothing can prompt on a tty (ADR-0005).
+- **Quit:** live Git process groups get `SIGTERM` when the app terminates (`ProcessRunner.terminateAllRunning()`).
+- **Accent (§3.3):** selection and focus follow the system accent; Tidewater is only the primary glass
+  tint (`docs/design-system.md`).
+- **`text.tertiary` light** is `#7A7F85` (contrast test); high-contrast variants added for borders,
+  secondary/tertiary text and `accent.base`. Radii unchanged.
+- **Screenshots (§3.1/§3.2):** produced by an in-app renderer (debug `-JitSnapshot`) because the session
+  had no Screen Recording permission; they do not show glass faithfully
+  (`screenshots/README.md`).

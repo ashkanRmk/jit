@@ -46,3 +46,39 @@ requires macOS 26.6+.
 - Phase 7 clean-machine tests use macOS 26 and the latest macOS.
 - **Revisit if:** a meaningful user segment on macOS 15 is required — that would need a separate
   fallback design and its own ADR.
+
+## Phase 0 addendum (2026-11-09)
+
+### Minimum Git version: 2.39
+
+| Git feature Jit relies on | Needed from | First used |
+|---|---|---|
+| `status --porcelain=v2 -z` | 2.11 | Phase 1 |
+| `git switch` / `git restore` | 2.23 | Phase 3–4 |
+| `rev-parse --path-format=absolute` | 2.31 | Phase 0 (discovery) |
+| `safe.directory` / dubious-ownership refusal (must be handled) | 2.35.2 | Phase 0 |
+| `merge.conflictStyle=zdiff3` | 2.35 | Phase 4 |
+| `merge-tree --write-tree` (conflict preview without touching the worktree) | 2.38 | Phase 4 |
+
+2.39 is also the oldest Apple Git shipped with the Command Line Tools for the supported macOS
+releases (e.g. `2.39.5 (Apple Git-154)`), so the system Git is always acceptable. Enforced by
+`GitVersion.minimum`; older Git shows the "Git too old" state.
+
+### Distribution posture
+- **App Sandbox off.** Jit runs Git, reads arbitrary repositories, `~/.ssh` and Git config, and spawns
+  helpers; Developer ID distribution (Phase 7) does not require the sandbox.
+- **Hardened Runtime on in every configuration** from Phase 0, so entitlement surprises appear early.
+  No entitlements are requested in Phase 0.
+- **Bundle identifier:** placeholder `com.example.jit` in `macos/App/Config/Base.xcconfig` until the
+  owner supplies the real one. Phase 0 builds are ad-hoc signed ("Sign to Run Locally"); the machine
+  has no Developer ID identity.
+
+### Liquid Glass APIs verified against MacOSX27.2.sdk (all `@available(macOS 26.0, *)`)
+SwiftUI: `glassEffect(_:in:)`, `Glass` (`.regular`, `.clear`, `.identity`, `.tint(_:)`,
+`.interactive(_:)`), `GlassEffectContainer(spacing:content:)`, `glassEffectID(_:in:)`,
+`glassEffectUnion(id:namespace:)`, `glassEffectTransition(_:)`, `.buttonStyle(.glass)`,
+`.buttonStyle(.glassProminent)`, `scrollEdgeEffectStyle(_:for:)` (`.automatic`/`.hard`/`.soft`),
+`scrollEdgeEffectHidden(_:for:)`, `backgroundExtensionEffect()`.
+AppKit: `NSGlassEffectView` (`contentView`, `cornerRadius`, `tintColor`, `style`),
+`NSGlassEffectContainerView` (`contentView`, `spacing`). `NSGlassEffectView.effectIsInteractive` is
+macOS 27.0+ and is not used at the 26.0 target. How Jit uses them: `docs/design-system.md`.

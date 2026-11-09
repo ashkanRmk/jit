@@ -1,0 +1,16 @@
+// Shared build settings for the Jit app target (ADR-0003, ADR-0006 Phase 0 addendum).
+// Placeholder until the owner supplies the real bundle identifier.
+PRODUCT_BUNDLE_IDENTIFIER = com.example.jit
+MARKETING_VERSION = 0.0.1
+CURRENT_PROJECT_VERSION = 1
+MACOSX_DEPLOYMENT_TARGET = 26.0
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
+ARCHS = arm64
+ENABLE_HARDENED_RUNTIME = YES
+// Xcode omits the runtime flag for ad-hoc ("-") signing; force it so Phase 0 builds match release.
+OTHER_CODE_SIGN_FLAGS = $(inherited) --options=runtime
+ENABLE_APP_SANDBOX = NO
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =

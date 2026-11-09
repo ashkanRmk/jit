@@ -38,9 +38,14 @@ Spec (`docs/phases/NN-*/specs/`) → tests → implement → build → run tests
 Use real temporary Git repositories in tests (`GitTestKit`), not mocked Git output.
 
 ## Commands
-_Filled in by Phase 0 once they exist. Keep this section accurate._
-- Generate Xcode project: `TBD`
-- Build app: `TBD`
-- Core tests (`swift test`): `TBD`
-- App/UI tests: `TBD`
-- Benchmarks: `TBD`
+Run from the repository root. Requires full Xcode 26+ selected and `brew install xcodegen`.
+- Generate Xcode project: `scripts/build/gen-xcodeproj.sh` (writes git-ignored `macos/Jit.xcodeproj`)
+- Build app: `scripts/build/build-app.sh [debug|release]` (DerivedData: `~/Library/Developer/Xcode/DerivedData/Jit`, override `JIT_DERIVED_DATA`)
+- Everything from a clean checkout: `scripts/build/build-all.sh [debug|release] [--test]`
+- Core tests (`swift test`): `scripts/build/test-core.sh`
+- App/UI tests: `scripts/build/test-app.sh`
+- Lint (swift format + architecture rules): `scripts/build/lint.sh`
+- Benchmarks: `scripts/benchmarks/launch.sh [runs]`, `[JIT_OPEN=<repo>] scripts/benchmarks/idle.sh [label]`,
+  `swift run -c release --package-path macos/Packages/JitKit JitBench [spawn-latency|discovery|all]`
+- Debug launch args: `-JitOpen <path>` (all builds), `-JitAppearance light|dark`, `-JitShowGallery YES`,
+  `-JitGallerySection <name>`, `-JitSnapshot <png>` (debug only; renders the window to PNG)
