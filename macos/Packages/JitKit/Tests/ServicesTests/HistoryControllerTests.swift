@@ -17,7 +17,7 @@ import Testing
 
     /// Waits for a condition driven by async work (test-only helper; production code never polls).
     func until(_ condition: () -> Bool, timeout: Duration = .seconds(10)) async throws {
-        let deadline = ContinuousClock.now + timeout
+        let deadline = ContinuousClock.now + TimingBudget.latency(timeout)
         while !condition() {
             if ContinuousClock.now > deadline { throw CancellationError() }
             try await Task.sleep(for: .milliseconds(10))

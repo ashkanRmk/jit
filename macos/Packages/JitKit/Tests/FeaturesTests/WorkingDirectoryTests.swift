@@ -148,7 +148,7 @@ import Testing
     @MainActor
     func waitUntil(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async throws -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now + timeout
+        let deadline = clock.now + TimingBudget.latency(timeout)
         while clock.now < deadline {
             if condition() { return true }
             try await Task.sleep(for: .milliseconds(20))

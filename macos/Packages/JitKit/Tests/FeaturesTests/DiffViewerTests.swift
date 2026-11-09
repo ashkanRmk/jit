@@ -48,7 +48,7 @@ import Testing
         model.layout = .unified
         model.open(.unstaged(path: "f.txt"))
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(5)
+        let deadline = clock.now + TimingBudget.latency(.seconds(5))
         while model.state != .loaded, clock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         let source = try #require(model.source)
         let gapRows = (0..<source.rowCount).filter { source.cell(row: $0, column: 0).kind == .gap }
@@ -79,9 +79,10 @@ import Testing
         model.scrollToRow = { row, _ in scrolled.append(row) }
         model.open(.unstaged(path: "f.txt"))
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(5)
+        let deadline = clock.now + TimingBudget.latency(.seconds(5))
         while model.state != .loaded, clock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        #expect(model.changeRows.count == 2)
+        // `#require`, not `#expect`: the indexing below would crash the whole test process if loading failed.
+        try #require(model.changeRows.count == 2)
         model.nextChange(from: 0, forward: true)
         model.nextChange(from: 0, forward: true)
         model.nextChange(from: 0, forward: true)  // wraps
@@ -134,7 +135,7 @@ import Testing
         session.activate()
         let model = DiffViewModel(session: session)
         func wait(_ condition: () -> Bool) async throws {
-            let deadline = ContinuousClock.now + .seconds(5)
+            let deadline = ContinuousClock.now + TimingBudget.latency(.seconds(5))
             while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         }
         try await wait { session.lifecycle == .active }
@@ -168,7 +169,7 @@ import Testing
             defer: false)
         window.contentView = controller.view
         model.open(.unstaged(path: "f.txt"))
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + TimingBudget.latency(.seconds(5))
         while model.state != .loaded, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         controller.view.layoutSubtreeIfNeeded()
         let labels = (controller.codeView.accessibilityChildren() ?? []).compactMap {

@@ -23,7 +23,7 @@ import Testing
         model.revealCommit = { revealed = $0 }
         model.open(path: "f.txt", revision: nil)
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(5)
+        let deadline = clock.now + TimingBudget.latency(.seconds(5))
         while model.isLoading || model.lineCount == 0, clock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }

@@ -31,10 +31,18 @@ class CompareTests(unittest.TestCase):
         cand["scenarios"]["idle-1tabs"]["cpu_percent"]["median"] = 0.5     # +0.5 pt
         self.assertEqual(self.run_compare(cand), 1)
 
-    def test_loose_mode_tolerates_ci_noise(self):
+    def test_loose_mode_tolerates_slower_ci_hardware(self):
         cand = json.loads(json.dumps(BASE))
-        cand["scenarios"]["launch-warm"]["first_window"]["median"] = 300.0  # +20 % < 25 %
+        cand["scenarios"]["launch-warm"]["first_window"]["median"] = 520.0  # 2.08x (virtual M1 vs reference)
         self.assertEqual(self.run_compare(cand, loose=True), 0)
+
+    def test_loose_mode_still_catches_large_regressions(self):
+        cand = json.loads(json.dumps(BASE))
+        cand["scenarios"]["launch-warm"]["first_window"]["median"] = 650.0  # 2.6x > 2.5x
+        self.assertEqual(self.run_compare(cand, loose=True), 1)
+        cand = json.loads(json.dumps(BASE))
+        cand["scenarios"]["idle-1tabs"]["cpu_percent"]["median"] = 0.3     # +0.3 pt > 0.25 pt
+        self.assertEqual(self.run_compare(cand, loose=True), 1)
 
     def test_missing_metric_fails(self):
         cand = json.loads(json.dumps(BASE))
