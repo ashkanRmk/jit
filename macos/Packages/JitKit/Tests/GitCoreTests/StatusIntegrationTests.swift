@@ -52,7 +52,7 @@ import Testing
         try await repo.git("add", "a.txt")
         try repo.write("a.txt", "two\n")
         let status = try await open(repo).status()
-        #expect(status.summary == StatusSummary(staged: 1, unstaged: 1))
+        #expect(status.summary == StatusSummary(staged: 1, unstaged: 1, changedFiles: 1, partiallyStaged: 1))
     }
 
     @Test func statusReportsUpstreamAheadBehind() async throws {

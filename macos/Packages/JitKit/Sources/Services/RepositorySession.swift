@@ -58,6 +58,12 @@ public final class RepositorySession {
     /// the tab's persisted scope first).
     public private(set) var history: HistoryController?
 
+    /// Mutations this session started that have not finished (running or queued behind the write gate).
+    /// The UI disables conflicting actions while non-empty (design §4.7). Phase 4 lifts this into
+    /// OperationCenter.
+    public private(set) var pendingWrites: [String] = []
+    public var isBusy: Bool { !pendingWrites.isEmpty }
+
     /// Called on the main actor after `info`, `status` or `error` change (tab title/dot, recents).
     @ObservationIgnored public var onChange: (@MainActor (RepositorySession) -> Void)?
 
@@ -69,6 +75,7 @@ public final class RepositorySession {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingInvalidation: Set<InvalidationKind> = []
     @ObservationIgnored private var refreshQueued = false
+    @ObservationIgnored private var writeSequence: UInt64 = 0
 
     private static let log = Logger(subsystem: "jit.app", category: "session")
 
@@ -166,6 +173,33 @@ public final class RepositorySession {
             await task.value
             if loadTask == nil, refreshTask == nil { break }
         }
+    }
+
+    // MARK: - Mutations (P3.1)
+
+    /// Stages whole paths through the handle's write gate, then refreshes status.
+    public func stage(_ paths: [String]) async throws(GitCoreError) {
+        try await write("Stage") { handle throws(GitCoreError) in try await handle.stage(paths) }
+    }
+
+    /// Unstages whole paths through the handle's write gate, then refreshes status.
+    public func unstage(_ paths: [String]) async throws(GitCoreError) {
+        try await write("Unstage") { handle throws(GitCoreError) in try await handle.unstage(paths) }
+    }
+
+    private func write(
+        _ description: String, _ body: @Sendable (RepositoryHandle) async throws(GitCoreError) -> RepoRevision
+    ) async throws(GitCoreError) {
+        guard let handle, lifecycle != .closed else { throw .cancelled }
+        writeSequence &+= 1
+        let token = "\(description) #\(writeSequence)"
+        pendingWrites.append(token)
+        defer {
+            if let index = pendingWrites.firstIndex(of: token) { pendingWrites.remove(at: index) }
+            // Refresh whether or not Git succeeded: a failed command may still have changed something.
+            scheduleRefresh([.index, .worktree], reason: .user)
+        }
+        _ = try await body(handle)
     }
 
     // MARK: - Loading and refreshing

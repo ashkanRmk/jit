@@ -15,6 +15,8 @@ public struct GitCommand: Sendable {
     public var timeout: Duration?
     public var stdoutLimit: Int
     public var acceptedExitCodes: Set<Int32>
+    /// Written to Git's stdin (`--pathspec-from-file=-`, `commit -F -`); `nil` means `/dev/null`.
+    public var stdin: [UInt8]?
 
     public init(
         _ arguments: [String],
@@ -22,8 +24,10 @@ public struct GitCommand: Sendable {
         kind: CommandKind = .read,
         timeout: Duration? = .seconds(30),
         stdoutLimit: Int = 16 * 1024 * 1024,
-        acceptedExitCodes: Set<Int32> = [0]
+        acceptedExitCodes: Set<Int32> = [0],
+        stdin: [UInt8]? = nil
     ) {
+        self.stdin = stdin
         self.arguments = arguments
         self.workingDirectory = workingDirectory
         self.kind = kind
@@ -147,7 +151,8 @@ public actor GitEngine {
             environment: Self.environment(for: git.path, kind: command.kind, configuration: configuration),
             timeout: command.timeout,
             stdoutLimit: command.stdoutLimit,
-            acceptedExitCodes: command.acceptedExitCodes
+            acceptedExitCodes: command.acceptedExitCodes,
+            stdin: command.stdin
         )
         return try await runner.run(spec)
     }

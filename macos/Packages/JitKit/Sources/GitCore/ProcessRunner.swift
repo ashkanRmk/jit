@@ -13,6 +13,8 @@ public struct ProcessSpec: Sendable {
     public var timeout: Duration?
     public var stdoutLimit: Int
     public var acceptedExitCodes: Set<Int32>
+    /// Bytes written to the child's stdin, then closed. `nil` connects stdin to `/dev/null`.
+    public var stdin: [UInt8]?
 
     public init(
         executable: String,
@@ -21,7 +23,8 @@ public struct ProcessSpec: Sendable {
         environment: [String: String],
         timeout: Duration? = nil,
         stdoutLimit: Int = 16 * 1024 * 1024,
-        acceptedExitCodes: Set<Int32> = [0]
+        acceptedExitCodes: Set<Int32> = [0],
+        stdin: [UInt8]? = nil
     ) {
         self.executable = executable
         self.arguments = arguments
@@ -30,6 +33,7 @@ public struct ProcessSpec: Sendable {
         self.timeout = timeout
         self.stdoutLimit = stdoutLimit
         self.acceptedExitCodes = acceptedExitCodes
+        self.stdin = stdin
     }
 }
 
@@ -45,7 +49,7 @@ public struct ProcessOutput: Sendable {
 
 /// Launches child processes with `posix_spawn` (ADR-0005).
 ///
-/// - argv array, explicit working directory, stdin `/dev/null`.
+/// - argv array, explicit working directory, stdin `/dev/null` (or a pipe fed from `ProcessSpec.stdin`).
 /// - New session (`POSIX_SPAWN_SETSID`): the child leads its own process group and has no
 ///   controlling terminal, so nothing can prompt on a tty; the whole group is signalled on
 ///   cancellation/timeout (`SIGTERM`, then `SIGKILL` after `terminationGrace`).
@@ -109,6 +113,7 @@ private final class ChildProcess: @unchecked Sendable {
     private var stdoutSource: (any DispatchSourceRead)?
     private var stderrSource: (any DispatchSourceRead)?
     private var exitSource: (any DispatchSourceProcess)?
+    private var stdinChannel: DispatchIO?
     private var timers: [any DispatchSourceTimer] = []
     private var waitStatus: Int32?
     private var failure: GitCoreError?
@@ -165,6 +170,7 @@ private final class ChildProcess: @unchecked Sendable {
 
         stdoutSource = makeReader(fd: spawned.stdout, isStdout: true)
         stderrSource = makeReader(fd: spawned.stderr, isStdout: false)
+        if let fd = spawned.stdin, let input = spec.stdin { feedStdin(fd: fd, input) }
 
         let exit = DispatchSource.makeProcessSource(identifier: spawned.pid, eventMask: .exit, queue: queue)
         exit.setEventHandler { [self] in reap(afterExitEvent: true) }
@@ -181,6 +187,19 @@ private final class ChildProcess: @unchecked Sendable {
     }
 
     // MARK: Pipes
+
+    /// Writes `input` to the child's stdin without blocking a thread, then closes it. A child that exits
+    /// without reading gets EPIPE (never SIGPIPE: `F_SETNOSIGPIPE` on the write end).
+    private func feedStdin(fd: Int32, _ input: [UInt8]) {
+        let channel = DispatchIO(type: .stream, fileDescriptor: fd, queue: queue) { _ in close(fd) }
+        stdinChannel = channel
+        let data = input.withUnsafeBytes { DispatchData(bytes: $0) }
+        channel.write(offset: 0, data: data, queue: queue) { [self] done, _, _ in
+            guard done else { return }
+            stdinChannel?.close()
+            stdinChannel = nil
+        }
+    }
 
     private func makeReader(fd: Int32, isStdout: Bool) -> any DispatchSourceRead {
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
@@ -331,6 +350,8 @@ private final class ChildProcess: @unchecked Sendable {
         timers.removeAll()
         exitSource?.cancel()
         exitSource = nil
+        stdinChannel?.close(flags: .stop)
+        stdinChannel = nil
         stdoutSource?.cancel()
         stdoutSource = nil
         stderrSource?.cancel()
@@ -397,18 +418,30 @@ struct SpawnedChild {
     let pid: pid_t
     let stdout: Int32
     let stderr: Int32
+    /// Write end of the stdin pipe when `ProcessSpec.stdin` is set.
+    let stdin: Int32?
 
     /// `posix_spawn` with stdin `/dev/null`, its own session/process group, default signals and only
     /// stdout/stderr inherited.
     static func spawn(_ spec: ProcessSpec) -> Result<SpawnedChild, GitCoreError> {
         var outPipe: [Int32] = [-1, -1]
         var errPipe: [Int32] = [-1, -1]
+        var inPipe: [Int32] = [-1, -1]
         guard pipe(&outPipe) == 0 else { return .failure(.launchFailed(errno: errno)) }
         guard pipe(&errPipe) == 0 else {
             let code = errno
             close(outPipe[0])
             close(outPipe[1])
             return .failure(.launchFailed(errno: code))
+        }
+        if spec.stdin != nil {
+            guard pipe(&inPipe) == 0 else {
+                let code = errno
+                for fd in outPipe + errPipe { close(fd) }
+                return .failure(.launchFailed(errno: code))
+            }
+            for fd in inPipe { _ = fcntl(fd, F_SETFD, FD_CLOEXEC) }
+            _ = fcntl(inPipe[1], F_SETNOSIGPIPE, 1)
         }
         // Close-on-exec on all four ends, so a concurrent spawn elsewhere in the process (one that does
         // not use CLOEXEC_DEFAULT) cannot inherit a write end and delay EOF. `adddup2` clears the flag
@@ -423,7 +456,11 @@ struct SpawnedChild {
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
         defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
+        if spec.stdin != nil {
+            posix_spawn_file_actions_adddup2(&actions, inPipe[0], STDIN_FILENO)
+        } else {
+            posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
+        }
         posix_spawn_file_actions_adddup2(&actions, outPipe[1], STDOUT_FILENO)
         posix_spawn_file_actions_adddup2(&actions, errPipe[1], STDERR_FILENO)
         posix_spawn_file_actions_addchdir(&actions, spec.workingDirectory)
@@ -448,12 +485,16 @@ struct SpawnedChild {
         let status = posix_spawn(&childPID, spec.executable, &actions, &attributes, argv.pointers, envp.pointers)
         close(outPipe[1])
         close(errPipe[1])
+        if inPipe[0] >= 0 { close(inPipe[0]) }
         guard status == 0 else {
             close(outPipe[0])
             close(errPipe[0])
+            if inPipe[1] >= 0 { close(inPipe[1]) }
             return .failure(classifySpawnFailure(status, spec: spec))
         }
-        return .success(SpawnedChild(pid: childPID, stdout: outPipe[0], stderr: errPipe[0]))
+        return .success(
+            SpawnedChild(
+                pid: childPID, stdout: outPipe[0], stderr: errPipe[0], stdin: inPipe[1] >= 0 ? inPipe[1] : nil))
     }
 
     private static func classifySpawnFailure(_ code: Int32, spec: ProcessSpec) -> GitCoreError {

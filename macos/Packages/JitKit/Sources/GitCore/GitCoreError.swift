@@ -17,6 +17,10 @@ public enum GitCoreError: Error, Sendable, Equatable {
     case launchFailed(errno: Int32)
     case io(summary: String)
     case internalError(summary: String)
+    /// `.git/index.lock` exists: another Git process is working in this repository (or crashed).
+    case indexLocked(path: String)
+    /// The repository changed after the action was prepared; nothing was modified.
+    case staleSnapshot(summary: String)
 
     public var summary: String {
         switch self {
@@ -43,6 +47,10 @@ public enum GitCoreError: Error, Sendable, Equatable {
         case let .launchFailed(code):
             "Git couldn't be started (\(String(cString: strerror(code))))."
         case let .io(summary), let .internalError(summary):
+            summary
+        case .indexLocked:
+            "Another Git process is using this repository (index.lock exists). Try again when it finishes."
+        case let .staleSnapshot(summary):
             summary
         }
     }

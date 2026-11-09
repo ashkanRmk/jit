@@ -106,7 +106,8 @@ import Testing
     @Test func partiallyStagedCountsBoth() throws {
         let snapshot = try StatusParser.parse(
             bytes(["1 MM N... 100644 100644 100644 \(Self.oid) \(Self.oid) both.txt"]))
-        #expect(snapshot.summary == StatusSummary(staged: 1, unstaged: 1))
+        #expect(snapshot.summary == StatusSummary(staged: 1, unstaged: 1, changedFiles: 1, partiallyStaged: 1))
+        #expect(snapshot.entries.isPartiallyStaged(at: 0))
     }
 
     @Test(arguments: [

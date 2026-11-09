@@ -50,6 +50,23 @@ import Testing
         #expect(output.stdoutText == hostile)
     }
 
+    @Test func feedsStdinBytesExactly() async throws {
+        var processSpec = spec("/bin/cat", [])
+        let input: [UInt8] = Array("a\0b\r\nc".utf8) + [0xFF, 0x00] + Array(repeating: 0x41, count: 300_000)
+        processSpec.stdin = input
+        #expect(try await runner.run(processSpec).stdout == input)
+    }
+
+    @Test func childIgnoringLargeStdinDoesNotRaiseSIGPIPE() async throws {
+        var processSpec = spec("/usr/bin/true", [])
+        processSpec.stdin = Array(repeating: 0x42, count: 4 * 1024 * 1024)
+        #expect(try await runner.run(processSpec).exitCode == 0)
+    }
+
+    @Test func stdinDefaultsToDevNull() async throws {
+        #expect(try await runner.run(spec("/bin/cat", [])).stdout.isEmpty)
+    }
+
     @Test func sanitizesEnvironment() async throws {
         let parent = ["HOME": "/Users/x", "SECRET_TOKEN": "s3cret", "PATH": "/evil/bin", "GIT_DIR": "/elsewhere"]
         var processSpec = spec("/usr/bin/env", [])

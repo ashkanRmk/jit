@@ -133,6 +133,24 @@ import Testing
         #expect(session.lifecycle == .closed)
     }
 
+    @Test func testStageAndUnstageRefreshStatusAndClearBusy() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await repository(sandbox)
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
+        session.activate()
+        #expect(try await waitUntil { session.lifecycle == .active && session.status != nil })
+        try repo.write("staged.txt", "new\n")
+        session.reload()
+        #expect(try await waitUntil { session.status?.summary?.untracked == 1 })
+
+        try await session.stage(["staged.txt"])
+        #expect(!session.isBusy)
+        #expect(try await waitUntil { session.status?.summary?.staged == 1 })
+        try await session.unstage(["staged.txt"])
+        #expect(try await waitUntil { session.status?.summary?.untracked == 1 && session.status?.summary?.staged == 0 })
+        #expect(session.pendingWrites.isEmpty)
+    }
+
     @Test func testDotIsNotLoadedUntilFirstStatus() async throws {
         let sandbox = try GitSandbox()
         let repo = try await repository(sandbox)
