@@ -69,6 +69,29 @@ func measure(
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 
+// `JitBench history-source <repo>...`: spike S1 (ADR-0010). Prints one line per strategy.
+if arguments.first == "history-source" {
+    let engine = GitEngine()
+    var all: [HistorySourceSpike.Row] = []
+    for path in arguments.dropFirst() {
+        for row in try await HistorySourceSpike.run(path: path, label: (path as NSString).lastPathComponent, engine: engine) {
+            all.append(row)
+            print(
+                String(
+                    format: "%@ graph=%@ %@: first300 %.1f ms, full %.0f ms, rows %d, reader idle CPU %@, footprint %@",
+                    row.repo, row.commitGraph ? "yes" : "no", row.strategy, row.first300Milliseconds,
+                    row.fullMilliseconds, row.rows,
+                    row.readerIdleCPUMilliseconds.map { String(format: "%.2f ms/2s", $0) } ?? "n/a",
+                    row.readerFootprintMB.map { String(format: "%.1f MB", $0) } ?? "n/a"))
+        }
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try FileManager.default.createDirectory(atPath: "scripts/benchmarks/out", withIntermediateDirectories: true)
+    try encoder.encode(all).write(to: URL(fileURLWithPath: "scripts/benchmarks/out/history-source.json"))
+    exit(0)
+}
+
 // `JitBench make-history <commits> <branches> <out>`: deterministic history fixture (fast-import).
 if arguments.first == "make-history" {
     guard arguments.count == 4, let commits = Int(arguments[1]), let branches = Int(arguments[2]) else {
