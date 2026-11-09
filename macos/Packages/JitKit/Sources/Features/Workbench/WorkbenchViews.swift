@@ -30,7 +30,7 @@ struct SessionStateOverlay: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(MotionToken.panel.animation, value: session.error != nil)
+        .animation(reduceMotion ? nil : MotionToken.panel.animation, value: session.error != nil)
     }
 }
 

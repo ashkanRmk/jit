@@ -219,3 +219,22 @@ Renders (real screen captures): `docs/phases/01-shell-and-tabs/screenshots/`.
 - Profile switcher: system popover, plain rows with hover state, `AccountStatusDot` (success/warning/danger/
   tertiary tokens), footer buttons in one `GlassControlGroup` with `secondaryGlassButton()`.
 - Repository browser list/detail and the diagnostics step list are opaque content (no glass on rows).
+
+## Phase 6 changelog
+
+- No token values changed. Rules made enforceable instead:
+  - Glass reaches features only through `jitGlass`, `tintedGlassBar`, `glassTab`, `GlassControlGroup`,
+    `FloatingGlassCapsule` and the button helpers `primaryGlassButton()` / `secondaryGlassButton()`
+    (`untintedProminentGlassButton()` for the gallery). Lint forbids `buttonStyle(.glass…)` in features;
+    `GlassPolicyTests` pins glass to the chrome files listed in `phases/06-polish-and-performance/visual-review.md`.
+  - Motion: animations use `MotionToken` values or are instant; every SwiftUI animation has a Reduce Motion
+    path (`MotionPolicyTests`). Glass morphs (tab selection) do not run under Reduce Motion.
+- New: `CodeTextScale` — code/diff text sizes S/M/L/XL = 11/12/14/16 pt (View ▸ Larger/Smaller Code Text).
+- New: `GlassPolicy.opaqueChrome` (`-JitOpaqueChrome YES`) and the `jitOpaqueChrome` environment value render
+  Jit's glass as the Reduce Transparency surface (glass-cost A/B, snapshot variants).
+- Differentiate Without Color: diff change bars become +/− glyphs; tab status dots become square (operation)
+  and diamond (danger).
+- Command palette: one `jitGlass` rounded container (`Radius.lg`), `type.title` field, `type.body` titles with
+  matched characters in `type.headline` weight, `type.caption` secondary lines, key chips in `type.mono.caption`
+  on `state.hover`, selection `Selection.fill`, strong border under Increase Contrast / Reduce Transparency.
+- Liquid Glass inventory and motion inventory: `phases/06-polish-and-performance/visual-review.md`.

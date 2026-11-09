@@ -93,6 +93,9 @@ public struct ProcessRunner: Sendable {
         #endif
         if Task.isCancelled { throw .cancelled }
         if let observer = Self.spawnObserver.withLock({ $0 }) { observer(spec) }
+        // Subprocess lifetime, subcommand name only (never arguments or paths).
+        let interval = Signposts.begin(Signposts.coreGitProcess, Signposts.gitSubcommand(spec.arguments))
+        defer { Signposts.end(interval) }
         let child = ChildProcess(spec: spec, grace: terminationGrace, liveGroups: liveGroups)
         let result = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in

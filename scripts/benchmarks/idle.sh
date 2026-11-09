@@ -33,9 +33,17 @@ if [[ "${JIT_ACTIVATE:-0}" == "1" ]]; then sleep 2; open -a "$BUNDLE"; fi
 sleep "$SETTLE"
 top -l $((SAMPLES + 1)) -s 1 -pid "$PID" -stats pid,cpu,idlew,power,th > "$OUT_DIR/idle-$LABEL-top.txt"
 footprint "$PID" > "$OUT_DIR/idle-$LABEL-footprint.txt" 2>&1 || true
-python3 - "$OUT_DIR/idle-$LABEL-top.txt" "$OUT_DIR/idle-$LABEL-footprint.txt" "$OUT_DIR/idle-$LABEL.json" "$LABEL" "$PID" <<'PY'
+# Per-process wakeups / energy / GPU from powermetrics when sudo works without a prompt (read-only sampling);
+# top's IDLEW column proved noisy on a busy machine (Phase 6).
+if sudo -n true 2>/dev/null; then
+    "$(dirname "$0")/powermetrics.sh" "$PID" "${JIT_PM_SAMPLES:-30}" > "$OUT_DIR/idle-$LABEL-powermetrics.json" || true
+    "$(dirname "$0")/network-idle.sh" "$PID" 10 > "$OUT_DIR/idle-$LABEL-network.json" 2>/dev/null || true
+else
+    echo '{"error": "powermetrics needs sudo"}' > "$OUT_DIR/idle-$LABEL-powermetrics.json"
+fi
+python3 - "$OUT_DIR/idle-$LABEL-top.txt" "$OUT_DIR/idle-$LABEL-footprint.txt" "$OUT_DIR/idle-$LABEL.json" "$LABEL" "$PID" "$OUT_DIR/idle-$LABEL-powermetrics.json" "$OUT_DIR/idle-$LABEL-network.json" <<'PY'
 import json, re, sys
-top, fp, out, label, pid = sys.argv[1:]
+top, fp, out, label, pid, pm, net = sys.argv[1:]
 rows = [line.split() for line in open(top) if line.strip().startswith(pid + " ") or line.split()[:1] == [pid]]
 rows = rows[1:]  # first top sample has no CPU delta
 cpu = [float(r[1]) for r in rows]; wake = [int(float(r[2].rstrip("+"))) for r in rows]; power = [float(r[3]) for r in rows]
@@ -47,6 +55,9 @@ for line in open(fp):
 result = {"label": label, "samples": len(rows), "cpu_percent_mean": sum(cpu)/len(cpu), "cpu_percent_max": max(cpu),
           "idle_wakeups_per_sample_mean": sum(wake)/len(wake), "idle_wakeups_per_sample_max": max(wake), "energy_impact_mean": sum(power)/len(power),
           "threads_max": max(threads), "physical_footprint": footprint}
+for key, path in (("powermetrics", pm), ("network", net)):
+    try: result[key] = json.load(open(path))
+    except Exception: result[key] = None
 json.dump(result, open(out, "w"), indent=2)
 print(json.dumps(result))
 PY

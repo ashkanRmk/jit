@@ -23,19 +23,37 @@ public struct SnapshotToken: Sendable, Hashable {
 
 extension RepositoryHandle {
     /// Reads the token for `path` (read-only).
+    ///
+    /// The three Git reads (index record, HEAD, blob id of the working-tree bytes) are independent and run
+    /// concurrently (P6.4: diff switch spent most of its time in seven sequential Git processes). The
+    /// working-tree fingerprint is read once, before the content that is hashed.
     public func snapshotToken(for path: String) async throws(GitCoreError) -> SnapshotToken {
         let topLevel = try requireWorkingTree()
         let engine = gitEngine
-        let discard = try await Self.readToken(path, engine: engine, topLevel: topLevel)
-        let head = try await Self.readHead(engine: engine, in: topLevel)
         let url = URL(fileURLWithPath: topLevel).appendingPathComponent(path)
-        var blob: String?
-        if let worktree = discard.worktree, let content = Self.worktreeContent(url, type: worktree.type) {
-            blob = try await Self.hashObject(content, engine: engine, in: topLevel)
+        let fingerprint = try Fingerprint.read(url.path)
+        let content = fingerprint.flatMap { Self.worktreeContent(url, type: $0.type) }
+        async let index = Self.capture { () async throws(GitCoreError) in
+            try await Self.readIndexEntry(path, engine: engine, topLevel: topLevel)
         }
+        async let head = Self.capture { () async throws(GitCoreError) in
+            try await Self.readHead(engine: engine, in: topLevel)
+        }
+        async let blob = Self.capture { () async throws(GitCoreError) -> String? in
+            guard let content else { return nil }
+            return try await Self.hashObject(content, engine: engine, in: topLevel)
+        }
+        // One fingerprint per token (read before the content): a change after it shows up as a different
+        // fingerprint or blob in the token taken after the diff, and the read is repeated.
         return SnapshotToken(
-            path: path, headID: head, indexEntry: discard.indexEntry, worktree: discard.worktree,
-            worktreeBlobID: blob, repoRevision: repoRevision)
+            path: path, headID: try await head.get(), indexEntry: try await index.get(), worktree: fingerprint,
+            worktreeBlobID: try await blob.get(), repoRevision: repoRevision)
+    }
+
+    private static func capture<T: Sendable>(_ body: () async throws(GitCoreError) -> T) async -> Result<
+        T, GitCoreError
+    > {
+        do { return .success(try await body()) } catch { return .failure(error) }
     }
 
     static func readHead(engine: GitEngine, in directory: String) async throws(GitCoreError) -> String? {

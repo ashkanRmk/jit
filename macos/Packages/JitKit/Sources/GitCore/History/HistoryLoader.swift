@@ -113,8 +113,6 @@ public actor HistoryLoader {
     /// Bumped when the reader is suspended; a read that resolves afterwards is discarded, not parsed.
     private var readerGeneration = 0
 
-    private static let signposter = OSSignposter(subsystem: "jit.performance", category: "history")
-
     public init(repository: RepositoryHandle, query: HistoryQuery, refs: RefSnapshot) {
         self.query = query
         self.refs = refs
@@ -192,8 +190,8 @@ public actor HistoryLoader {
 
     private func readUntilTarget() async {
         defer { readTask = nil }
-        let interval = Self.signposter.beginInterval("HistoryPage", "\(self.target) rows")
-        defer { Self.signposter.endInterval("HistoryPage", interval) }
+        let interval = Signposts.begin(Signposts.coreHistoryPage, "\(target) rows")
+        defer { Signposts.end(interval) }
         do throws(GitCoreError) {
             while builder.count < target && !complete && !closed {
                 let stream = try await currentStream()
@@ -209,6 +207,9 @@ public actor HistoryLoader {
                     break
                 }
                 guard generation == readerGeneration, !Task.isCancelled else { break }
+                // Parse + lane layout of one chunk.
+                let layout = Signposts.begin(Signposts.coreLaneLayout)
+                defer { Signposts.end(layout) }
                 try ingest(chunk)
             }
         } catch {

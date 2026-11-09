@@ -7,6 +7,7 @@
     /// - `-JitAppearance light|dark` (AppDelegate) forces the appearance. (`-JitOpen <path>` works in all builds.)
     /// - `-JitShowGallery YES`: open the Design System gallery (`-JitGallerySection <name>` picks a section).
     /// - `-JitShowDropOverlay YES`: show the folder drop overlay.
+    /// - `-JitShowCommandPalette YES` (+ `-JitPaletteQuery <text>`): open the ⌘K palette.
     /// - `-JitShowSettings general|profiles|accounts|network`, `-JitShowProfilePopover YES`, `-JitShowRepositoryBrowser YES`, `-JitShowProfileEditor YES`: open those
     ///   surfaces for screenshots.
     /// - `-JitSnapshot <file.png>` (+ optional `-JitSnapshotWindow <title or id>`): after the UI settles, render
@@ -45,6 +46,12 @@
             if defaults.bool(forKey: "JitShowProfileEditor") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     controller?.presentProfileEditor(nil, prefillFromGitConfig: false)
+                }
+            }
+            if defaults.bool(forKey: "JitShowCommandPalette") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    controller?.toggleCommandPalette(nil)
+                    if let query = defaults.string(forKey: "JitPaletteQuery") { controller?.setPaletteQuery(query) }
                 }
             }
             if defaults.bool(forKey: "JitShowDropOverlay") {

@@ -54,3 +54,29 @@ jobs:
 
       - name: Build app (release)
         run: scripts/build/build-app.sh release
+
+  # Advisory performance gate (ADR-0041): release micro-benchmarks on a shared runner, compared with the
+  # reference baseline using loose thresholds (2.5×). The reference-Mac run (run-all.sh) is the authority.
+  performance:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26 or newer
+        run: |
+          set -euo pipefail
+          candidate=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1 || true)
+          [[ -n "$candidate" ]] || { echo "::error::No Xcode installed on this runner"; exit 1; }
+          sudo xcode-select -s "$candidate/Contents/Developer"
+      - name: Benchmark tooling tests
+        run: python3 -m unittest discover -s scripts/benchmarks/tests
+      - name: Micro-benchmarks (release) and loose regression check
+        env:
+          JIT_BENCH_DIR: ${{ runner.temp }}/jit-bench
+        run: scripts/benchmarks/run-all.sh --ci
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmarks/results/

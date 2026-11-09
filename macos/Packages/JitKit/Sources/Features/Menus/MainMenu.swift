@@ -1,33 +1,107 @@
 import AppKit
 import Services
 
-/// The main menu (design §3.6). Only menus with working items exist.
+/// The main menu (design §3.6), built from `CommandRegistry` (ADR-0044). Only menus with working items exist.
 /// Items target the first responder; `MainWindowController` and the app delegate implement them.
 @MainActor
 public enum MainMenu {
     /// Selectors implemented by the app delegate.
     public enum AppSelectors {
-        public static let showSettings = Selector(("showSettings:"))
-        public static let setAppearance = Selector(("setAppearance:"))
-        public static let showHelp = Selector(("showJitHelp:"))
+        public static let showSettings = CommandRegistry.showSettings
+        public static let setAppearance = CommandRegistry.setAppearance
+        public static let showHelp = CommandRegistry.showHelp
     }
 
     public static func build(recentsDelegate: any NSMenuDelegate, windowDelegate: any NSMenuDelegate) -> NSMenu {
         let main = NSMenu(title: "Main")
-        main.addItem(submenu(appMenu()))
-        main.addItem(submenu(fileMenu(recentsDelegate: recentsDelegate)))
-        main.addItem(submenu(editMenu()))
-        main.addItem(submenu(viewMenu()))
-        main.addItem(submenu(repositoryMenu()))
-        main.addItem(submenu(branchMenu()))
-        let window = windowMenu()
-        window.delegate = windowDelegate
-        main.addItem(submenu(window))
-        NSApp.windowsMenu = window
-        let help = helpMenu()
-        main.addItem(submenu(help))
-        NSApp.helpMenu = help
+        for menuKind in JitCommand.Menu.allCases {
+            let menu = NSMenu(title: menuKind.rawValue)
+            var submenus: [String: NSMenu] = [:]
+            var lastGroup: Int?
+            for command in CommandRegistry.all where command.menu == menuKind {
+                if let lastGroup, lastGroup != command.group,
+                    command.submenu.isEmpty || submenus[command.submenu[0]] == nil
+                {
+                    menu.addItem(.separator())
+                }
+                lastGroup = command.group
+                let target: NSMenu
+                if let name = command.submenu.first {
+                    if let existing = submenus[name] {
+                        target = existing
+                    } else {
+                        let holder = NSMenuItem(title: name, action: nil, keyEquivalent: "")
+                        let sub = NSMenu(title: name)
+                        holder.submenu = sub
+                        menu.addItem(holder)
+                        submenus[name] = sub
+                        target = sub
+                    }
+                    // A group change inside a submenu (Find ▸ Go to Line…) is a separator there.
+                    if let previous = target.items.last, previous.tag != command.group, !previous.isSeparatorItem {
+                        target.addItem(.separator())
+                    }
+                } else {
+                    target = menu
+                }
+                target.addItem(item(for: command))
+                anchor(after: command.id, in: menu, recentsDelegate: recentsDelegate)
+            }
+            if menuKind == .window {
+                menu.delegate = windowDelegate
+                NSApp.windowsMenu = menu
+            }
+            if menuKind == .help { NSApp.helpMenu = menu }
+            main.addItem(submenu(menu))
+        }
         return main
+    }
+
+    /// A menu item for a registry command (identifier = command id, tag = separator group).
+    public static func item(for command: JitCommand) -> NSMenuItem {
+        let entry = NSMenuItem(title: command.title, action: command.action, keyEquivalent: command.key)
+        entry.keyEquivalentModifierMask = command.modifiers
+        entry.identifier = NSUserInterfaceItemIdentifier(command.id)
+        entry.representedObject = command.representedObject
+        entry.tag = command.group
+        if command.isHiddenAlternate {
+            entry.isHidden = true
+            entry.allowsKeyEquivalentWhenHidden = true
+        }
+        return entry
+    }
+
+    /// Dynamic submenus that are not commands, placed after a fixed registry entry.
+    private static func anchor(after id: String, in menu: NSMenu, recentsDelegate: any NSMenuDelegate) {
+        switch id {
+        case "app.settings":
+            menu.addItem(.separator())
+            let services = item("Services", nil)
+            let servicesMenu = NSMenu(title: "Services")
+            services.submenu = servicesMenu
+            NSApp.servicesMenu = servicesMenu
+            menu.addItem(services)
+        case "file.browse":
+            let recent = item("Open Recent", nil)
+            let recentMenu = NSMenu(title: "Open Recent")
+            recentMenu.delegate = recentsDelegate
+            recent.submenu = recentMenu
+            menu.addItem(recent)
+        case "repo.remotes":
+            let profile = item("Profile", nil)
+            let profileMenu = NSMenu(title: "Profile")
+            profileMenu.delegate = ProfileMenu.shared
+            profile.submenu = profileMenu
+            menu.addItem(profile)
+        case "repo.copyPath":
+            menu.addItem(.separator())
+            let discarded = item("Recently Discarded", nil)
+            let discardedMenu = NSMenu(title: "Recently Discarded")
+            discardedMenu.delegate = RecentlyDiscardedMenu.shared
+            discarded.submenu = discardedMenu
+            menu.addItem(discarded)
+        default: break
+        }
     }
 
     private static func submenu(_ menu: NSMenu) -> NSMenuItem {
@@ -44,200 +118,8 @@ public enum MainMenu {
         return item
     }
 
-    private static func appMenu() -> NSMenu {
-        let menu = NSMenu(title: "Jit")
-        menu.addItem(item("About Jit", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
-        menu.addItem(.separator())
-        menu.addItem(item("Settings…", AppSelectors.showSettings, ","))
-        menu.addItem(.separator())
-        let services = item("Services", nil)
-        let servicesMenu = NSMenu(title: "Services")
-        services.submenu = servicesMenu
-        NSApp.servicesMenu = servicesMenu
-        menu.addItem(services)
-        menu.addItem(.separator())
-        menu.addItem(item("Hide Jit", #selector(NSApplication.hide(_:)), "h"))
-        menu.addItem(item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]))
-        menu.addItem(item("Show All", #selector(NSApplication.unhideAllApplications(_:))))
-        menu.addItem(.separator())
-        menu.addItem(item("Quit Jit", #selector(NSApplication.terminate(_:)), "q"))
-        return menu
-    }
-
-    private static func fileMenu(recentsDelegate: any NSMenuDelegate) -> NSMenu {
-        let menu = NSMenu(title: "File")
-        menu.addItem(item("New Tab", #selector(MainWindowController.newTab(_:)), "t"))
-        menu.addItem(item("Open Repository…", #selector(MainWindowController.openRepository(_:)), "o"))
-        menu.addItem(item("Clone Repository…", #selector(MainWindowController.cloneRepository(_:)), "N", .command))
-        menu.addItem(
-            item("Browse Remote Repositories…", #selector(MainWindowController.browseRemoteRepositories(_:))))
-        let recent = item("Open Recent", nil)
-        let recentMenu = NSMenu(title: "Open Recent")
-        recentMenu.delegate = recentsDelegate
-        recent.submenu = recentMenu
-        menu.addItem(recent)
-        menu.addItem(.separator())
-        menu.addItem(item("Close Tab", #selector(MainWindowController.closeTab(_:)), "w"))
-        menu.addItem(item("Reopen Closed Tab", #selector(MainWindowController.reopenClosedTab(_:)), "T", .command))
-        menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "W", .command))
-        return menu
-    }
-
-    private static func editMenu() -> NSMenu {
-        let menu = NSMenu(title: "Edit")
-        menu.addItem(item("Undo", Selector(("undo:")), "z"))
-        menu.addItem(item("Redo", Selector(("redo:")), "Z", .command))
-        menu.addItem(.separator())
-        menu.addItem(item("Cut", #selector(NSText.cut(_:)), "x"))
-        menu.addItem(item("Copy", #selector(NSText.copy(_:)), "c"))
-        menu.addItem(item("Paste", #selector(NSText.paste(_:)), "v"))
-        menu.addItem(item("Delete", #selector(NSText.delete(_:))))
-        menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
-        menu.addItem(.separator())
-        let find = item("Find", nil)
-        let findMenu = NSMenu(title: "Find")
-        findMenu.addItem(item("Find…", #selector(GraphViewController.jitFind(_:)), "f"))
-        findMenu.addItem(item("Find Next", #selector(GraphViewController.jitFindNext(_:)), "g"))
-        findMenu.addItem(item("Find Previous", #selector(GraphViewController.jitFindPrevious(_:)), "G", .command))
-        findMenu.addItem(.separator())
-        findMenu.addItem(item("Go to Line…", #selector(DiffViewController.diffGoToLine(_:)), "l"))
-        find.submenu = findMenu
-        menu.addItem(find)
-        return menu
-    }
-
-    private static func viewMenu() -> NSMenu {
-        let menu = NSMenu(title: "View")
-        menu.addItem(
-            item("Show Sidebar", #selector(MainWindowController.toggleSidebar(_:)), "s", [.command, .control]))
-        menu.addItem(
-            item("Show Inspector", #selector(MainWindowController.toggleInspector(_:)), "0", [.command, .option]))
-        menu.addItem(.separator())
-        let appearance = item("Appearance", nil)
-        let appearanceMenu = NSMenu(title: "Appearance")
-        for (index, value) in PreferencesStore.Appearance.allCases.enumerated() {
-            let entry = item(value.title, AppSelectors.setAppearance)
-            entry.tag = index
-            entry.representedObject = value.rawValue
-            appearanceMenu.addItem(entry)
-        }
-        appearance.submenu = appearanceMenu
-        menu.addItem(appearance)
-        let density = item("Graph Density", nil)
-        let densityMenu = NSMenu(title: "Graph Density")
-        for value in PreferencesStore.GraphDensity.allCases {
-            let entry = item(value.title, #selector(GraphViewController.setGraphDensity(_:)))
-            entry.representedObject = value.rawValue
-            densityMenu.addItem(entry)
-        }
-        density.submenu = densityMenu
-        menu.addItem(density)
-        let commandBar = item("Command Bar", nil)
-        let commandBarMenu = NSMenu(title: "Command Bar")
-        commandBarMenu.addItem(item("Show Labels", #selector(GraphViewController.toggleCommandBarLabels(_:))))
-        commandBar.submenu = commandBarMenu
-        menu.addItem(commandBar)
-        menu.addItem(.separator())
-        menu.addItem(item("Focus Diff", #selector(DiffViewController.toggleFocusDiff(_:)), "\r", [.command, .option]))
-        menu.addItem(item("Blame File", #selector(DiffViewController.showBlame(_:)), "B", .command))
-        menu.addItem(
-            item(
-                "Next Change", #selector(DiffViewController.diffNextChange(_:)),
-                "\u{F701}", .option))
-        menu.addItem(
-            item(
-                "Previous Change", #selector(DiffViewController.diffPreviousChange(_:)),
-                "\u{F700}", .option))
-        menu.addItem(.separator())
-        menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
-        return menu
-    }
-
-    private static func repositoryMenu() -> NSMenu {
-        let menu = NSMenu(title: "Repository")
-        menu.addItem(item("Refresh", #selector(MainWindowController.refreshRepository(_:)), "r"))
-        menu.addItem(.separator())
-        menu.addItem(item("Fetch", #selector(MainWindowController.fetchRepository(_:))))
-        menu.addItem(item("Fetch All Remotes", #selector(MainWindowController.fetchAllRemotes(_:))))
-        menu.addItem(item("Pull", #selector(MainWindowController.pullRepository(_:))))
-        menu.addItem(item("Pull with Merge", #selector(MainWindowController.pullWithMerge(_:))))
-        menu.addItem(item("Pull with Rebase", #selector(MainWindowController.pullWithRebase(_:))))
-        menu.addItem(item("Push", #selector(MainWindowController.pushRepository(_:))))
-        menu.addItem(.separator())
-        menu.addItem(
-            item("Stash Changes…", #selector(MainWindowController.stashChanges(_:)), "s", [.command, .option]))
-        menu.addItem(item("Pop Latest Stash", #selector(MainWindowController.popStash(_:))))
-        menu.addItem(.separator())
-        menu.addItem(item("Resolve Conflicts", #selector(MainWindowController.resolveConflicts(_:))))
-        menu.addItem(item("Continue Operation", #selector(MainWindowController.continueOperation(_:))))
-        menu.addItem(item("Abort Operation…", #selector(MainWindowController.abortOperation(_:))))
-        menu.addItem(.separator())
-        menu.addItem(item("Remotes…", #selector(MainWindowController.showRemotes(_:))))
-        let profile = item("Profile", nil)
-        let profileMenu = NSMenu(title: "Profile")
-        profileMenu.delegate = ProfileMenu.shared
-        profile.submenu = profileMenu
-        menu.addItem(profile)
-        menu.addItem(
-            item(
-                "Show Profile Switcher", #selector(MainWindowController.showProfileSwitcher(_:)), "p",
-                [.command, .control]))
-        menu.addItem(item("Show Activity", #selector(MainWindowController.showActivity(_:)), "a", [.command, .option]))
-        menu.addItem(.separator())
-        menu.addItem(
-            item(
-                "Reveal in Finder", #selector(MainWindowController.revealRepositoryInFinder(_:)), "r",
-                [.command, .option]))
-        menu.addItem(
-            item(
-                "Open in Terminal", #selector(MainWindowController.openRepositoryInTerminal(_:)), "t",
-                [.command, .option]))
-        menu.addItem(
-            item(
-                "Copy Repository Path", #selector(MainWindowController.copyRepositoryPath(_:)), "c",
-                [.command, .option]))
-        menu.addItem(.separator())
-        let discarded = item("Recently Discarded", nil)
-        let discardedMenu = NSMenu(title: "Recently Discarded")
-        discardedMenu.delegate = RecentlyDiscardedMenu.shared
-        discarded.submenu = discardedMenu
-        menu.addItem(discarded)
-        return menu
-    }
-
-    /// Branch operations on the current branch; per-branch actions live in the navigator and graph menus.
-    private static func branchMenu() -> NSMenu {
-        let menu = NSMenu(title: "Branch")
-        menu.addItem(item("New Branch…", #selector(MainWindowController.newBranch(_:))))
-        return menu
-    }
-
     /// Tab items; the tab list itself is appended by `windowMenuNeedsUpdate`.
     static let tabListTag = 7_001
-
-    private static func windowMenu() -> NSMenu {
-        let menu = NSMenu(title: "Window")
-        menu.addItem(item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"))
-        menu.addItem(item("Zoom", #selector(NSWindow.performZoom(_:))))
-        menu.addItem(.separator())
-        menu.addItem(item("Show Next Tab", #selector(MainWindowController.selectNextTab(_:)), "\t", .control))
-        menu.addItem(
-            item("Show Previous Tab", #selector(MainWindowController.selectPreviousTab(_:)), "\t", [.control, .shift]))
-        // ⌘⇧] / ⌘⇧[ — hidden alternates that share the actions above.
-        let next = item("Show Next Tab", #selector(MainWindowController.selectNextTab(_:)), "}", .command)
-        next.isHidden = true
-        next.allowsKeyEquivalentWhenHidden = true
-        let previous = item("Show Previous Tab", #selector(MainWindowController.selectPreviousTab(_:)), "{", .command)
-        previous.isHidden = true
-        previous.allowsKeyEquivalentWhenHidden = true
-        menu.addItem(next)
-        menu.addItem(previous)
-        menu.addItem(item("Move Tab Left", #selector(MainWindowController.moveTabLeft(_:))))
-        menu.addItem(item("Move Tab Right", #selector(MainWindowController.moveTabRight(_:))))
-        menu.addItem(.separator())
-        menu.addItem(item("Bring All to Front", #selector(NSApplication.arrangeInFront(_:))))
-        return menu
-    }
 
     /// Rebuilds the tab list at the end of the Window menu.
     public static func updateWindowMenu(_ menu: NSMenu, tabs: [TabModel], activeID: UUID?) {
@@ -272,11 +154,6 @@ public enum MainMenu {
         menu.addItem(item("Clear Menu", #selector(MainWindowController.clearRecentRepositories(_:))))
     }
 
-    private static func helpMenu() -> NSMenu {
-        let menu = NSMenu(title: "Help")
-        menu.addItem(item("Jit Help", AppSelectors.showHelp, "?"))
-        return menu
-    }
 }
 
 /// Repository ▸ actions through `NSWorkspace` (never shell commands; paths passed as URLs).

@@ -443,8 +443,8 @@ public struct HighlightResult: Sendable {
 
 /// Highlights documents off the main actor (design §4.1). Limits: ≤ 2 MB and ≤ 50k lines, else plain.
 public enum Highlighter {
-    public static let maxBytes = 2 * 1024 * 1024
-    public static let maxLines = 50_000
+    public static let maxBytes = CacheLimits.highlightBytes
+    public static let maxLines = CacheLimits.highlightLines
 
     /// `nil` when over the limits, plain text, or cancelled. Old and new sides carry their own state.
     public static func highlight(_ document: DiffDocument, language: SyntaxLanguage) -> HighlightResult? {

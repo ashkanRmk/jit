@@ -293,7 +293,7 @@ struct CommitComposerView: View {
                 }
                 .menuStyle(.button)
                 .menuIndicator(.hidden)
-                .buttonStyle(.glass)
+                .secondaryGlassButton()
                 .fixedSize()
                 .accessibilityLabel("More commit options")
                 Button {

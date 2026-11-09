@@ -109,9 +109,10 @@ public struct GlassTab<ID: Hashable & Sendable>: ViewModifier {
     let namespace: Namespace.ID
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.jitOpaqueChrome) private var forcedOpaque
 
     public func body(content: Content) -> some View {
-        if reduceTransparency {
+        if reduceTransparency || GlassPolicy.opaqueChrome || forcedOpaque {
             content
                 .background(
                     isSelected ? ColorToken.accentMuted.color : ColorToken.surfaceChromeOpaque.color, in: Capsule()

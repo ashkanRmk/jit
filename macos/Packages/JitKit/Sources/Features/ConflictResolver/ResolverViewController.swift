@@ -433,9 +433,9 @@ struct ResolverHeader: View {
                         .jitGlass(in: Capsule())
                         Toggle("Show Base", isOn: $model.showsBase)
                             .toggleStyle(.button)
-                            .buttonStyle(.glass)
+                            .secondaryGlassButton()
                         Button("Save") { Task { await model.save() } }
-                            .buttonStyle(.glass)
+                            .secondaryGlassButton()
                             .disabled(!model.isDirty || model.externalChange)
                             .keyboardShortcut("s", modifiers: .command)
                         markResolvedButton
@@ -445,7 +445,7 @@ struct ResolverHeader: View {
                     } label: {
                         Image(systemName: "xmark")
                     }
-                    .buttonStyle(.glass)
+                    .secondaryGlassButton()
                     .help("Close the resolver (Esc). Nothing is marked resolved.")
                     .accessibilityLabel("Close resolver")
                 }
@@ -489,7 +489,7 @@ struct ResolverHeader: View {
                 .keyboardShortcut("r", modifiers: [.command, .shift])
         } else {
             Button("Mark as Resolved") {}
-                .buttonStyle(.glass)
+                .secondaryGlassButton()
                 .disabled(true)
                 .help(
                     model.externalChange

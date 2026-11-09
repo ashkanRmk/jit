@@ -54,7 +54,8 @@ final class GraphViewController: NSViewController {
     private var observationArmed = false
     private var lastQuery: HistoryQuery?
 
-    private static let signposter = OSSignposter(subsystem: "jit.performance", category: "graph")
+    /// `graph.firstPage`: history start → first rows on screen.
+    private var firstPageSignpost: Signposts.Token?
 
     static let columnRefs = NSUserInterfaceItemIdentifier("refs")
     static let columnGraph = NSUserInterfaceItemIdentifier("graph")
@@ -271,6 +272,7 @@ final class GraphViewController: NSViewController {
             history.setQuery(viewModel.query)
         }
         GraphBenchmark.noteHistoryStart()
+        firstPageSignpost = Signposts.begin(Signposts.graphFirstPage)
         history.start()
         if history.snapshot.count > 0 { historyUpdated(.replaced) }
         observeHistoryState()
@@ -325,8 +327,6 @@ final class GraphViewController: NSViewController {
 
     private func historyUpdated(_ update: HistoryController.Update) {
         guard let history else { return }
-        let interval = Self.signposter.beginInterval("GraphUpdate")
-        defer { Self.signposter.endInterval("GraphUpdate", interval) }
         let previous = snapshot
         snapshot = history.snapshot
         cache.update(snapshot: snapshot, refs: history.refs, dropRows: update == .replaced)
@@ -349,6 +349,7 @@ final class GraphViewController: NSViewController {
             if snapshot.count > 0 {
                 view.window?.displayIfNeeded()
                 GraphBenchmark.noteFirstRows()
+                firstRowsShown()
             }
             if viewModel.isSearching { recomputeMatches(scroll: false) }
         case .labels:
@@ -465,10 +466,11 @@ final class GraphViewController: NSViewController {
     }
 
     private func appendRows() {
-        let interval = Self.signposter.beginInterval("PageAppend")
+        let interval = Signposts.begin(Signposts.graphPage)
         let started = ContinuousClock.now
         defer {
-            Self.signposter.endInterval("PageAppend", interval)
+            Signposts.end(interval)
+            if snapshot.count > 0 { firstRowsShown() }
             GraphBenchmark.appendSamples?.append(GraphBenchmark.ms(ContinuousClock.now - started))
         }
         showsFooter = snapshot.complete && snapshot.count > 0
@@ -488,6 +490,58 @@ final class GraphViewController: NSViewController {
             tableView.reloadData()
         }
         if !showsWIP { updateWIP() }
+    }
+
+    // MARK: Accessibility rotors (design §3.6)
+
+    enum GraphRotor: String, CaseIterable {
+        case refs = "Branches and Tags"
+        case merges = "Merge Commits"
+        case head = "HEAD"
+    }
+
+    /// The next loaded commit (from table row `row`, in `forward` direction) the rotor stops at, as a table row.
+    /// Only loaded rows are searched — no history scan from accessibility.
+    func rotorRow(_ rotor: GraphRotor, from row: Int?, forward: Bool) -> Int? {
+        let count = snapshot.count
+        guard count > 0 else { return nil }
+        var start = forward ? 0 : count - 1
+        if let row, case .commit(let index) = displayRow(row) { start = forward ? index + 1 : index - 1 }
+        var index = start
+        while index >= 0, index < count {
+            let matches: Bool =
+                switch rotor {
+                case .refs: !cache.labels(for: snapshot.row(index).oid).isEmpty
+                case .merges: snapshot.row(index).isMerge
+                case .head: snapshot.headRow == index
+                }
+            if matches { return tableRow(forCommit: index) }
+            index += forward ? 1 : -1
+        }
+        return nil
+    }
+
+    /// Breaks the controller → view → hosting view → SwiftUI view → controller cycles of the command bar and the
+    /// state overlay, and stops history work. Called once when the tab's workbench is removed for good.
+    func tearDown() {
+        barHost?.removeFromSuperview()
+        overlayHost?.removeFromSuperview()
+        barHost = nil
+        overlayHost = nil
+        history?.onUpdate = nil
+        history = nil
+    }
+
+    /// Ends `graph.firstPage` and the tab's `repo.open` once rows are on screen.
+    private func firstRowsShown() {
+        if let token = firstPageSignpost {
+            firstPageSignpost = nil
+            Signposts.end(token)
+        }
+        if let token = tab.openSignpost {
+            tab.openSignpost = nil
+            Signposts.end(token)
+        }
     }
 
     private func reloadPreservingSelection(previous: HistorySnapshot) {
@@ -1326,9 +1380,30 @@ final class GraphRootView: NSView {
 }
 
 /// Keyboard, copy and hover for the graph table.
-final class GraphTableView: NSTableView {
+final class GraphTableView: NSTableView, @MainActor NSAccessibilityCustomRotorItemSearchDelegate {
     static let rowIdentifier = NSUserInterfaceItemIdentifier("graphRow")
     weak var controller: GraphViewController?
+
+    /// VoiceOver rotors: Branches and Tags, Merge Commits, HEAD (the lane drawing is decorative; topology is
+    /// in each row's label).
+    override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        GraphViewController.GraphRotor.allCases.map {
+            NSAccessibilityCustomRotor(label: $0.rawValue, itemSearchDelegate: self)
+        }
+    }
+
+    func rotor(
+        _ rotor: NSAccessibilityCustomRotor, resultFor searchParameters: NSAccessibilityCustomRotor.SearchParameters
+    ) -> NSAccessibilityCustomRotor.ItemResult? {
+        guard let kind = GraphViewController.GraphRotor(rawValue: rotor.label) else { return nil }
+        let currentView = searchParameters.currentItem?.targetElement as? NSView
+        let current = currentView.map { self.row(for: $0) }.flatMap { $0 >= 0 ? $0 : nil }
+        let forward = searchParameters.searchDirection == .next
+        guard let row = controller?.rotorRow(kind, from: current, forward: forward) else { return nil }
+        scrollRowToVisible(row)
+        guard let view = rowView(atRow: row, makeIfNecessary: true) else { return nil }
+        return NSAccessibilityCustomRotor.ItemResult(targetElement: view)
+    }
     private var tracking: NSTrackingArea?
 
     override func updateTrackingAreas() {

@@ -76,6 +76,8 @@ public enum PatchBuilder {
     public static func build(
         _ document: DiffDocument, selection: Set<Int>, action: SelectionAction, target: [UInt8]
     ) throws(PatchBuildError) -> BuiltPatch {
+        let interval = Signposts.begin(Signposts.corePatchBuild)
+        defer { Signposts.end(interval) }
         if let reason = unsupported(document) { throw .unsupported(reason) }
         guard let fileIndex = document.files.indices.first else { throw .unsupported(.wrongSource) }
         let file = document.files[fileIndex]

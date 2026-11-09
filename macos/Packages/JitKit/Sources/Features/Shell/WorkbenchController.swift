@@ -110,50 +110,53 @@ final class WorkbenchController: NSSplitViewController {
             blame?.close()
             graph?.select(oid: oid)
         }
-        workingDirectory.openBlame = { path in blame.open(path: path, revision: nil) }
-        inspector.openBlame = { path, oid in blame.open(path: path, revision: oid) }
-        diff.onBlame = { path, oid in blame.open(path: path, revision: oid) }
+        // Every cross-model closure captures weakly: the models reference each other through these closures,
+        // and a strong capture closes a cycle that outlives the tab (P6.6, ClosedTabDeallocatesTests).
+        workingDirectory.openBlame = { [weak blame] path in blame?.open(path: path, revision: nil) }
+        inspector.openBlame = { [weak blame] path, oid in blame?.open(path: path, revision: oid) }
+        diff.onBlame = { [weak blame] path, oid in blame?.open(path: path, revision: oid) }
         let operations = self.operations
         graph.operations = operations
         navigator.operations = operations
         operations.selectCommit = { [weak graph] oid in graph?.select(oid: oid) }
-        operations.inspectCommit = { [weak self] oid in
-            inspector.show(selection: [oid], wip: false)
+        operations.inspectCommit = { [weak self, weak inspector] oid in
+            inspector?.show(selection: [oid], wip: false)
             self?.setInspectorCollapsed(false)
         }
         observeStashes(navigator: navigator)
         session.loadStashes()
         operations.showWorkingDirectory = { [weak graph] in _ = graph?.selectWorkingDirectory() }
-        workingDirectory.openDiff = { file in
+        workingDirectory.openDiff = { [weak diff, weak operations] file in
             guard let file else {
-                diff.close()
+                diff?.close()
                 return
             }
             switch file.section {
-            case .unstaged: diff.open(.unstaged(path: file.path))
+            case .unstaged: diff?.open(.unstaged(path: file.path))
             case .staged:
-                diff.open(.staged(path: file.path, renamedFrom: file.change == .renamed ? file.originalPath : nil))
+                diff?.open(.staged(path: file.path, renamedFrom: file.change == .renamed ? file.originalPath : nil))
             case .conflicts:
-                diff.close()
-                operations.openConflict(path: file.path)
+                diff?.close()
+                operations?.openConflict(path: file.path)
             }
         }
         workingDirectory.openFileHistory = { [weak graph] path in
             graph?.showFileHistory(path: path, isDirectory: false)
         }
-        graph.actions.selectionChanged = { [weak self, weak graph] model in
-            inspector.show(selection: graph?.compareOrder(model.selection) ?? model.selection, wip: model.wipSelected)
+        graph.actions.selectionChanged = { [weak self, weak graph, weak inspector] model in
+            inspector?.show(selection: graph?.compareOrder(model.selection) ?? model.selection, wip: model.wipSelected)
             self?.setInspectorCollapsed(model.selection.isEmpty && !model.wipSelected)
         }
         let blameForRefs = blameModel
-        graph.actions.refsChanged = { [weak graph, weak navigator] refs in
+        graph.actions.refsChanged = {
+            [weak graph, weak navigator, weak inspector, weak blameForRefs, weak operations] refs in
             navigator?.update(refs: refs)
             navigator?.repository = graph?.history?.repository
-            inspector.handle = graph?.history?.repository
-            blameForRefs.handle = graph?.history?.repository
-            inspector.refs = refs
-            inspector.format = refs.format
-            operations.refs = refs
+            inspector?.handle = graph?.history?.repository
+            blameForRefs?.handle = graph?.history?.repository
+            inspector?.refs = refs
+            inspector?.format = refs.format
+            operations?.refs = refs
         }
         graph.actions.escapeUnhandled = { [weak self] in self?.setInspectorCollapsed(true) }
         graph.actions.showInNavigator = { [weak self, weak navigator] fullName in
@@ -190,11 +193,6 @@ final class WorkbenchController: NSSplitViewController {
         return host
     }
 
-    override func viewWillAppear() {
-        super.viewWillAppear()
-        needsWidthRestore = true
-    }
-
     /// Called when the tab is shown again (its view stays in the hierarchy while hidden); widths are shared
     /// with other tabs and may have changed.
     func willBecomeVisible() {
@@ -219,14 +217,21 @@ final class WorkbenchController: NSSplitViewController {
     }
 
     /// Applies the shared widths (another tab may have changed them).
+    /// Only dividers that are off move. Restoring on every show (it used to re-arm in `viewWillAppear`) called
+    /// `setPosition` on every tab switch: ≈ 190 main-thread samples over 40 switches in the multi-tab trace,
+    /// now 0 (switch latency itself is bound by toolbar/SwiftUI layout).
     private func applyWidths() {
         isApplyingWidths = true
         defer { isApplyingWidths = false }
         let divider = splitView.dividerThickness
-        if let sidebarItem, !sidebarItem.isCollapsed {
+        if let sidebarItem, !sidebarItem.isCollapsed,
+            abs(sidebarItem.viewController.view.frame.width - model.layout.sidebarWidth) > 0.5
+        {
             splitView.setPosition(model.layout.sidebarWidth, ofDividerAt: 0)
         }
-        if let inspectorItem, !inspectorItem.isCollapsed {
+        if let inspectorItem, !inspectorItem.isCollapsed,
+            abs(inspectorItem.viewController.view.frame.width - model.layout.inspectorWidth) > 0.5
+        {
             splitView.setPosition(splitView.bounds.width - model.layout.inspectorWidth - divider, ofDividerAt: 1)
         }
     }
@@ -257,6 +262,49 @@ final class WorkbenchController: NSSplitViewController {
         if let sidebar { tab.sidebarCollapsed = sidebar }
         if let inspector { tab.inspectorCollapsed = inspector }
         model.scheduleSave()
+    }
+
+    /// The tab closed (or was suspended): detach hosted views that capture their controllers (P6.6).
+    func tearDown() {
+        graph?.tearDown()
+        diffController.tearDown()
+    }
+
+    // MARK: Pane focus (⌥⌘← / ⌥⌘→, design §3.2)
+
+    /// Visible panes in focus order: sidebar → main (graph, working directory, diff) → inspector.
+    private var focusPanes: [NSView] {
+        splitViewItems.filter { !$0.isCollapsed }.map(\.viewController.view)
+    }
+
+    /// Moves keyboard focus to the first focusable view of the next (or previous) visible pane.
+    func cycleFocus(forward: Bool) {
+        guard let window = view.window else { return }
+        let panes = focusPanes
+        guard !panes.isEmpty else { return }
+        let responder = window.firstResponder as? NSView
+        let current = panes.firstIndex { pane in responder.map { $0 === pane || $0.isDescendant(of: pane) } ?? false }
+        var index = current.map { forward ? $0 + 1 : $0 - 1 } ?? (forward ? 0 : panes.count - 1)
+        for _ in 0..<panes.count {
+            index = (index + panes.count) % panes.count
+            if let target = Self.firstFocusable(in: panes[index]) {
+                window.makeFirstResponder(target)
+                return
+            }
+            index += forward ? 1 : -1
+        }
+    }
+
+    private static func firstFocusable(in view: NSView) -> NSView? {
+        if !view.isHiddenOrHasHiddenAncestor, view.canBecomeKeyView, view.acceptsFirstResponder,
+            !(view is NSButton)
+        {
+            return view
+        }
+        for subview in view.subviews {
+            if let found = firstFocusable(in: subview) { return found }
+        }
+        return nil
     }
 
     /// System collapse animation; instant with Reduce Motion.

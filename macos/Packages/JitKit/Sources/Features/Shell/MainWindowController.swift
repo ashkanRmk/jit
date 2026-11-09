@@ -9,13 +9,15 @@ import SwiftUI
 /// sidebar/inspector toggles and the profile capsule; opaque per-tab content below.
 @MainActor
 public final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate,
-    NSMenuItemValidation, NSMenuDelegate
+    NSMenuItemValidation, NSMenuDelegate, CommandAvailability
 {
     public let model: AppModel
     private let container = ContentContainerViewController()
 
     /// The visible tab's graph (benchmarks).
-    var activeGraph: GraphViewController? { (container.current as? WorkbenchController)?.graph }
+    var activeGraph: GraphViewController? { activeWorkbench?.graph }
+    /// The visible tab's workbench, if it is a repository tab.
+    var activeWorkbench: WorkbenchController? { container.current as? WorkbenchController }
     /// One controller per loaded tab, kept while the tab is open (instant switching); dropped when the
     /// tab closes or its session is suspended under memory pressure.
     private var controllers: [UUID: NSViewController] = [:]
@@ -32,6 +34,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     private static let trailingInset: CGFloat = 40
     private var stripWidth: NSLayoutConstraint?
     private var observers: [any NSObjectProtocol] = []
+    private var palette: CommandPaletteController?
 
     static let stripIdentifier = NSToolbarItem.Identifier("jit.tabs")
     static let overflowIdentifier = NSToolbarItem.Identifier("jit.tabs.overflow")
@@ -78,14 +81,17 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.onOpenFailure = { [weak self] url, error in self?.presentOpenFailure(url, error) }
         observeProfiles()
         ProfileMenu.shared.store = model.profiles
-        model.accounts.passphrasePrompt = { [weak self] keyPath, fingerprint in
-            await PassphrasePresenter.ask(on: self?.window, keyPath: keyPath, fingerprint: fingerprint)
-        }
-        model.accounts.publishedFingerprints = { [weak self] host in
-            guard host == "github.com", let accounts = await self?.model.accounts else { return [] }
-            let transport = await accounts.transport(for: .github)
-            let provider = GitHubProvider(instance: .github, transport: transport, token: { SecretBytes([]) })
-            return (try? await provider.publishedSSHFingerprints()) ?? []
+        // Not `model.accounts` here: that would create the accounts service (Keychain, path monitor) at launch.
+        model.configureAccounts = { [weak self] accounts in
+            accounts.passphrasePrompt = { [weak self] keyPath, fingerprint in
+                await PassphrasePresenter.ask(on: self?.window, keyPath: keyPath, fingerprint: fingerprint)
+            }
+            accounts.publishedFingerprints = { [weak accounts] host in
+                guard host == "github.com", let accounts else { return [] }
+                let transport = await accounts.transport(for: .github)
+                let provider = GitHubProvider(instance: .github, transport: transport, token: { SecretBytes([]) })
+                return (try? await provider.publishedSSHFingerprints()) ?? []
+            }
         }
         observeActivity()
         observeForeground()
@@ -650,6 +656,50 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
 
     @objc public func cloneRepository(_ sender: Any?) { presentClone() }
 
+    // MARK: Phase 6 actions (View menu, palette)
+
+    /// ⌘F / ⌘G / ⇧⌘G from anywhere in the window (sidebar, inspector): the graph's search when the focused view
+    /// has no search of its own (the diff keeps its own — it is earlier in the responder chain).
+    @objc public func jitFind(_ sender: Any?) { activeGraph?.jitFind(sender) }
+    @objc public func jitFindNext(_ sender: Any?) { activeGraph?.jitFindNext(sender) }
+    @objc public func jitFindPrevious(_ sender: Any?) { activeGraph?.jitFindPrevious(sender) }
+
+    /// Edit ▸ Find ▸ Find in Open Tabs… (⇧⌘F): the palette scoped to open tabs and recent repositories by name.
+    @objc public func findInOpenTabs(_ sender: Any?) {
+        guard let window else { return }
+        let controller = palette ?? CommandPaletteController(window: self)
+        palette = controller
+        if !controller.isOpen { controller.open(over: window) }
+        controller.setQuery("#")
+    }
+
+    @objc public func focusNextPane(_ sender: Any?) { activeWorkbench?.cycleFocus(forward: true) }
+    @objc public func focusPreviousPane(_ sender: Any?) { activeWorkbench?.cycleFocus(forward: false) }
+
+    @objc public func increaseCodeTextSize(_ sender: Any?) { stepCodeTextSize(by: 1) }
+    @objc public func decreaseCodeTextSize(_ sender: Any?) { stepCodeTextSize(by: -1) }
+    @objc public func resetCodeTextSize(_ sender: Any?) { model.preferences.codeTextSize = .medium }
+
+    private func stepCodeTextSize(by step: Int) {
+        let next = model.preferences.codeTextSize.rawValue + step
+        if let size = PreferencesStore.CodeTextSize(rawValue: next) { model.preferences.codeTextSize = size }
+    }
+
+    /// Types into the open palette (⇧⌘F, `-JitPaletteQuery`).
+    public func setPaletteQuery(_ query: String) { palette?.setQuery(query) }
+
+    /// View ▸ Command Palette… (⌘K): opens, or closes when open.
+    @objc public func toggleCommandPalette(_ sender: Any?) {
+        guard let window else { return }
+        if let palette, palette.isOpen {
+            palette.close()
+            return
+        }
+        let controller = palette ?? CommandPaletteController(window: self)
+        palette = controller
+        controller.open(over: window)
+    }
+
     /// File ▸ Clone… (⇧⌘N) and the new-tab page: a standard sheet; the clone opens in a new tab.
     public func presentClone(url: String = "") {
         guard let window, window.attachedSheet == nil else { return }
@@ -704,7 +754,46 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             return (activeOperations?.session.operationState.conflicted ?? 0) > 0
         case #selector(continueOperation(_:)), #selector(abortOperation(_:)):
             return activeOperations?.session.operationState.isDrivable ?? false
+        case #selector(jitFind(_:)), #selector(jitFindNext(_:)), #selector(jitFindPrevious(_:)):
+            return activeGraph != nil
+        case #selector(focusNextPane(_:)), #selector(focusPreviousPane(_:)):
+            return activeWorkbench != nil
+        case #selector(increaseCodeTextSize(_:)):
+            return model.preferences.codeTextSize != PreferencesStore.CodeTextSize.allCases.last
+        case #selector(decreaseCodeTextSize(_:)):
+            return model.preferences.codeTextSize != PreferencesStore.CodeTextSize.allCases.first
+        case #selector(resetCodeTextSize(_:)):
+            return model.preferences.codeTextSize != .medium
         default: return true
+        }
+    }
+
+    /// Why a menu command is unavailable, in the palette's words (ADR-0044). `nil` when it is available or the
+    /// reason is obvious from context.
+    public func disabledReason(for action: Selector) -> String? {
+        let probe = NSMenuItem(title: "", action: action, keyEquivalent: "")
+        guard !validateMenuItem(probe) else { return nil }
+        let isRepository = model.activeTab?.isRepository == true
+        let noRepository = "Open a repository first"
+        switch action {
+        case #selector(reopenClosedTab(_:)): return "No recently closed tab"
+        case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)): return "Only one tab is open"
+        case #selector(moveTabLeft(_:)): return "The tab is already first"
+        case #selector(moveTabRight(_:)): return "The tab is already last"
+        case #selector(clearRecentRepositories(_:)): return "No recent repositories"
+        case #selector(pullRepository(_:)), #selector(pullWithMerge(_:)), #selector(pullWithRebase(_:)):
+            return isRepository ? "No upstream configured for the current branch" : noRepository
+        case #selector(pushRepository(_:)):
+            return isRepository ? "HEAD is detached" : noRepository
+        case #selector(stashChanges(_:)): return isRepository ? "No changes to stash" : noRepository
+        case #selector(popStash(_:)): return isRepository ? "No stashes" : noRepository
+        case #selector(resolveConflicts(_:)): return isRepository ? "No conflicts" : noRepository
+        case #selector(continueOperation(_:)), #selector(abortOperation(_:)):
+            return isRepository ? "No merge, rebase, cherry-pick or revert in progress" : noRepository
+        case #selector(increaseCodeTextSize(_:)): return "Already the largest size"
+        case #selector(decreaseCodeTextSize(_:)): return "Already the smallest size"
+        case #selector(resetCodeTextSize(_:)): return "Already the default size"
+        default: return isRepository ? nil : noRepository
         }
     }
 
@@ -758,8 +847,11 @@ final class ContentContainerViewController: NSViewController {
     }
 
     /// Removes a closed or suspended tab's controller.
+    /// Removes a tab's controller for good (closed tab, or suspended under memory pressure). Hosted SwiftUI
+    /// views that hold their owning controller are detached first, so nothing outlives the tab (P6.6).
     func remove(_ controller: NSViewController) {
         guard controller.parent === self else { return }
+        (controller as? WorkbenchController)?.tearDown()
         controller.view.removeFromSuperview()
         controller.removeFromParent()
         if current === controller { current = nil }

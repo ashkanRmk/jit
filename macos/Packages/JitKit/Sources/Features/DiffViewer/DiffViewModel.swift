@@ -17,7 +17,7 @@ public final class DiffViewModel {
     }
 
     /// Diffs larger than this are not rendered (design §3.3 large state).
-    public static let maxBytes = 64 * 1024 * 1024
+    public static let maxBytes = CacheLimits.diffBytes
 
     public let session: RepositorySession
     public private(set) var target: DiffTarget?
@@ -38,7 +38,7 @@ public final class DiffViewModel {
     /// Syntax colours (ADR-0012); applied when the off-main pass finishes.
     public var highlightsSyntax = true { didSet { if highlightsSyntax != oldValue { startHighlight() } } }
     public private(set) var language: SyntaxLanguage = .plain
-    @ObservationIgnored private var highlight: HighlightResult?
+    @ObservationIgnored private(set) var highlight: HighlightResult?
     @ObservationIgnored private var highlightTask: Task<Void, Never>?
     @ObservationIgnored private var wordPairs: [Int: Int] = [:]
     @ObservationIgnored private var wordCache: [Int: [NSRange]] = [:]
@@ -187,8 +187,15 @@ public final class DiffViewModel {
         load(target, keepPosition: true)
     }
 
+    /// `diff.switch`: a new file was selected; ended by the view when the first frame with it is drawn.
+    @ObservationIgnored public var switchSignpost: Signposts.Token?
+
     private func load(_ target: DiffTarget, keepPosition: Bool) {
         self.target = target
+        if !keepPosition {
+            switchSignpost.map(Signposts.end)
+            switchSignpost = Signposts.begin(Signposts.diffSwitch)
+        }
         loadTask?.cancel()
         spinnerTask?.cancel()
         if !keepPosition {

@@ -231,7 +231,7 @@
                 }
                 HStack(spacing: Space.s6) {
                     Button("Tidewater primary") {}.primaryGlassButton().controlSize(.large)
-                    Button("System prominent") {}.buttonStyle(.glassProminent).controlSize(.large)
+                    Button("System prominent") {}.untintedProminentGlassButton().controlSize(.large)
                     Button("Secondary") {}.secondaryGlassButton().controlSize(.large)
                 }
             }

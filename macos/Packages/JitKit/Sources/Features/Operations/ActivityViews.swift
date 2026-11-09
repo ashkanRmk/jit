@@ -51,11 +51,11 @@ struct ActivityToolbarView: View {
         .onChange(of: center?.finishedCount ?? 0) { _, count in
             guard count != lastFinished else { return }
             lastFinished = count
-            // One-shot checkmark: ≈160 ms in, 900 ms hold, 200 ms out — no repeating animation.
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { flash = true }
+            // One-shot checkmark: feedback-in, 900 ms hold, feedback-out — no repeating animation.
+            withAnimation(reduceMotion ? nil : MotionToken.feedbackIn.animation) { flash = true }
             Task {
-                try? await Task.sleep(for: .milliseconds(1060))
-                withAnimation(reduceMotion ? nil : .easeIn(duration: 0.2)) { flash = false }
+                try? await Task.sleep(for: .milliseconds(1080))
+                withAnimation(reduceMotion ? nil : MotionToken.feedbackOut.animation) { flash = false }
             }
             if let last = center?.lastFinished, case .failed(let error) = last.state {
                 AccessibilityNotification.Announcement("\(last.title) failed: \(error.title)").post()

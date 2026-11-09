@@ -36,8 +36,8 @@ struct GraphRowDisplay {
 /// Main-actor cache of materialized rows (design §4.2): windows of 64 rows, at most 16 windows (≈ 1k
 /// rows). Reading a row is a direct read of the snapshot's chunk columns — no Git, no copies.
 @MainActor final class GraphRowCache {
-    static let windowSize = 64
-    static let maxWindows = 16
+    static let windowSize = CacheLimits.graphRowWindow
+    static let maxWindows = CacheLimits.graphRowWindows
 
     private var windows: [Int: [GraphRowDisplay?]] = [:]
     private var order: [Int] = []

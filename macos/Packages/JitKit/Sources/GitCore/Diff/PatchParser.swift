@@ -136,6 +136,8 @@ public final class PatchStorage: Sendable {
 /// normalizes line endings.
 public enum PatchParser {
     public static func parse(_ bytes: [UInt8]) throws(GitCoreError) -> PatchStorage {
+        let interval = Signposts.begin(Signposts.coreDiffParse)
+        defer { Signposts.end(interval) }
         var files: [DiffFile] = []
         var hunks: [HunkRecord] = []
         var lines: [LineRecord] = []

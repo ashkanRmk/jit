@@ -1,4 +1,5 @@
 import Foundation
+import GitCore
 import Observation
 
 /// Recently opened repositories (`recents.json`), newest first, at most 20, de-duplicated by
@@ -27,7 +28,7 @@ public final class RecentsStore {
     }
 
     nonisolated static let fileVersion = 1
-    public static let capacity = 20
+    public static let capacity = CacheLimits.recentRepositories
 
     public private(set) var entries: [Entry] = []
     /// Paths that no longer exist (checked off the main actor by `refreshMissing()`).

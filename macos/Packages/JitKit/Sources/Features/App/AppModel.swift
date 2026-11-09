@@ -30,8 +30,18 @@ public final class AppModel {
     public let preferences: PreferencesStore
     public let recents: RecentsStore
     public let profiles: ProfileStore
-    /// Profile authentication: exec contexts, Keychain, connectivity (Phase 5). No I/O until first used.
-    @ObservationIgnored public lazy var accounts = AccountsService(profiles: profiles)
+    /// Profile authentication: exec contexts, Keychain, connectivity (Phase 5). Created on first use — never at
+    /// launch (P6.4): `configureAccounts` runs once when it is created.
+    @ObservationIgnored public lazy var accounts: AccountsService = {
+        let service = AccountsService(profiles: profiles)
+        isAccountsLoaded = true
+        configureAccounts?(service)
+        return service
+    }()
+    /// Window-level hooks for the accounts service (passphrase / host-key prompts), applied when it is created.
+    @ObservationIgnored public var configureAccounts: ((AccountsService) -> Void)?
+    /// Whether `accounts` exists yet (tests: launch must not create it).
+    @ObservationIgnored public private(set) var isAccountsLoaded = false
     /// Unfinished commit messages per repository (P3.10).
     @ObservationIgnored public lazy var commitDrafts = CommitDrafts()
     public let layout: LayoutState
@@ -50,8 +60,7 @@ public final class AppModel {
     /// all complete; a newer open for the same target supersedes the older one.
     @ObservationIgnored private var openTasks: [String: Task<Void, Never>] = [:]
 
-    static let reopenCapacity = 10
-    private static let signposter = OSSignposter(subsystem: "jit.performance", category: .pointsOfInterest)
+    static let reopenCapacity = CacheLimits.reopenClosedTabs
 
     public init(
         engine: GitEngine, preferences: PreferencesStore, recents: RecentsStore, profiles: ProfileStore,
@@ -160,6 +169,9 @@ public final class AppModel {
     }
 
     public func handleMemoryPressure() {
+        // Rebuildable caches go first (code-line layouts, palette file index); in-flight operations keep their
+        // own snapshots, so nothing an operation relies on is dropped (ADR-0043).
+        NotificationCenter.default.post(name: CacheLimits.trimNotification, object: nil)
         var suspended: Set<UUID> = []
         for tab in tabs where tab.id != activeTabID {
             guard let session = tab.session, session.lifecycle == .inactive else { continue }
@@ -173,12 +185,13 @@ public final class AppModel {
 
     public func select(_ id: UUID) {
         guard id != activeTabID, tabs.contains(where: { $0.id == id }) else { return }
-        let state = Self.signposter.beginInterval("TabSwitch")
+        let interval = Signposts.begin(Signposts.tabSwitch)
         activeTab?.session?.deactivate()
         activeTabID = id
         if isForeground { activeTab?.session?.activate() }
         onChange?(.activeTab)
-        Self.signposter.endInterval("TabSwitch", state)
+        // Ends after the run-loop turn that lays out and displays the cached content.
+        DispatchQueue.main.async { Signposts.end(interval) }
         scheduleSave()
     }
 
@@ -275,18 +288,21 @@ public final class AppModel {
     public func open(_ url: URL, replacing tabID: UUID? = nil, forgettingRecent: String? = nil) {
         let key = tabID?.uuidString ?? Self.standardized(url.path)
         openTasks[key]?.cancel()
+        let interval = Signposts.begin(Signposts.repoOpen)
         openTasks[key] = Task { [engine] in
             defer { if !Task.isCancelled { self.openTasks[key] = nil } }
             do throws(GitCoreError) {
                 let handle = try await engine.openRepository(at: url)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return Signposts.end(interval) }
                 if let forgettingRecent, Self.standardized(forgettingRecent) != Self.standardized(handle.path) {
                     self.recents.remove(path: forgettingRecent)
                 }
-                self.adopt(handle, replacing: tabID)
+                self.adopt(handle, replacing: tabID, signpost: interval)
             } catch .cancelled {
+                Signposts.end(interval)
                 return
             } catch {
+                Signposts.end(interval)
                 guard !Task.isCancelled else { return }
                 self.onOpenFailure?(url, error)
             }
@@ -299,7 +315,7 @@ public final class AppModel {
         while let task = openTasks.values.first { await task.value }
     }
 
-    private func adopt(_ handle: RepositoryHandle, replacing tabID: UUID?) {
+    private func adopt(_ handle: RepositoryHandle, replacing tabID: UUID?, signpost: Signposts.Token? = nil) {
         let path = Self.standardized(handle.path)
         let name = handle.info.displayName
         recents.noteOpened(path: path, name: name, branch: BranchLabel.text(for: BranchHeader(handle.info.head)))
@@ -308,11 +324,13 @@ public final class AppModel {
                 closeTab(tabID)
             }
             select(existing.id)
+            signpost.map(Signposts.end)
             return
         }
         let tab = TabModel(
             kind: .repository(path: path), title: name, branch: BranchLabel.text(for: BranchHeader(handle.info.head)),
             session: makeSession(path: path, handle: handle))
+        tab.openSignpost = signpost
         bind(tab)
         let target =
             tabID.flatMap { id in tabs.firstIndex { $0.id == id } }

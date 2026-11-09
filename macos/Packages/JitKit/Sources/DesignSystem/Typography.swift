@@ -68,6 +68,23 @@ public enum TypeToken: String, CaseIterable, Sendable {
     }
 }
 
+/// Code/diff text size steps (P6.10): the app-level S/M/L/XL setting maps to these point sizes; line height
+/// follows the font (rows add the same padding as `type.mono.body`).
+public enum CodeTextScale {
+    public static func pointSize(step: Int) -> CGFloat {
+        switch step {
+        case ..<0: 11
+        case 0: TypeToken.monoBody.size
+        case 1: 14
+        default: 16
+        }
+    }
+
+    public static func font(step: Int) -> NSFont {
+        .monospacedSystemFont(ofSize: pointSize(step: step), weight: .regular)
+    }
+}
+
 extension Font.Weight {
     fileprivate var nsWeight: NSFont.Weight {
         switch self {

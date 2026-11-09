@@ -73,9 +73,8 @@ struct TabStripView: View {
             }
         }
         .animation(reduceMotion ? nil : MotionToken.select.animation, value: drag?.destination)
-        .animation(
-            reduceMotion ? .linear(duration: MotionToken.select.duration) : MotionToken.glassMorph.animation,
-            value: model.activeTabID)
+        // Glass morph on selection only with motion; Reduce Motion switches instantly (no morph).
+        .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: model.activeTabID)
     }
 
     private func offset(for index: Int, tab: TabModel, layout: TabOrdering.Layout) -> CGFloat {
@@ -211,6 +210,8 @@ private struct NewTabButton: View {
 /// progress, danger = conflicts or error. The label carries the meaning for VoiceOver and tooltips.
 struct StatusDotView: View {
     let dot: StatusDot
+    /// Differentiate Without Color: operation = square, danger = diamond (changes stay a circle).
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiate
 
     var body: some View {
         Group {
@@ -219,6 +220,10 @@ struct StatusDotView: View {
                 Color.clear
             case .notLoaded:
                 Circle().strokeBorder(ColorToken.textTertiary.color, lineWidth: Border.emphasis)
+            case .operation where differentiate:
+                Rectangle().fill(dot.color)
+            case .danger where differentiate:
+                Rectangle().fill(dot.color).rotationEffect(.degrees(45)).scaleEffect(0.8)
             case .changes, .operation, .danger:
                 Circle().fill(dot.color)
             }

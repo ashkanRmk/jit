@@ -43,7 +43,7 @@ let package = Package(
             swiftSettings: strict),
         .testTarget(
             name: "FeaturesTests", dependencies: ["Features", "Services", "GitCore", "GitTestKit", "DesignSystem"],
-            swiftSettings: strict),
+            exclude: ["__Snapshots__"], swiftSettings: strict),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"], swiftSettings: strict),
     ],
     swiftLanguageModes: [.v6]

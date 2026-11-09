@@ -166,7 +166,9 @@ public actor RepositoryHandle {
                 throw RepositoryDiscovery.classify(error, path: topLevel)
             }
             if Task.isCancelled { throw .cancelled }
-            let snapshot = try StatusParser.parse(output.stdout, revision: revision)
+            let snapshot = try Signposts.measure(Signposts.coreStatus) { () throws(GitCoreError) in
+                try StatusParser.parse(output.stdout, revision: revision)
+            }
             let status = RepositoryStatus(
                 revision: revision, branch: snapshot.branch, summary: snapshot.summary,
                 operation: OperationStateDetector.detect(gitDirectory: info.gitDirectory))

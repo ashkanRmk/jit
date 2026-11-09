@@ -53,7 +53,7 @@ public struct OperationSummary: Sendable, Equatable {
 /// children). History is in memory only, bounded to 20 finished operations.
 @MainActor @Observable
 public final class OperationCenter {
-    public static let historyLimit = 20
+    public static let historyLimit = CacheLimits.operationHistory
 
     /// Newest first: running operations, then finished ones.
     public private(set) var records: [OperationRecord] = []
@@ -79,6 +79,9 @@ public final class OperationCenter {
         summarize: @escaping @Sendable (T) -> OperationSummary,
         _ body: @escaping @Sendable (AsyncStream<OperationProgress>.Continuation) async throws(GitCoreError) -> T
     ) async -> Result<T, PresentableError> {
+        // No detail: operation titles can contain branch names.
+        let interval = Signposts.begin(Signposts.operation)
+        defer { Signposts.end(interval) }
         let id = UUID()
         records.insert(
             OperationRecord(

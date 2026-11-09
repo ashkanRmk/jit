@@ -26,6 +26,7 @@ struct ProfileAvatar: View {
 /// Toolbar profile capsule content. The toolbar item supplies the glass (system platter); with no
 /// active profile the item is warning-tinted by the window controller.
 struct ProfileCapsuleView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let store: ProfileStore
     let chrome: ChromeState
     let action: () -> Void
@@ -47,7 +48,7 @@ struct ProfileCapsuleView: View {
             }
             .padding(.horizontal, Space.s3)
             .contentShape(Capsule())
-            .animation(.easeInOut(duration: MotionToken.select.duration), value: store.activeProfileID)
+            .animation(reduceMotion ? nil : MotionToken.select.animation, value: store.activeProfileID)
         }
         .buttonStyle(.plain)
         .help(helpText)

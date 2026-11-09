@@ -16,7 +16,7 @@ if grep -rnE '^\s*(@preconcurrency\s+)?(public\s+|internal\s+)?import\s+(AppKit|
 fi
 
 info "Hardcoded styling outside DesignSystem"
-pattern='Color\(red:|Color\(\.sRGB|NSColor\((red|srgbRed|calibratedRed|deviceRed|white):|#colorLiteral|\.font\(\.system\(size:|NSFont\.systemFont\(ofSize:|NSVisualEffectView|\.glassEffect\(|NSGlassEffectView\(|CIFilter|\.blur\(radius:'
+pattern='Color\(red:|Color\(\.sRGB|NSColor\((red|srgbRed|calibratedRed|deviceRed|white):|#colorLiteral|\.font\(\.system\(size:|NSFont\.systemFont\(ofSize:|NSVisualEffectView|\.glassEffect\(|NSGlassEffectView\(|CIFilter|\.blur\(radius:|buttonStyle\(\.glass'
 if grep -rnE "$pattern" "$PACKAGE_DIR/Sources/Features" "$MACOS_DIR/App"; then
     echo "Use DesignSystem tokens and glass helpers instead" >&2; status=1
 fi
