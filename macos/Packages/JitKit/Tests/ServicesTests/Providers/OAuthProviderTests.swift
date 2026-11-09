@@ -205,13 +205,19 @@ import Testing
         func store(_ new: OAuthTokens) { tokens.withLock { $0 = new } }
     }
 
+    /// A shared counter captured by task-group children (a bare local `Mutex` trips older compilers'
+    /// `sending`-closure region check).
+    final class Counter: Sendable {
+        let value = Mutex(0)
+    }
+
     @Test func refreshSingleFlight() async throws {
         let clock = ProviderTestClock()
         let store = TokenStore(
             OAuthTokens(
                 access: SecretBytes(utf8: "old"), refresh: SecretBytes(utf8: "rt-old"),
                 expiresAt: clock.now.addingTimeInterval(30)))
-        let refreshes = Mutex(0)
+        let refreshes = Counter()
         let refresher = OAuthRefresher(now: clock.closure)
         let account = HostingAccountID(rawValue: "acct")
         let results = try await withThrowingTaskGroup(of: String.self) { group in
@@ -221,7 +227,7 @@ import Testing
                         for: account, load: { store.load() },
                         refresh: { refreshToken in
                             #expect(providerSecretText(refreshToken) == "rt-old")
-                            refreshes.withLock { $0 += 1 }
+                            refreshes.value.withLock { $0 += 1 }
                             try await Task.sleep(for: .milliseconds(50))
                             return OAuthTokens(
                                 access: SecretBytes(utf8: "new"), refresh: SecretBytes(utf8: "rt-new"),
@@ -235,7 +241,7 @@ import Testing
         }
         #expect(results.count == 20)
         #expect(results.allSatisfy { $0 == "new" })
-        #expect(refreshes.withLock { $0 } == 1)
+        #expect(refreshes.value.withLock { $0 } == 1)
         #expect(providerSecretText(store.load().access) == "new")
     }
 
