@@ -3,6 +3,39 @@
 Budget (§15.1, `docs/roadmap.md` §7) and measured results. Numbers are reported as measured; nothing
 here is estimated. Raw outputs are written to `scripts/benchmarks/out/` (git-ignored).
 
+## Phase 2 — 2026-11-09
+
+MacBook Pro `Mac17,9` (Apple M5 Pro, 24 GB), macOS 27.2, Git 2.54.0 (Homebrew), release builds. Repositories:
+`history-1000/10000/100000` fixtures (no commit-graph unless stated) and a clone of `github.com/git/git`
+(86,059 commits from all refs, 1,012 tags, no commit-graph unless stated).
+
+| Metric (implementation.md §4) | Target | Measured | Method |
+|---|---|---|---|
+| First 300 rows visible, 100k fixture, from history start | < 150 ms | **143–156 ms** with a commit-graph; **413–427 ms** without | `JIT_BENCHMARK_GRAPH=1`, 3 runs each |
+| Same, git/git | — | 142–157 ms with; 485–504 ms without | same |
+| Same, 1k fixture | — | 111–123 ms | same |
+| Folder opened → first rows drawn (adds discovery + status) | — | 188–206 ms with; 458–566 ms without | same |
+| `git log` first 300 rows (loader only) | — | 32–35 ms with; 284–379 ms without (100k) | `JitBench history-source`, ADR-0010 |
+| Page append, main thread | < 16 ms | median 0.27–0.30 ms, max 0.33 ms | same (`insertRows`) |
+| Scroll step (one screen, layout + display), 400 steps | 60 FPS | median 1.56 ms, p95 1.76–1.94 ms, max 10.9 ms; 0 steps > 16.7 ms | same |
+| Row draw (graph cell) | ≤ 2 ms p95 | p95 0.012 ms (fixtures), 0.110 ms (git/git) | same |
+| `CommitStore`, 100k commits | ≤ 25 MB | **18.1 MB (189 B/commit)**; git/git 86k: 53.4 MB (wide lane sets, ADR-0022) | `CommitStoreMemoryTests`, benchmark |
+| App footprint, 100k loaded | < 200 MB (typical repo) | 86 MB (100k fixture), 129 MB (git/git all loaded), 61 MB idle after first pages | benchmark, `footprint` |
+| Search over loaded 100k | < 30 ms | 2.4 ms (100k), 3.2 ms (git/git) | benchmark |
+| Lane layout, 100k rows | < 150 ms | 13 ms (parse + layout + store 60 ms) | `lanesLayout100kUnder150ms` |
+| Refs parse, 10k refs | < 100 ms | 4 ms | `refs10kBranchesUnder100ms` |
+| External commit → graph updated | < 500 ms | 37 ms after the refs event + FSEvents 0.2 s latency | `externalCommitAppearsAsReplacementKeepingRows` |
+| Idle CPU, 100k open | 0.0–0.2 % | 0.0 % (61 + 30 + 30 samples, active and inactive) | `idle.sh` |
+| Idle wakeups | no regression | 1.0/s active with 100k open, 0.57/s inactive; **baseline without a repository 2.0/s** in the same session | `idle.sh` (fixed parser, below) |
+| Reader process while idle | 0 CPU | 0.00 ms over 2 s; footprint 16 MB (commit-graph) – 93 MB (git/git, none); killed when the tab hides | `JitBench history-source` |
+
+Not measured (carried over): Instruments Animation Hitches during a trackpad fling (the scroll numbers above
+are main-thread cost per programmatic scroll step), memory with three large tabs, `powermetrics`.
+
+**Correction to Phase 1:** `top`'s IDLEW column in logging mode is per sample interval, not cumulative; Phase 1's
+"0 wakeups" was last − first of that column. `idle.sh` now reports the per-sample mean/max (and strips `top`'s
+`+` suffix that made the parser fail). Re-measured baseline without a repository: 2.0 wakeups/s.
+
 ## Phase 1 — 2026-11-09
 
 Environment as Phase 0 (MacBook Pro `Mac17,9`, M5 Pro, macOS 27.2, Xcode 27.2, Git 2.54.0 Homebrew), **release**

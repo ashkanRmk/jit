@@ -3,7 +3,8 @@
 > Status: **Phase 0 implemented** (branch `phase/00-foundation`, see
 > [`phases/00-foundation/progress.md`](phases/00-foundation/progress.md)); **Phase 1 implemented** (branch
 > `phase/01-shell-and-tabs`, see [`phases/01-shell-and-tabs/progress.md`](phases/01-shell-and-tabs/progress.md));
-> Phases 2–8 are plans. Each phase folder under
+> **Phase 2 implemented** (branch `phase/02-graph-and-navigation`, see
+> [`phases/02-graph-and-navigation/progress.md`](phases/02-graph-and-navigation/progress.md)); Phases 3–8 are plans. Each phase folder under
 > [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
 > such as **§7.4** point into that file.
@@ -178,8 +179,8 @@ Assigned across the phase designs; check here before adding one (Phase 6 audits 
 | 0006 | **Accepted.** macOS 26+ and native Liquid Glass (glass chrome, opaque content). Phase 0 adds: minimum Git version (proposal 2.39 — covers `merge-tree --write-tree` and `zdiff3`) checked on first Git use; App Sandbox off, Hardened Runtime on; bundle ID placeholder `com.example.jit`. | planning + P0 |
 | 0007 | **Accepted.** State: Swift Observation, small observable models per concern; persistence = `UserDefaults` for preferences + versioned atomic JSON files (session, recents, profiles) in Application Support; no database; one main window. | P1 |
 | 0008 | **Accepted.** File watching: one directory-level FSEvents stream per *visible* repository of a foreground window (latency 0.2 s), pure classifier → `RepositoryHandle` invalidations, coalesced refreshes, `--no-optional-locks`. | P1 |
-| 0009 | Graph rendering: view-based `NSTableView` (or `NSCollectionView`) with a custom-drawn Core Graphics graph column; lane geometry computed in `GitCore`. Opaque content layer under glass chrome. | P2 |
-| 0010 | History loading: streamed `git log --topo-order` pages with top-down incremental lane assignment so earlier rows never re-layout. | P2 |
+| 0009 | **Accepted.** Graph rendering: view-based `NSTableView` (or `NSCollectionView`) with a custom-drawn Core Graphics graph column; lane geometry computed in `GitCore`. Opaque content layer under glass chrome. | P2 |
+| 0010 | **Accepted** (long-lived reader, killed when hidden). History loading: streamed `git log --topo-order` pages with top-down incremental lane assignment so earlier rows never re-layout. | P2 |
 | 0011 | Diff renderer: spike TextKit 2 vs a custom virtualized Core Text line renderer; pick by measured performance and selection semantics. | P3 |
 | 0012 | Syntax highlighting: tree-sitter C runtime via a SwiftPM C target (or a lighter lexer if it wins on size/speed), computed lazily for visible ranges as compact span runs. | P3 |
 | 0013 | Partial staging: build full-context patches from a captured snapshot, `git apply --check` then `git apply` against index/worktree, verify after. | P3 |
