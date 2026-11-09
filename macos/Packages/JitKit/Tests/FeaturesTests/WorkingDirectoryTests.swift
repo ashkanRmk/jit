@@ -236,4 +236,61 @@ import Testing
         #expect(model.list.isClean)
         #expect(try await waitUntil { model.lastCommitSubject == "Initial" })
     }
+
+    // MARK: Discard (P3.2)
+
+    @MainActor
+    func temporaryRecovery(_ sandbox: GitSandbox) -> RecoveryStore {
+        RecoveryStore(location: StoreLocation(directory: URL(fileURLWithPath: sandbox.root + "/AppSupport")))
+    }
+
+    @Test @MainActor func discardFromSheetRestoresAndKeepsRecoveryCopy() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await committed(sandbox, ["a.txt": "a\n"])
+        try repo.write("a.txt", "a\nmine\n")
+        let model = try await model(repo)
+        let recovery = temporaryRecovery(sandbox)
+        model.recovery = recovery
+
+        let row = try #require(model.list.unstaged.first)
+        model.requestDiscard([row])
+        #expect(try await waitUntil { model.discardRequest != nil })
+        let request = try #require(model.discardRequest)
+        #expect(request.trackedCount == 1 && request.preview?.removedCount == 1)
+        #expect(
+            String(decoding: try Data(contentsOf: URL(fileURLWithPath: repo.path + "/a.txt")), as: UTF8.self)
+                == "a\nmine\n")
+
+        model.confirmDiscard()
+        #expect(try await waitUntil { model.list.isClean })
+        #expect(
+            String(decoding: try Data(contentsOf: URL(fileURLWithPath: repo.path + "/a.txt")), as: UTF8.self) == "a\n")
+        let entry = try #require(recovery.entries(repository: model.topLevel).first)
+        #expect(entry.meta.path == "a.txt")
+        #expect(try Data(contentsOf: entry.file) == Data("a\nmine\n".utf8))
+    }
+
+    @Test @MainActor func discardRefusedWhenFileChangedWhileSheetOpen() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await committed(sandbox, ["a.txt": "a\n"])
+        try repo.write("a.txt", "first\n")
+        let model = try await model(repo)
+        model.recovery = temporaryRecovery(sandbox)
+        model.requestDiscard([try #require(model.list.unstaged.first)])
+        #expect(try await waitUntil { model.discardRequest != nil })
+
+        try repo.write("a.txt", "second, typed after the sheet opened\n")
+        model.confirmDiscard()
+        #expect(try await waitUntil { model.banner != nil })
+        #expect(model.banner?.contains("changed since") == true && !model.canRetry)
+        #expect(
+            String(decoding: try Data(contentsOf: URL(fileURLWithPath: repo.path + "/a.txt")), as: UTF8.self)
+                == "second, typed after the sheet opened\n")
+        #expect(model.recovery.entries().isEmpty)
+    }
+
+    @Test @MainActor func onlyUnstagedNonSubmoduleRowsAreDiscardable() {
+        let files = [file(.staged, "s.txt"), file(.unstaged, "u.txt"), file(.conflicts, "c.txt", .conflicted)]
+        #expect(WorkingDirectoryModel.discardable(files).map(\.path) == ["u.txt"])
+    }
 }

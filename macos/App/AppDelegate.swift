@@ -55,6 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             controller.updateForeground()
             self.runLaunchHooks(model)
         }
+        // Discard recovery copies: 7 days / 500 MB, once per launch, off the main thread (ADR-0025).
+        Task.detached(priority: .utility) { RecoveryStore(location: location).prune() }
         memoryPressure = MemoryPressureMonitor { [weak model] in model?.handleMemoryPressure() }
     }
 

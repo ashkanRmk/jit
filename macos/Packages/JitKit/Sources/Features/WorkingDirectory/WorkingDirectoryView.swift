@@ -24,6 +24,11 @@ struct WorkingDirectoryView: View {
         .background(ColorToken.surfacePanel.color.ignoresSafeArea())
         .safeAreaBar(edge: .top, spacing: 0) { header }
         .background { shortcuts }
+        .sheet(
+            item: Binding(get: { model.discardRequest }, set: { if $0 == nil { model.cancelDiscard() } })
+        ) { request in
+            DiscardSheet(request: request, cancel: model.cancelDiscard, confirm: model.confirmDiscard)
+        }
     }
 
     // MARK: Header
@@ -488,6 +493,12 @@ private struct ContextMenu: View {
         }
         if !staged.isEmpty {
             Button(staged.count == 1 ? "Unstage" : "Unstage \(staged.count) Files") { model.unstage(staged) }
+        }
+        let discardable = WorkingDirectoryModel.discardable(files)
+        if !discardable.isEmpty {
+            Button(discardable.count == 1 ? "Discard Changes…" : "Discard Changes to \(discardable.count) Files…") {
+                model.requestDiscard(discardable)
+            }
         }
         if !unstaged.isEmpty || !staged.isEmpty { Divider() }
         Button("Open in Editor") { model.openInEditor(files) }

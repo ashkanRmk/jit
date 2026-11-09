@@ -65,4 +65,4 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
   `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`, `-JitUITestOpenRepository <path>`,
   `-JitSnapshot <png>` (debug only; renders the window to PNG, glass approximated),
   `-JitGraphSelectRow <n>` [`-JitGraphCompareRow <m>`], `-JitGraphSearch <text>` [`-JitGraphOnlyMatches YES`],
-  `-JitGraphSelectWIP YES`, `-graphDensity compact|comfortable` (debug only except the last)
+  `-JitGraphSelectWIP YES`, `-JitDiscardSheet <path>`, `-graphDensity compact|comfortable` (debug only except the last)

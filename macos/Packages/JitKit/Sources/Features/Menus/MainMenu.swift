@@ -152,6 +152,12 @@ public enum MainMenu {
             item(
                 "Copy Repository Path", #selector(MainWindowController.copyRepositoryPath(_:)), "c",
                 [.command, .option]))
+        menu.addItem(.separator())
+        let discarded = item("Recently Discarded", nil)
+        let discardedMenu = NSMenu(title: "Recently Discarded")
+        discardedMenu.delegate = RecentlyDiscardedMenu.shared
+        discarded.submenu = discardedMenu
+        menu.addItem(discarded)
         return menu
     }
 

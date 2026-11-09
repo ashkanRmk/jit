@@ -187,9 +187,27 @@ public final class RepositorySession {
         try await write("Unstage") { handle throws(GitCoreError) in try await handle.unstage(paths) }
     }
 
-    private func write(
-        _ description: String, _ body: @Sendable (RepositoryHandle) async throws(GitCoreError) -> RepoRevision
-    ) async throws(GitCoreError) {
+    /// Discards working-tree changes of whole files (P3.2). Tokens come from `discardToken(for:)` taken
+    /// when the user was shown what would be lost; `hooks` default to the recovery store and the Trash.
+    public func discard(_ items: [DiscardItem], hooks: DiscardHooks? = nil) async throws(GitCoreError)
+        -> DiscardOutcome
+    {
+        let repository = info?.topLevel ?? path
+        let hooks = hooks ?? RecoveryStore().discardHooks(repository: repository, branch: status?.branch.head)
+        return try await write("Discard") { handle throws(GitCoreError) in try await handle.discard(items, hooks: hooks)
+        }
+    }
+
+    /// The current state of `path`, for a later `discard` (read-only).
+    public func discardToken(for path: String) async throws(GitCoreError) -> DiscardToken {
+        guard let handle else { throw .cancelled }
+        return try await handle.discardToken(for: path)
+    }
+
+    @discardableResult
+    private func write<T: Sendable>(
+        _ description: String, _ body: @Sendable (RepositoryHandle) async throws(GitCoreError) -> T
+    ) async throws(GitCoreError) -> T {
         guard let handle, lifecycle != .closed else { throw .cancelled }
         writeSequence &+= 1
         let token = "\(description) #\(writeSequence)"
@@ -199,7 +217,7 @@ public final class RepositorySession {
             // Refresh whether or not Git succeeded: a failed command may still have changed something.
             scheduleRefresh([.index, .worktree], reason: .user)
         }
-        _ = try await body(handle)
+        return try await body(handle)
     }
 
     // MARK: - Loading and refreshing

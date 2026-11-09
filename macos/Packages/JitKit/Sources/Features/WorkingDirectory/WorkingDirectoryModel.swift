@@ -134,7 +134,18 @@ final class WorkingDirectoryModel {
         // Counts may have changed for any file; keep the old numbers on screen until the new ones arrive.
         requestStats(for: visible.intersection(ids), replacing: true)
         if newList.isClean { loadLastCommitSubject(branch) }
+        #if DEBUG
+            // `-JitDiscardSheet <path>`: opens the discard sheet for an unstaged path (screenshots).
+            if let path = UserDefaults.standard.string(forKey: "JitDiscardSheet"), !debugSheetShown,
+                let file = newList.unstaged.first(where: { $0.path == path })
+            {
+                debugSheetShown = true
+                requestDiscard([file])
+            }
+        #endif
     }
+
+    @ObservationIgnored private var debugSheetShown = false
 
     var allFiles: [WDFile] { list.conflicts + list.staged + list.unstaged }
 
@@ -277,6 +288,8 @@ final class WorkingDirectoryModel {
 
     static func message(for error: GitCoreError, verb: String) -> String {
         switch error {
+        case .staleSnapshot(let summary):
+            summary
         case .indexLocked:
             "Index is locked by another Git process (.git/index.lock). Jit never removes lock files; retry when it finishes."
         default:
@@ -297,6 +310,81 @@ final class WorkingDirectoryModel {
     }
 
     var canRetry: Bool { retryAction != nil }
+
+    // MARK: Discard (P3.2)
+
+    /// What the confirmation sheet shows (design §3.2). Tokens are taken when the sheet opens; the
+    /// discard refuses if any file changed after that.
+    struct DiscardRequest: Identifiable {
+        let id = UUID()
+        let files: [WDFile]
+        let items: [DiscardItem]
+        /// Line preview of the first file (design §3.2: first 20 lines).
+        let preview: DiscardPreview?
+        let repository: String
+        let branch: String?
+
+        var trackedCount: Int { items.filter { !$0.token.isUntracked }.count }
+        var untrackedCount: Int { items.filter { $0.token.isUntracked }.count }
+    }
+
+    private(set) var discardRequest: DiscardRequest?
+    @ObservationIgnored var recovery = RecoveryStore()
+
+    /// Files the context menu offers "Discard Changes…" for: working-tree changes, not submodules.
+    static func discardable(_ files: [WDFile]) -> [WDFile] {
+        files.filter { $0.section == .unstaged && $0.submodule == nil }
+    }
+
+    /// Reads tokens and the preview, then shows the confirmation sheet. Never discards by itself.
+    func requestDiscard(_ files: [WDFile]) {
+        let targets = Self.discardable(files)
+        guard !targets.isEmpty, let handle else { return }
+        let repository = (topLevel as NSString).lastPathComponent
+        let branch = session.status?.branch.head
+        Task { [weak self] in
+            do throws(GitCoreError) {
+                var items: [DiscardItem] = []
+                for file in targets { items.append(DiscardItem(token: try await handle.discardToken(for: file.path))) }
+                let preview = try await handle.discardPreview(for: items[0].token)
+                guard let self else { return }
+                self.discardRequest = DiscardRequest(
+                    files: targets, items: items, preview: preview, repository: repository, branch: branch)
+            } catch .cancelled {
+                return
+            } catch {
+                self?.banner = Self.message(for: error, verb: "discard")
+            }
+        }
+    }
+
+    func cancelDiscard() { discardRequest = nil }
+
+    func confirmDiscard() {
+        guard let request = discardRequest else { return }
+        discardRequest = nil
+        let hooks = recovery.discardHooks(repository: topLevel, branch: request.branch)
+        // A stale token is not retried: the user must look again at what would be lost.
+        runOnce("discard") { session throws(GitCoreError) in _ = try await session.discard(request.items, hooks: hooks)
+        }
+    }
+
+    private func runOnce(
+        _ verb: String, _ body: @escaping @MainActor (RepositorySession) async throws(GitCoreError) -> Void
+    ) {
+        banner = nil
+        retryAction = nil
+        let session = self.session
+        Task { [weak self] in
+            do throws(GitCoreError) {
+                try await body(session)
+            } catch .cancelled {
+                return
+            } catch {
+                self?.banner = Self.message(for: error, verb: verb)
+            }
+        }
+    }
 
     // MARK: Drag and drop between Staged and Unstaged
 

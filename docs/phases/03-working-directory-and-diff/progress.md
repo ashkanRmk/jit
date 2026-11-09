@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0 and P3.1 complete; P3.2 next)
+Status: **in progress** (P3.0–P3.2 complete; P3.3 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -54,9 +54,20 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   `stageAndUnstageByDragMoveRowsBetweenSections` driving the drag/drop path through a real session,
   `lockedIndexShowsBannerAndRetryWorks`, `spaceTogglesAndStatsLoadLazily`); screenshots
   `screenshots/working-directory-{normal,conflicts}-{light,dark}.png`.
+- **P3.2 File-level discard with recovery** (ADR-0025) — GitCore `discardToken(for:)` (index record +
+  working-tree fingerprint), `discardPreview(for:)` (first 20 lost/restored lines, counts, binary),
+  `discard(_:hooks:)` inside the write gate: re-validate every token, recovery copy first, untracked to the
+  Trash, then `git restore --worktree`; staged changes kept. Services `RecoveryStore` (0700/0600, meta.json,
+  7 days / 500 MB pruning at launch) and `RepositorySession.discard`. Panel: "Discard Changes…" for unstaged
+  rows and folders (not submodules or conflicts), confirmation sheet per design §3.2 (title, repo · branch,
+  what changes / is lost / how to recover, line preview or file list; Cancel default, red Discard without a
+  shortcut), stale-token banner without Retry. Repository ▸ Recently Discarded (reveal copy, Show Recovery
+  Folder). Debug arg `-JitDiscardSheet <path>` opens the sheet for screenshots.
+  Evidence: `DiscardTests` (7), `RecoveryStoreTests` (3), `WorkingDirectoryTests` discard flow (3);
+  screenshots `screenshots/discard-sheet-{light,dark}.png`.
 
 ## Verified
-- Tests: `scripts/build/test-core.sh` — **275 passed** (40 + 178 + 45 + 12 across the four test targets);
+- Tests: `scripts/build/test-core.sh` — **288 passed** (43 + 185 + 48 + 12 across the four test targets);
   skipped: none. Xcode app tests not run yet this phase. Lint clean (`scripts/build/lint.sh`).
 - Real workflow: debug app on a clone with an upstream (1 ahead), a second branch and staged/unstaged/untracked
   changes — breadcrumb, `3 changes`, Terminal and search render in both themes (screenshots above).
@@ -91,4 +102,7 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
 - Not yet exercised by pointer: drag between sections, context menu, Space, tree collapse, ⇧⌘O / ⌥⌘F.
 - Untracked directories (`scratch/`) are staged as a whole; on-demand expansion is not built.
 - Paths that are not valid UTF-8 are listed with replacement characters and cannot be staged from the panel.
-- Next: P3.2 file-level discard with recovery.
+- Discard into the real Trash is not exercised by tests (it would fill the user's Trash); tests inject a
+  trash hook, and `RecoveryStore.discardHooks` calls `FileManager.trashItem`.
+- Not yet exercised by pointer: Discard Changes… menu, confirming in the sheet, Recently Discarded menu.
+- Next: P3.3 byte-exact diff engine.
