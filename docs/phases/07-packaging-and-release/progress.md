@@ -155,5 +155,20 @@ XcodeGen 2.46.0; development Git 2.54.0 (Homebrew); **bundled Git 2.56.0**.
 - Security: no secret passes through any script, credential files are git-ignored, the scripts never echo
   identities beyond the certificate name, and nothing is uploaded or published.
 
-## Final test run
-(filled in below)
+## Final test run (after all changes, commit `d3bd9b836e`)
+- `scripts/build/test-core.sh` → **745 passed, 0 failed** (GitCore 396, Services 203, Features 131, DesignSystem 15).
+- `scripts/build/test-app.sh` → exit 0. `scripts/build/lint.sh` → clean.
+- Rig suites against the bundled Git → 139 passed (see Verified).
+
+## Final artifact (ad-hoc, not distributable)
+- `build/release/1.0.0/Jit-1.0.0.dmg`, 11 MB, ULFO, arm64.
+- SHA-256 `c33921805fd6510e099ac5d2e51bee7e8b4dbce3d7fb81a01e5ddd75eeba7fb4`.
+- Built from `d3bd9b836e` (About: "Version 1.0.0 (1, d3bd9b836e)", `screenshots/release-about-dark.png`).
+- Signing identity: **ad-hoc** ("-"); no Developer ID.
+- Notarization submission ID / status: **none — not submitted** (no credentials). Stapled: no.
+- `validation.txt`: PASS for the ad-hoc structure checks; ticket and Gatekeeper checks rejected, as expected.
+- Acknowledgements: `screenshots/release-acknowledgements-dark.png`.
+- The installed copy in `/Applications/Jit.app` is this build (left for the owner to try).
+- Profile switcher: the popover works live when the profile item is visible; the overflow fallback
+  (Settings ▸ Profiles) is verified by code review only — reproducing it needs several tabs plus no profile at
+  minimum width.
