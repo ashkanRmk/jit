@@ -670,6 +670,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         if let size = PreferencesStore.CodeTextSize(rawValue: next) { model.preferences.codeTextSize = size }
     }
 
+    #if DEBUG
+        /// Screenshots (`-JitPaletteQuery`): types into the open palette.
+        public func setPaletteQuery(_ query: String) { palette?.setQuery(query) }
+    #endif
+
     /// View ▸ Command Palette… (⌘K): opens, or closes when open.
     @objc public func toggleCommandPalette(_ sender: Any?) {
         guard let window else { return }

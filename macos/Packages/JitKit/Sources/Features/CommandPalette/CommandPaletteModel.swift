@@ -304,9 +304,15 @@ final class CommandPaletteModel {
         let query = self.query
         rankTask?.cancel()
         if query.trimmingCharacters(in: .whitespaces).isEmpty {
-            // Empty query: recent commands, then commands for the current tab.
+            // Empty query: recent commands, then the enabled commands for the current tab — repository and
+            // branch work first, app-level items last.
             let recentRows = recent.compactMap { entries[$0] }.filter { $0.source == .command }
-            let contextual = pool.filter { $0.source == .command }.compactMap { entries[$0.id] }
+            let contextual = pool.filter { $0.source == .command }
+                .sorted {
+                    Self.menuRank($0.id) < Self.menuRank($1.id)
+                        || (Self.menuRank($0.id) == Self.menuRank($1.id) && $0.order < $1.order)
+                }
+                .compactMap { entries[$0.id] }
                 .filter { $0.isEnabled && !recent.contains($0.id) }
             rows = (recentRows + contextual).prefix(PaletteRanker.resultLimit).map {
                 PaletteRow(entry: $0, matched: [])
@@ -366,6 +372,14 @@ final class CommandPaletteModel {
                 }
             }
         }
+    }
+
+    /// Empty-query order of command menus.
+    static func menuRank(_ id: String) -> Int {
+        let order = [
+            "cmd:repo.", "cmd:branch.", "cmd:view.", "cmd:edit.", "cmd:file.", "cmd:window.", "cmd:help.", "cmd:app.",
+        ]
+        return order.firstIndex { id.hasPrefix($0) } ?? order.count
     }
 
     // MARK: Keyboard

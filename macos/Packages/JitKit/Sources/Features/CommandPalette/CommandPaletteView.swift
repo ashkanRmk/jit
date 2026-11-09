@@ -43,7 +43,7 @@ struct CommandPaletteView: View {
                 .symbolSize(IconSize.lg)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            TextField("Search commands, branches, files, repositories", text: $model.query)
+            TextField("Search commands, branches, files…", text: $model.query)
                 .textFieldStyle(.plain)
                 .typeStyle(.title)
                 .focused($fieldFocused)
@@ -65,10 +65,20 @@ struct CommandPaletteView: View {
                     return .handled
                 }
             if model.query.isEmpty {
-                Text("> commands  @ refs  / files  # repos  : commit")
-                    .typeStyle(.caption)
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
+                // Prefix scopes as compact key chips (design §3.1); the full meaning is in the tooltip.
+                HStack(spacing: Space.s2) {
+                    ForEach(PaletteSource.allCases, id: \.self) { source in
+                        Text(String(source.prefix))
+                            .typeStyle(.monoCaption)
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: IconSize.lg)
+                            .padding(.vertical, Space.s1)
+                            .background(ColorToken.stateHover.color, in: RoundedRectangle(cornerRadius: Radius.xs))
+                            .help("\(source.prefix) \(source.title)")
+                    }
+                }
+                .fixedSize()
+                .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, Space.s6)

@@ -48,6 +48,8 @@ final class CommandPaletteController: NSObject, NSWindowDelegate {
         }
     }
 
+    func setQuery(_ query: String) { model.query = query }
+
     func close() {
         guard isOpen, let panel else { return }
         isOpen = false
