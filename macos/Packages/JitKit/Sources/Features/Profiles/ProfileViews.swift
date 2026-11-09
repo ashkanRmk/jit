@@ -65,10 +65,13 @@ struct ProfileCapsuleView: View {
     }
 }
 
-/// The profile switcher popover (system popover glass, no custom chrome).
+/// The profile switcher popover (design §3.1): system popover glass, plain rows with system-style selection, the
+/// active profile's identity and sign-in summary, status dots, search above seven profiles, footer actions in
+/// one glass control group. Switching is one click and never changes any Git or SSH configuration.
 struct ProfileSwitcherView: View {
     let store: ProfileStore
     let newProfile: (_ prefillFromGitConfig: Bool) -> Void
+    let editProfile: (GitProfile) -> Void
     let manageProfiles: () -> Void
     let dismiss: () -> Void
     @State private var query = ""
@@ -80,7 +83,7 @@ struct ProfileSwitcherView: View {
                     Text("Commits need an identity")
                         .typeStyle(.headline)
                     Text(
-                        "Create a profile with the name and email Git should record. Jit never changes your global Git configuration."
+                        "Profiles combine who you commit as with how you sign in to remotes. Jit never changes your global Git configuration."
                     )
                     .typeStyle(.callout)
                     .foregroundStyle(.secondary)
@@ -92,36 +95,44 @@ struct ProfileSwitcherView: View {
                     Button("Fill from Git config") { newProfile(true) }
                 }
             } else {
-                if store.profiles.count > 6 {
-                    TextField("Search Profiles", text: $query)
-                        .textFieldStyle(.roundedBorder)
-                }
-                VStack(spacing: Space.s1) {
-                    ForEach(filtered) { profile in
-                        ProfileRowButton(
-                            profile: profile, isActive: profile.id == store.activeProfileID
-                        ) {
-                            store.setActive(profile.id)
-                            dismiss()
-                        }
-                    }
-                }
-                if store.activeProfile == nil {
+                if let active = store.activeProfile {
+                    ActiveProfileHeader(profile: active, store: store)
+                } else {
                     Label("No profile is active. Choose one for commits.", systemImage: "exclamationmark.triangle")
-                        .typeStyle(.caption)
+                        .typeStyle(.callout)
                         .foregroundStyle(.token(.statusWarning))
                 }
                 Divider()
-                HStack {
-                    Button("New Profile…") { newProfile(false) }
-                    Spacer()
-                    Button("Manage Profiles…", action: manageProfiles)
+                if store.profiles.count > 7 {
+                    TextField("Search Profiles", text: $query)
+                        .textFieldStyle(.roundedBorder)
                 }
-                .buttonStyle(.borderless)
+                ScrollView {
+                    VStack(spacing: Space.s1) {
+                        ForEach(filtered) { profile in
+                            ProfileRowButton(
+                                profile: profile, store: store, isActive: profile.id == store.activeProfileID
+                            ) {
+                                store.setActive(profile.id)
+                                dismiss()
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 360)
+                .fixedSize(horizontal: false, vertical: store.profiles.count <= 7)
+                GlassControlGroup(spacing: Space.s3) {
+                    Button("Add Profile…") { newProfile(false) }.secondaryGlassButton()
+                    if let active = store.activeProfile {
+                        Button("Edit Active Profile…") { editProfile(active) }.secondaryGlassButton()
+                    }
+                    Button("Manage Profiles…", action: manageProfiles).secondaryGlassButton()
+                }
+                .controlSize(.small)
             }
         }
         .padding(Space.s6)
-        .frame(width: 320)
+        .frame(width: 360)
     }
 
     private var filtered: [GitProfile] {
@@ -134,8 +145,35 @@ struct ProfileSwitcherView: View {
     }
 }
 
+/// "Active profile": larger avatar, name, `Author <email>`, provider + `@login on host`, auth method.
+private struct ActiveProfileHeader: View {
+    let profile: GitProfile
+    let store: ProfileStore
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Space.s4) {
+            ProfileAvatar(profile: profile, size: ProfileMetrics.largeAvatar + Space.s4)
+            VStack(alignment: .leading, spacing: Space.s1) {
+                Text("Active profile").typeStyle(.micro).foregroundStyle(.secondary)
+                Text(profile.displayName).typeStyle(.headline)
+                Text("\((profile.committer ?? profile.author).name) <\((profile.committer ?? profile.author).email)>")
+                    .typeStyle(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(ProfileDescriptions.authSummary(profile, store: store))
+                    .typeStyle(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct ProfileRowButton: View {
     let profile: GitProfile
+    let store: ProfileStore
     let isActive: Bool
     let action: () -> Void
     @State private var isHovered = false
@@ -145,16 +183,27 @@ private struct ProfileRowButton: View {
             HStack(spacing: Space.s4) {
                 ProfileAvatar(profile: profile, size: ProfileMetrics.largeAvatar)
                 VStack(alignment: .leading, spacing: Space.s1) {
-                    Text(profile.displayName)
-                        .typeStyle(.headline)
-                        .foregroundStyle(.primary)
-                    Text("\(profile.author.name) <\(profile.author.email)>")
+                    HStack(spacing: Space.s2) {
+                        Text(profile.displayName)
+                            .typeStyle(.headline)
+                            .foregroundStyle(.primary)
+                        if let kind {
+                            Image(systemName: ProviderSymbols.symbol(kind))
+                                .symbolSize(IconSize.sm)
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    Text(profile.author.email)
                         .typeStyle(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
                 Spacer(minLength: Space.s4)
+                if let account = store.account(for: profile) {
+                    AccountStatusDot(status: account.status)
+                }
                 if isActive {
                     Image(systemName: "checkmark")
                         .foregroundStyle(.tint)
@@ -167,7 +216,19 @@ private struct ProfileRowButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .accessibilityLabel("\(profile.displayName), \(profile.author.email), \(isActive ? "active" : "inactive")")
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var kind: ProviderKind? { profile.auth.flatMap { store.instance($0.instanceID)?.kind } }
+
+    private var accessibilityText: String {
+        var parts = ["Profile \(profile.displayName)", profile.author.email]
+        if let kind { parts.append(kind.title) }
+        if let account = store.account(for: profile) {
+            parts.append(account.status == .ok ? "authenticated" : account.status.title)
+        }
+        if isActive { parts.append("selected") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -175,6 +236,8 @@ private struct ProfileRowButton: View {
 struct ProfileEditorView: View {
     let store: ProfileStore
     let engine: GitEngine
+    /// Opens Settings ▸ Accounts (Connect Account…).
+    var openAccounts: () -> Void = {}
     let editing: GitProfile?
     let prefillFromGitConfig: Bool
     let finish: () -> Void
@@ -189,6 +252,7 @@ struct ProfileEditorView: View {
     @State private var showsCommitter = false
     @State private var fillMessage: String?
     @State private var isFilling = false
+    @State private var auth = ProfileAuthDraft()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -249,7 +313,11 @@ struct ProfileEditorView: View {
                             issueText(.committerEmail)
                         }
                     }
+                    LabeledContent("Signing") {
+                        Text("Planned").foregroundStyle(.secondary)
+                    }
                 }
+                ProfileAuthSection(store: store, draft: $auth, openAccounts: openAccounts)
             }
             .formStyle(.grouped)
             HStack {
@@ -258,11 +326,12 @@ struct ProfileEditorView: View {
                     .keyboardShortcut(.cancelAction)
                 Button(editing == nil ? "Create Profile" : "Save", action: save)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!ProfileValidation.canSave(issues))
+                    .disabled(!ProfileValidation.canSave(issues) || auth.blockingIssue(store) != nil)
             }
             .padding(Space.s6)
         }
-        .frame(width: 460)
+        // Fixed height: the grouped Form scrolls instead of growing the sheet past the screen.
+        .frame(width: 520, height: 640)
         .onAppear(perform: load)
     }
 
@@ -291,6 +360,7 @@ struct ProfileEditorView: View {
 
     private func load() {
         if let editing {
+            auth = ProfileAuthDraft(editing.auth)
             displayName = editing.displayName
             colorIndex = editing.colorIndex
             authorName = editing.author.name
@@ -346,11 +416,13 @@ struct ProfileEditorView: View {
             profile.colorIndex = colorIndex
             profile.author = trimmedAuthor
             profile.committer = trimmedCommitter
+            profile.auth = auth.value
             store.update(profile)
         } else {
             store.create(
                 GitProfile(
-                    displayName: name, colorIndex: colorIndex, author: trimmedAuthor, committer: trimmedCommitter),
+                    displayName: name, colorIndex: colorIndex, author: trimmedAuthor, committer: trimmedCommitter,
+                    auth: auth.value),
                 activate: store.activeProfile == nil)
         }
         finish()
@@ -361,7 +433,10 @@ struct ProfileEditorView: View {
 @MainActor
 enum ProfileEditorPresenter {
     static func present(
-        on window: NSWindow, store: ProfileStore, engine: GitEngine, editing: GitProfile?, prefillFromGitConfig: Bool
+        on window: NSWindow, store: ProfileStore, engine: GitEngine, editing: GitProfile?, prefillFromGitConfig: Bool,
+        openAccounts: @escaping () -> Void = {
+            NSApp.sendAction(Selector(("showSettingsAccounts:")), to: nil, from: nil)
+        }
     ) {
         guard window.attachedSheet == nil else { return }
         let sheet = NSWindow(
@@ -369,7 +444,8 @@ enum ProfileEditorPresenter {
             defer: true)
         let host = NSHostingController(
             rootView: ProfileEditorView(
-                store: store, engine: engine, editing: editing, prefillFromGitConfig: prefillFromGitConfig
+                store: store, engine: engine, openAccounts: openAccounts, editing: editing,
+                prefillFromGitConfig: prefillFromGitConfig
             ) { [weak window, weak sheet] in
                 if let window, let sheet { window.endSheet(sheet) }
             })
@@ -380,96 +456,184 @@ enum ProfileEditorPresenter {
     }
 }
 
-/// Settings ▸ Profiles: list, create, edit, activate, delete (with confirmation).
+/// Settings ▸ Profiles: list, create, edit, activate, delete (destructive sheet). Each row shows who commits and
+/// how the profile signs in to remotes.
 struct ProfilesSettingsView: View {
-    let store: ProfileStore
+    let accounts: AccountsService
     let engine: GitEngine
+    let open: (SettingsWindowController.Pane) -> Void
     @State private var selection: UUID?
     @State private var pendingDelete: GitProfile?
 
+    private var store: ProfileStore { accounts.profiles }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s5) {
-            if store.activeProfile == nil {
-                Label(
-                    store.profiles.isEmpty
-                        ? "No profiles yet. Commits need an identity — create one."
-                        : "No profile is active. Select one and click Make Active.",
-                    systemImage: "exclamationmark.triangle"
-                )
-                .typeStyle(.callout)
-                .foregroundStyle(.token(.statusWarning))
-            }
-            List(selection: $selection) {
-                ForEach(store.profiles) { profile in
-                    HStack(spacing: Space.s4) {
-                        ProfileAvatar(profile: profile, size: ProfileMetrics.largeAvatar)
-                        VStack(alignment: .leading, spacing: Space.s1) {
-                            Text(profile.displayName).typeStyle(.headline)
-                            Text("\(profile.author.name) <\(profile.author.email)>")
-                                .typeStyle(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if profile.id == store.activeProfileID {
-                            Text("Active")
-                                .typeStyle(.caption)
-                                .foregroundStyle(.tint)
-                        }
+        Form {
+            if store.profiles.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: Space.s3) {
+                        Text("Profiles combine who you commit as with how you sign in to remotes.")
+                            .typeStyle(.headline)
+                        Text(
+                            "Exactly one profile is active, and you choose it. Jit never changes your Git or SSH configuration."
+                        )
+                        .typeStyle(.callout)
+                        .foregroundStyle(.secondary)
+                        Button("Add Profile…") { present(nil) }
                     }
                     .padding(.vertical, Space.s2)
-                    .tag(profile.id)
-                    .accessibilityElement(children: .combine)
+                }
+            } else {
+                if store.activeProfile == nil {
+                    Label(
+                        "No profile is active. Select one and click Make Active.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .typeStyle(.callout)
+                    .foregroundStyle(.token(.statusWarning))
+                }
+                Section {
+                    ForEach(store.profiles) { profile in
+                        ProfileSettingsRow(
+                            profile: profile, store: store, isActive: profile.id == store.activeProfileID,
+                            isSelected: selection == profile.id
+                        )
+                        .contentShape(Rectangle())
+                        // Double-click first: SwiftUI otherwise resolves every click as the single tap.
+                        .onTapGesture(count: 2) { present(profile) }
+                        .onTapGesture { selection = profile.id }
+                        .contextMenu {
+                            Button("Edit…") { present(profile) }
+                            Button("Make Active") { store.setActive(profile.id) }
+                                .disabled(profile.id == store.activeProfileID)
+                            Divider()
+                            Button("Delete…", role: .destructive) { pendingDelete = profile }
+                        }
+                    }
+                } footer: {
+                    HStack {
+                        Button("Add Profile…") { present(nil) }
+                        Spacer()
+                        Button("Delete…", role: .destructive) { pendingDelete = selection.flatMap(profile) }
+                            .disabled(selection == nil)
+                        Button("Edit…") { selection.flatMap(profile).map(present) }
+                            .disabled(selection == nil)
+                        Button("Make Active") { store.setActive(selection) }
+                            .disabled(selection == nil || selection == store.activeProfileID)
+                    }
+                    .padding(.top, Space.s3)
+                }
+                ForEach(Array(store.sharedSSHKeyConflicts().keys), id: \.self) { fingerprint in
+                    Label(
+                        "Profiles for different GitHub accounts use the same SSH key (\(fingerprint)). GitHub authenticates a key as one user, so one of them will act as the wrong account.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .typeStyle(.caption)
+                    .foregroundStyle(.token(.statusWarning))
                 }
             }
-            .listStyle(.bordered)
-            .contextMenu(forSelectionType: UUID.self) { _ in
-            } primaryAction: { ids in
-                ids.first.flatMap(profile).map(edit)
-            }
-            HStack {
-                Button("Add", systemImage: "plus") { present(nil) }
-                    .labelStyle(.iconOnly)
-                    .help("New Profile")
-                Button("Delete", systemImage: "minus") { pendingDelete = selection.flatMap(profile) }
-                    .labelStyle(.iconOnly)
-                    .disabled(selection == nil)
-                    .help("Delete Profile")
-                Spacer()
-                Button("Edit…") { selection.flatMap(profile).map(edit) }
-                    .disabled(selection == nil)
-                Button("Make Active") { store.setActive(selection) }
-                    .disabled(selection == nil || selection == store.activeProfileID)
-            }
-            Text("Jit never changes your global Git configuration. Profiles apply only to commits Jit makes.")
-                .typeStyle(.caption)
-                .foregroundStyle(.secondary)
         }
-        .padding(Space.s7)
-        .frame(width: 560, height: 420)
-        .confirmationDialog(
-            "Delete the profile “\(pendingDelete?.displayName ?? "")”?",
-            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
-            presenting: pendingDelete
-        ) { profile in
-            Button("Delete Profile", role: .destructive) {
+        .formStyle(.grouped)
+        .sheet(item: $pendingDelete) { profile in
+            DeleteProfileSheet(profile: profile, isActive: profile.id == store.activeProfileID) {
                 store.delete(id: profile.id)
                 selection = nil
+                pendingDelete = nil
+            } cancel: {
+                pendingDelete = nil
             }
-        } message: { profile in
-            Text(
-                profile.id == store.activeProfileID
-                    ? "It is the active profile. After deleting it no profile will be active until you choose one. Your Git configuration is not affected."
-                    : "This removes the identity from Jit. Your Git configuration and repositories are not affected.")
         }
     }
 
     private func profile(_ id: UUID) -> GitProfile? { store.profiles.first { $0.id == id } }
 
-    private func edit(_ profile: GitProfile) { present(profile) }
-
     private func present(_ profile: GitProfile?) {
         guard let window = NSApp.keyWindow else { return }
         ProfileEditorPresenter.present(
-            on: window, store: store, engine: engine, editing: profile, prefillFromGitConfig: false)
+            on: window, store: store, engine: engine, editing: profile, prefillFromGitConfig: false,
+            openAccounts: { open(.accounts) })
+    }
+}
+
+struct ProfileSettingsRow: View {
+    let profile: GitProfile
+    let store: ProfileStore
+    let isActive: Bool
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: Space.s4) {
+            ProfileAvatar(profile: profile, size: ProfileMetrics.largeAvatar)
+            VStack(alignment: .leading, spacing: Space.s1) {
+                Text(profile.displayName).typeStyle(.headline)
+                Text("\(profile.author.name) <\(profile.author.email)>")
+                    .typeStyle(.callout)
+                    .foregroundStyle(.secondary)
+                Text(ProfileDescriptions.authSummary(profile, store: store))
+                    .typeStyle(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if isActive {
+                Text("Active").typeStyle(.caption).foregroundStyle(.tint)
+            }
+        }
+        .padding(.vertical, Space.s2)
+        .padding(.horizontal, Space.s2)
+        .background(isSelected ? ColorToken.accentMuted.color : .clear, in: RoundedRectangle(cornerRadius: Radius.sm))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Destructive sheet for deleting a profile (design §3.2): commits are unaffected, accounts and keys remain.
+struct DeleteProfileSheet: View {
+    let profile: GitProfile
+    let isActive: Bool
+    let confirm: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s5) {
+            Text("Delete the profile “\(profile.displayName)”?").typeStyle(.headline)
+            Text(
+                "Commits already made with it are not affected. Its accounts and SSH keys stay available to other profiles; nothing is removed from the Keychain."
+                    + (isActive
+                        ? " It is the active profile — afterwards no profile is active until you choose one." : "")
+            )
+            .typeStyle(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
+                Button("Delete Profile", role: .destructive, action: confirm)
+            }
+        }
+        .padding(Space.s8)
+        .frame(width: 440)
+    }
+}
+
+/// Human summaries of a profile's authentication.
+enum ProfileDescriptions {
+    @MainActor
+    static func authSummary(_ profile: GitProfile, store: ProfileStore) -> String {
+        guard let auth = profile.auth, let instance = store.instance(auth.instanceID) else {
+            return "Identity only — public remotes and ssh-agent keys"
+        }
+        var parts: [String] = []
+        if let account = store.account(for: profile) {
+            parts.append("@\(account.login) on \(instance.name)")
+            if account.status.needsAttention { parts.append(account.status.title) }
+        } else {
+            parts.append("\(instance.name), no HTTPS account")
+        }
+        switch auth.ssh {
+        case .keyFile(let path, _): parts.append("SSH key \((path as NSString).lastPathComponent)")
+        case .agent: parts.append("SSH via ssh-agent")
+        case nil: break
+        }
+        return parts.joined(separator: " · ")
     }
 }

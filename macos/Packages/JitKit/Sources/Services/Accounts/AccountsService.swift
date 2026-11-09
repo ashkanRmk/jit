@@ -16,8 +16,6 @@ public final class AccountsService {
     @ObservationIgnored public let helperPath: String?
     /// Presents the SSH passphrase sheet (set by the window controller).
     @ObservationIgnored public var passphrasePrompt: KeychainCredentialSource.PassphrasePrompt?
-    /// Loads (and just-in-time refreshes) OAuth access tokens; PATs are read directly from the Keychain.
-    @ObservationIgnored public var oauthTokenLoader: KeychainCredentialSource.TokenLoader?
 
     public init(
         profiles: ProfileStore, secrets: (any SecretStore)? = nil, location: StoreLocation = .applicationSupport(),
@@ -49,14 +47,31 @@ public final class AccountsService {
             store: secrets, accounts: accounts, instances: instances,
             status: { [weak profiles] id, status in
                 await MainActor.run { profiles?.setStatus(status, for: id) }
-            }, prompt: passphrasePrompt, token: oauthTokenLoader)
+            }, prompt: passphrasePrompt, token: oauthLoader(for: snapshot))
         return ProfileAccessProvider(
             snapshot: snapshot, environment: environment, helperPath: helperPath, credentials: source,
             proxies: proxyResolver, connectivity: connectivity.checker, caStore: caStore)
     }
 
+    /// OAuth client IDs (build-time `OAuthClients.plist`; never secrets).
+    @ObservationIgnored public var oauthClients = OAuthClients(bundle: .main)
+    @ObservationIgnored public let oauthRefresher = OAuthRefresher()
+
     /// Published SSH fingerprints for github.com (fetched over verified HTTPS when the trust sheet opens).
     @ObservationIgnored public var publishedFingerprints: @Sendable (String) async -> [String] = { _ in [] }
+
+    /// Just-in-time OAuth refresh for Git HTTPS credentials (design §4.5); PATs are read straight from the Keychain.
+    func oauthLoader(for snapshot: ProfileSnapshot?) -> KeychainCredentialSource.TokenLoader? {
+        guard let account = snapshot?.account, account.method == .oauth, let instance = snapshot?.instance else {
+            return nil
+        }
+        let provider = tokenProvider(for: account, instance: instance)
+        return { _ throws(CredentialError) in
+            do { return try await provider() } catch {
+                throw .notAvailable("The sign-in for @\(account.login) expired.")
+            }
+        }
+    }
 
     // MARK: Account lifecycle (Keychain first, then the non-secret record)
 

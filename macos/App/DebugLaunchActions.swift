@@ -7,7 +7,7 @@
     /// - `-JitAppearance light|dark` (AppDelegate) forces the appearance. (`-JitOpen <path>` works in all builds.)
     /// - `-JitShowGallery YES`: open the Design System gallery (`-JitGallerySection <name>` picks a section).
     /// - `-JitShowDropOverlay YES`: show the folder drop overlay.
-    /// - `-JitShowSettings general|profiles`, `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`: open those
+    /// - `-JitShowSettings general|profiles|accounts|network`, `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`: open those
     ///   surfaces for screenshots.
     /// - `-JitSnapshot <file.png>` (+ optional `-JitSnapshotWindow <title or id>`): after the UI settles, render
     ///   the window's view hierarchy to a PNG and quit. This draws opaque content exactly; Liquid Glass is
@@ -22,9 +22,14 @@
             NSApp.mainMenu?.addItem(debugMenu())
             if defaults.bool(forKey: "JitShowGallery") { showGallery() }
             if let pane = defaults.string(forKey: "JitShowSettings") {
-                NSApp.sendAction(
-                    pane == "profiles" ? Selector(("showSettingsProfiles:")) : Selector(("showSettings:")), to: nil,
-                    from: nil)
+                let selector: Selector =
+                    switch pane {
+                    case "profiles": Selector(("showSettingsProfiles:"))
+                    case "accounts": Selector(("showSettingsAccounts:"))
+                    case "network": Selector(("showSettingsNetwork:"))
+                    default: Selector(("showSettings:"))
+                    }
+                NSApp.sendAction(selector, to: nil, from: nil)
             }
             if defaults.bool(forKey: "JitShowProfilePopover") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
