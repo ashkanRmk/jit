@@ -157,10 +157,14 @@ extension RepositoryHandle {
         let head = try await RepositoryDiscovery(engine: engine, timeout: .seconds(30)).resolveHead(in: directory)
         switch head {
         case let .branch(name, commit):
-            guard let oid = ObjectID(hex: commit) else { throw .internalError(summary: "Git returned a malformed HEAD.") }
+            guard let oid = ObjectID(hex: commit) else {
+                throw .internalError(summary: "Git returned a malformed HEAD.")
+            }
             return .branch(name: name, commit: oid)
         case let .detached(commit):
-            guard let oid = ObjectID(hex: commit) else { throw .internalError(summary: "Git returned a malformed HEAD.") }
+            guard let oid = ObjectID(hex: commit) else {
+                throw .internalError(summary: "Git returned a malformed HEAD.")
+            }
             return .detached(commit: oid)
         case let .unborn(branch):
             return .unborn(branch: branch)

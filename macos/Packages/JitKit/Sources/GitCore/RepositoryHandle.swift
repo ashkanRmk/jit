@@ -23,6 +23,8 @@ public actor RepositoryHandle {
 
     private var generation: UInt64 = 1
     private var cachedObjectFormat: ObjectFormat?
+    /// LRU of commit details (design §4.6).
+    nonisolated let detailsCache = DetailsCache()
     private var cachedStatus: RepositoryStatus?
     private var cachedSnapshot: StatusSnapshot?
     private var inFlight: (generation: UInt64, task: Task<Result<Computed, GitCoreError>, Never>)?
@@ -70,6 +72,7 @@ public actor RepositoryHandle {
     public func releaseCaches() {
         cachedStatus = nil
         cachedSnapshot = nil
+        detailsCache.removeAll()
     }
 
     /// The full parsed status from the last computation, if still cached (Phase 3 reads entries from it).

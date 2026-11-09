@@ -25,7 +25,8 @@ let package = Package(
         .target(name: "Services", dependencies: ["GitCore"], swiftSettings: strict),
         .target(name: "Features", dependencies: ["GitCore", "Services", "DesignSystem"], swiftSettings: strict),
         .executableTarget(name: "JitBench", dependencies: ["GitCore", "GitTestKit"], swiftSettings: strict),
-        .testTarget(name: "GitCoreTests", dependencies: ["GitCore", "GitTestKit"], swiftSettings: strict),
+        .testTarget(
+            name: "GitCoreTests", dependencies: ["GitCore", "GitTestKit"], exclude: ["Resources"], swiftSettings: strict),
         .testTarget(name: "ServicesTests", dependencies: ["Services", "GitCore", "GitTestKit"], swiftSettings: strict),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"], swiftSettings: strict),
     ],

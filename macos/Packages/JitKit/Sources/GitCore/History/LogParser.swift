@@ -42,13 +42,14 @@ struct LogParser {
         var consumed = 0
         let input = pending  // shares storage; avoids overlapping access to `self` inside the closure
         let failure: GitCoreError? = input.withUnsafeBytes { buffer -> GitCoreError? in
+            guard let base = buffer.baseAddress else { return nil }
             var start = 0
             outer: while start < buffer.count {
                 var field = 0
                 var index = start
                 while field < Self.fieldCount {
-                    guard let nul = memchr(buffer.baseAddress! + index, 0, buffer.count - index) else { break outer }
-                    let position = buffer.baseAddress!.distance(to: UnsafeRawPointer(nul))
+                    guard let nul = memchr(base + index, 0, buffer.count - index) else { break outer }
+                    let position = base.distance(to: UnsafeRawPointer(nul))
                     fieldEnds[field] = position
                     field += 1
                     index = position + 1
@@ -102,7 +103,9 @@ struct LogParser {
         var time: Int64 = 0
         var negative = false
         for byte in field(4) {
-            if byte == 0x2D { negative = true } else if byte >= 0x30 && byte <= 0x39 {
+            if byte == 0x2D {
+                negative = true
+            } else if byte >= 0x30 && byte <= 0x39 {
                 time = time &* 10 &+ Int64(byte - 0x30)
             }
         }

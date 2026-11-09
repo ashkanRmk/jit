@@ -132,7 +132,9 @@ import Testing
     @Test func parseTrackVariants() {
         func track(_ text: String) -> (Int, Int, Bool) {
             var copy = text
-            return copy.withUTF8 { let t = RefParser.parseTrack(UnsafeRawBufferPointer($0)); return (t.ahead, t.behind, t.gone) }
+            return copy.withUTF8 {
+                let t = RefParser.parseTrack(UnsafeRawBufferPointer($0)); return (t.ahead, t.behind, t.gone)
+            }
         }
         #expect(track("") == (0, 0, false))
         #expect(track("gone") == (0, 0, true))
@@ -146,7 +148,9 @@ import Testing
         let oid = String(repeating: "a1b2c3d4", count: 5)
         var output: [UInt8] = []
         for index in 0..<10_000 {
-            output += Array("refs/heads/team\(index % 40)/feature-\(index)\0\(oid)\0commit\0\0\0origin/x\0ahead 1, behind 2\0 \0\n".utf8)
+            output += Array(
+                "refs/heads/team\(index % 40)/feature-\(index)\0\(oid)\0commit\0\0\0origin/x\0ahead 1, behind 2\0 \0\n"
+                    .utf8)
         }
         let started = ContinuousClock.now
         let snapshot = try RefParser.parse(output, head: .unborn(branch: "main"), format: .sha1)

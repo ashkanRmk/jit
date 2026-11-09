@@ -84,28 +84,32 @@ public struct SyntheticHistory: Sendable {
         }
 
         while mark < commits {
-            if mainTip == nil {
-                mainTip = emit(ref: "refs/heads/main", parents: [], subject: "Initial commit")
-                mainMarks.append(mainTip!)
+            guard let currentMain = mainTip else {
+                let root = emit(ref: "refs/heads/main", parents: [], subject: "Initial commit")
+                mainTip = root
+                mainMarks.append(root)
                 continue
             }
             let isMergeStep = (mark + 1) % mergeEvery == 0
             if isMergeStep, let index = live.firstIndex(where: { $0.tip != nil }) {
                 let feature = live.remove(at: index)
-                mainTip = emit(
-                    ref: "refs/heads/main", parents: [mainTip!, feature.tip!],
+                let featureTip = feature.tip ?? feature.base
+                let merge = emit(
+                    ref: "refs/heads/main", parents: [currentMain, featureTip],
                     subject: "Merge branch '\(feature.name)'")
-                mainMarks.append(mainTip!)
-                finishedFeatures.append((feature.name, feature.tip!))
+                mainTip = merge
+                mainMarks.append(merge)
+                finishedFeatures.append((feature.name, featureTip))
                 continue
             }
             while live.count < concurrentFeatures {
                 featureSerial += 1
-                live.append(Feature(name: "feature/\(featureName(featureSerial))", tip: nil, base: mainTip!))
+                live.append(Feature(name: "feature/\(featureName(featureSerial))", tip: nil, base: currentMain))
             }
             if rng.below(10) < 4 {
-                mainTip = emit(ref: "refs/heads/main", parents: [mainTip!], subject: subject())
-                mainMarks.append(mainTip!)
+                let next = emit(ref: "refs/heads/main", parents: [currentMain], subject: subject())
+                mainTip = next
+                mainMarks.append(next)
             } else {
                 let index = rng.below(live.count)
                 let parent = live[index].tip ?? live[index].base

@@ -34,7 +34,8 @@ import Testing
         return lines.joined(separator: "\n") + "\n"
     }
 
-    static func check(_ name: String, _ topology: Topology, scope: HistoryScope = .all, limit: Int? = nil) async throws {
+    static func check(_ name: String, _ topology: Topology, scope: HistoryScope = .all, limit: Int? = nil) async throws
+    {
         let repo = try await GitSandbox().makeRepository()
         try await topology.write(to: repo)
         let snapshot = try await HistoryFixtures.loader(repo, HistoryQuery(scope: scope)).ensureLoaded(.max)
@@ -183,7 +184,9 @@ import Testing
             repeat {
                 snapshot = try await loader.ensureLoaded(snapshot.count + 1 + rng.below(2000))
                 // Rows already published never change.
-                #expect(Array(LaneDump.rows(snapshot)) == Array(LaneDump.rows(whole).prefix(snapshot.count)), "seed \(seed)")
+                #expect(
+                    Array(LaneDump.rows(snapshot)) == Array(LaneDump.rows(whole).prefix(snapshot.count)), "seed \(seed)"
+                )
             } while !snapshot.complete
             #expect(snapshot.count == whole.count, "seed \(seed)")
         }

@@ -31,7 +31,8 @@ enum HistorySourceSpike {
     static func run(path: String, label: String, engine: GitEngine) async throws -> [Row] {
         let handle = try await engine.openRepository(at: URL(fileURLWithPath: path))
         let refs = try await handle.refs()
-        let hasGraph = FileManager.default.fileExists(atPath: handle.info.commonDirectory + "/objects/info/commit-graph")
+        let hasGraph =
+            FileManager.default.fileExists(atPath: handle.info.commonDirectory + "/objects/info/commit-graph")
             || FileManager.default.fileExists(atPath: handle.info.commonDirectory + "/objects/info/commit-graphs")
         var rows: [Row] = []
         let clock = ContinuousClock()

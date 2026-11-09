@@ -102,7 +102,9 @@ public struct RefSnapshot: Sendable, Equatable {
     /// FNV-1a over Git's raw output and HEAD — equal revisions mean identical refs.
     public let revision: UInt64
 
-    public init(head: HeadState, refs: [GitRef], remoteHeads: [String: String] = [:], format: ObjectFormat, revision: UInt64) {
+    public init(
+        head: HeadState, refs: [GitRef], remoteHeads: [String: String] = [:], format: ObjectFormat, revision: UInt64
+    ) {
         self.head = head
         self.refs = refs
         self.remoteHeads = remoteHeads

@@ -41,7 +41,8 @@ import Testing
     @Test func topologyShapesMatchGit() async throws {
         let repo = try await GitSandbox().makeRepository()
         let oids = try await Self.sample().write(to: repo)
-        let parents = try await repo.git("rev-list", "--parents", "-n", "1", "HEAD").split(separator: " ").map(String.init)
+        let parents = try await repo.git("rev-list", "--parents", "-n", "1", "HEAD").split(separator: " ").map(
+            String.init)
         #expect(parents == [oids["Octo"]!, oids["M1"]!, oids["X1"]!, oids["Y1"]!])
         #expect(try await repo.git("rev-list", "--count", "other") == "1")
         #expect(try await repo.git("cat-file", "-t", "v2") == "tag")

@@ -74,7 +74,9 @@ if arguments.first == "history-source" {
     let engine = GitEngine()
     var all: [HistorySourceSpike.Row] = []
     for path in arguments.dropFirst() {
-        for row in try await HistorySourceSpike.run(path: path, label: (path as NSString).lastPathComponent, engine: engine) {
+        for row in try await HistorySourceSpike.run(
+            path: path, label: (path as NSString).lastPathComponent, engine: engine)
+        {
             all.append(row)
             print(
                 String(
@@ -105,7 +107,9 @@ if arguments.first == "make-history" {
     }
     let started = ContinuousClock.now
     let head = try SyntheticHistory(commits: commits, branches: branches).build(at: out)
-    print("make-history: \(commits) commits, \(branches) branches → \(out) HEAD \(head) in \(ContinuousClock.now - started)")
+    print(
+        "make-history: \(commits) commits, \(branches) branches → \(out) HEAD \(head) in \(ContinuousClock.now - started)"
+    )
     exit(0)
 }
 var iterations = 200

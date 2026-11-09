@@ -9,7 +9,8 @@ import Testing
 @Suite(.serialized) struct CommitStoreMemoryTests {
     /// The cached benchmark fixture if present (`make-history-fixture.sh --standard`), else built here.
     static func fixture100k(_ sandbox: GitSandbox) throws -> TestRepo {
-        let cached = (ProcessInfo.processInfo.environment["JIT_FIXTURES"] ?? NSHomeDirectory() + "/Library/Caches/jit-bench")
+        let cached =
+            (ProcessInfo.processInfo.environment["JIT_FIXTURES"] ?? NSHomeDirectory() + "/Library/Caches/jit-bench")
             + "/history-100000"
         if FileManager.default.fileExists(atPath: cached + "/.git") { return TestRepo(sandbox: sandbox, path: cached) }
         return try HistoryFixtures.synthetic(100_000, in: sandbox)
@@ -40,7 +41,9 @@ import Testing
                 + "authors \(snapshot.authors.count)")
         var perColumn: [String: Int] = [:]
         for chunk in snapshot.chunks { for (name, bytes) in chunk.columnBytes { perColumn[name, default: 0] += bytes } }
-        print(perColumn.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value / snapshot.count)" }.joined(separator: ", "))
+        print(
+            perColumn.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value / snapshot.count)" }.joined(
+                separator: ", "))
         #expect(total < 25 * 1024 * 1024)
     }
 

@@ -175,8 +175,10 @@ enum HistoryFixtures {
         try await repo.commit("rename")
         try repo.write("new.txt", "line 1\nline 2\nline 3\nline 4\nline 5\n")
         try await repo.commit("edit")
-        let followed = try await HistoryFixtures.loader(repo, HistoryQuery(scope: .current, path: "new.txt", follow: true))
-            .ensureLoaded(.max)
+        let followed = try await HistoryFixtures.loader(
+            repo, HistoryQuery(scope: .current, path: "new.txt", follow: true)
+        )
+        .ensureLoaded(.max)
         #expect((0..<followed.count).map { followed.row($0).subject } == ["edit", "rename", "create"])
         let unfollowed = try await HistoryFixtures.loader(repo, HistoryQuery(scope: .current, path: "new.txt"))
             .ensureLoaded(.max)

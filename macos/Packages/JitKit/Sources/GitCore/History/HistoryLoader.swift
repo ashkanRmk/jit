@@ -55,10 +55,11 @@ public struct HistoryQuery: Sendable, Hashable {
         let options = revisions.filter { $0.hasPrefix("--") }
         let names = revisions.filter { !$0.hasPrefix("--") }
         guard !revisions.isEmpty else { return nil }
-        var arguments = ReadOnlyPolicy.configOverrides + [
-            "log", "--topo-order", "-z", "--format=\(LogParser.format)", "--no-color", "--no-decorate",
-            "--no-show-signature", "--no-ext-diff", "--no-textconv",
-        ]
+        var arguments =
+            ReadOnlyPolicy.configOverrides + [
+                "log", "--topo-order", "-z", "--format=\(LogParser.format)", "--no-color", "--no-decorate",
+                "--no-show-signature", "--no-ext-diff", "--no-textconv",
+            ]
         if skip > 0 { arguments.append("--skip=\(skip)") }
         if follow, path != nil { arguments.append("--follow") }
         arguments += options

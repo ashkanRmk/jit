@@ -118,7 +118,9 @@ public struct Topology: Sendable {
 
     /// A lightweight tag, or an annotated one when `message` is given.
     public mutating func tag(_ name: String, at target: String? = nil, message: String? = nil) {
-        let commit = target.map { resolve($0) } ?? tips[current]!
+        guard let commit = target.map({ resolve($0) }) ?? tips[current] else {
+            preconditionFailure("tag \(name) needs a commit")
+        }
         if let message {
             tags.append(.annotated(name: name, commit: commit, message: message))
         } else {
@@ -158,7 +160,8 @@ public struct Topology: Sendable {
             case let .lightweight(name, commit):
                 out.reset(ref: "refs/tags/\(name)", mark: commit + 1)
             case let .annotated(name, commit, message):
-                out.annotatedTag(name: name, mark: commit + 1, tagger: Self.identity, time: Self.baseTime, message: message)
+                out.annotatedTag(
+                    name: name, mark: commit + 1, tagger: Self.identity, time: Self.baseTime, message: message)
             }
         }
         return out.bytes
@@ -169,8 +172,8 @@ public struct Topology: Sendable {
     @discardableResult
     public func write(to repo: TestRepo) async throws -> [String: String] {
         let marks = try FastImport.run(fastImportStream(), in: repo.path, environment: repo.sandbox.environment)
-        if let detachedAt {
-            try await repo.git("update-ref", "--no-deref", "HEAD", marks[detachedAt + 1]!)
+        if let detachedAt, let commit = marks[detachedAt + 1] {
+            try await repo.git("update-ref", "--no-deref", "HEAD", commit)
         } else {
             try await repo.git("symbolic-ref", "HEAD", "refs/heads/\(current)")
         }
@@ -232,7 +235,8 @@ struct FastImportWriter {
 /// `Process` (GitCore's runner deliberately has no stdin).
 public enum FastImport {
     /// Returns mark → object id.
-    public static func run(_ stream: [UInt8], in directory: String, environment: [String: String]) throws -> [Int: String]
+    public static func run(_ stream: [UInt8], in directory: String, environment: [String: String]) throws -> [Int:
+        String]
     {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("jit-fi-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
