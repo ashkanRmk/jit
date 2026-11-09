@@ -60,8 +60,9 @@ final class TempLocation: Sendable {
             }
         }
         #expect(store.load().value == nil)  // nothing written yet
-        // Wait for the debounced write (bounded; a loaded CI runner may take longer than the debounce).
-        let deadline = ContinuousClock.now + .seconds(5)
+        // Wait for the debounced write. It runs on the main actor, which other suites in this process can keep
+        // busy for seconds on a loaded CI runner; this test is about coalescing, not latency.
+        let deadline = ContinuousClock.now + .seconds(30)
         while store.load().value == nil, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))
         }

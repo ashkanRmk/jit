@@ -61,8 +61,10 @@ import Testing
         let after = Self.liveBlocks()
         let retained = after.blocks - before.blocks
         print("live blocks retained by a 100k-commit snapshot: \(retained) (\(snapshot.chunks.count) chunks)")
-        // ~15 column buffers per chunk + 2 strings per author + small fixed overhead.
-        #expect(retained < snapshot.chunks.count * 20 + snapshot.authors.count * 4 + 500)
+        // Expected ~15 column buffers per chunk + 2 strings per author (≈ 1k blocks). `malloc_zone_statistics`
+        // is process-wide, so suites running in parallel add noise (≈ 4k blocks seen on CI). A per-commit
+        // object would add ≥ 100k blocks; 10 % of the commit count separates the two cleanly.
+        #expect(retained < snapshot.count / 10)
         withExtendedLifetime(snapshot) {}
     }
 }
