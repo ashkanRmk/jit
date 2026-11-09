@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.2 complete; P3.3 next)
+Status: **in progress** (P3.0–P3.3 complete; P3.4 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -65,9 +65,20 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   Folder). Debug arg `-JitDiscardSheet <path>` opens the sheet for screenshots.
   Evidence: `DiscardTests` (7), `RecoveryStoreTests` (3), `WorkingDirectoryTests` discard flow (3);
   screenshots `screenshots/discard-sheet-{light,dark}.png`.
+- **P3.3 Byte-exact diff engine** (ADR-0026) — `GitCore/Diff/`: `DiffTarget` (unstaged, staged incl.
+  rename source, commit vs first parent / empty tree, commit range, commit → worktree), `DiffOptions`,
+  `DiffInvocation` (canonical argv), `PatchParser` (bytes in, 16-byte `LineRecord`s, C-unquoted paths,
+  extended headers, binary/submodule/symlink/mode flags, CRLF and no-newline per line), `PatchStorage.serialize`,
+  `DiffDocument` (immutable, `Sendable`; packed unified/split/full-file row tables, context gaps and
+  `expandingContext`, `search`, `LineID`/`HunkID`, `fileBytes(ofLine:)`), `SnapshotToken` and
+  `RepositoryHandle.openDiff` (token before/after, synthesized untracked patch). No UI yet (diff viewer
+  follows the renderer decision in P3.5).
+  Evidence: `DiffEngineTests` (13 tests, 23 cases with parameters); round trip holds for every fixture;
+  `diffDocumentMemory50kLines`: 100,000 lines → 51.8 B/line in total, 28.0 B/line beyond Git's output,
+  0.27 s read + parse + layout (debug build).
 
 ## Verified
-- Tests: `scripts/build/test-core.sh` — **288 passed** (43 + 185 + 48 + 12 across the four test targets);
+- Tests: `scripts/build/test-core.sh` — **301 passed** (43 + 198 + 48 + 12 across the four test targets);
   skipped: none. Xcode app tests not run yet this phase. Lint clean (`scripts/build/lint.sh`).
 - Real workflow: debug app on a clone with an upstream (1 ahead), a second branch and staged/unstaged/untracked
   changes — breadcrumb, `3 changes`, Terminal and search render in both themes (screenshots above).
@@ -105,4 +116,8 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
 - Discard into the real Trash is not exercised by tests (it would fill the user's Trash); tests inject a
   trash hook, and `RecoveryStore.discardHooks` calls `FileManager.trashItem`.
 - Not yet exercised by pointer: Discard Changes… menu, confirming in the sheet, Recently Discarded menu.
-- Next: P3.3 byte-exact diff engine.
+- Diff documents are not yet shown anywhere: selecting a file in the panel opens nothing until the
+  diff viewer lands (after the P3.5 renderer decision).
+- Copy detection (`-C`) is not part of the canonical command; the copy header is covered by parsing Git's
+  own `-C` output.
+- Next: P3.4 patch builder and selection apply (safety core).
