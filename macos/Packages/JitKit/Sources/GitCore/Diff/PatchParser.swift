@@ -55,6 +55,8 @@ public struct HunkRecord: Sendable, Hashable {
     public let file: Int
 
     public var lines: Range<Int> { firstLine..<(firstLine + lineCount) }
+    /// The raw header line's byte range (for display).
+    public var headerRangeForDisplay: Range<Int> { headerRange }
 }
 
 /// One file of a patch. Paths are decoded (C-quoting removed); `nil` means `/dev/null`.

@@ -69,6 +69,12 @@ func measure(
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 
+// `JitBench renderer-spike`: spike S1 for ADR-0011 (TextKit 2 vs CodeLinesView).
+if arguments.first == "renderer-spike" {
+    try await RendererSpike.run()
+    exit(0)
+}
+
 // `JitBench history-source <repo>...`: spike S1 (ADR-0010). Prints one line per strategy.
 if arguments.first == "history-source" {
     let engine = GitEngine()

@@ -1,6 +1,6 @@
 # Phase 03 — Working directory & diff: progress report
 
-Status: **in progress** (P3.0–P3.4 complete; P3.5 next)
+Status: **in progress** (P3.0–P3.5 complete; P3.6 next)
 Branch / PR: `phase/03-working-directory-and-diff` (from `main` at `019ea8d`), no PR yet
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro), macOS 27.2, Xcode 27.2, Swift 6.4.2, Git 2.54.0 (Homebrew)
 
@@ -85,6 +85,12 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
   Evidence: `ApplyTests` (28 incl. parameters — the §7.4 matrix; `renameStagedUnstageLines` is a refusal in
   V1), mutation check (a broken builder fails 6 of them), `ApplyPropertyTests` (150 cases by default,
   2,000 with `CI`; seed printed).
+- **P3.5 Renderer spike & decision** (ADR-0011) — `CodeLinesView` (virtualized fixed-row renderer, `CTLine`
+  cache, one or two columns, gutters, change bars, search highlights, row accessibility) and
+  `DiffRowsSource` built; TextKit 2 prototype measured in `JitBench renderer-spike` and then removed.
+  Release numbers (M5 Pro): CodeLinesView 2,401 rows first paint 5.7 ms (28.2 ms cold), 60,001 rows 8.0 ms,
+  0/400 frames over 16.7 ms, max 1.75 ms; TextKit 2 52.7 ms / 910.7 ms first paint, 18–19/400 slow frames,
+  +102 MB at 60k rows.
 
 ## Verified
 - Tests: `scripts/build/test-core.sh` — **330 passed** (43 + 227 + 48 + 12 across the four test targets);
