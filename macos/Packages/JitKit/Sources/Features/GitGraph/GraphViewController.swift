@@ -21,6 +21,8 @@ final class GraphViewController: NSViewController {
         var selectionChanged: (GraphViewModel) -> Void = { _ in }
         var showInNavigator: (String) -> Void = { _ in }
         var refsChanged: (RefSnapshot) -> Void = { _ in }
+        /// Esc with nothing left to clear in the graph (the workbench closes a manually opened inspector).
+        var escapeUnhandled: () -> Void = {}
     }
 
     let session: RepositorySession
@@ -847,7 +849,19 @@ final class GraphViewController: NSViewController {
             applyQuery()
         } else if viewModel.selection.count > 1, let last = viewModel.selection.last {
             select(oid: last)
+        } else if !clearSelection() {
+            // Nothing selected: the workbench closes a manually opened inspector. Clearing a selection
+            // closes it through `selectionChanged`.
+            actions.escapeUnhandled()
         }
+    }
+
+    /// Deselects every row (graph and WIP). Returns false when nothing was selected.
+    @discardableResult
+    func clearSelection() -> Bool {
+        guard !tableView.selectedRowIndexes.isEmpty else { return false }
+        tableView.deselectAll(nil)
+        return true
     }
 
     func solo(_ fullName: String) {

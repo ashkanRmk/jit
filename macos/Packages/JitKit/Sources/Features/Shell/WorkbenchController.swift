@@ -71,7 +71,9 @@ final class WorkbenchController: NSSplitViewController {
         inspector.minimumThickness = PanelMetrics.inspectorMin
         inspector.maximumThickness = PanelMetrics.inspectorMax
         inspector.canCollapse = true
-        inspector.isCollapsed = tab.inspectorCollapsed
+        // The inspector opens with a selection and closes without one (design-system.md, Inspector); a
+        // fresh tab has nothing selected, so it starts closed whatever the last session left.
+        inspector.isCollapsed = true
 
         addSplitViewItem(sidebar)
         addSplitViewItem(main)
@@ -83,8 +85,9 @@ final class WorkbenchController: NSSplitViewController {
     /// Graph ↔ navigator ↔ inspector (design §3.4–§3.5).
     private func connect(graph: GraphViewController, navigator: NavigatorViewController) {
         let inspector = inspectorModel
-        graph.actions.selectionChanged = { [weak graph] model in
+        graph.actions.selectionChanged = { [weak self, weak graph] model in
             inspector.show(selection: graph?.compareOrder(model.selection) ?? model.selection, wip: model.wipSelected)
+            self?.setInspectorCollapsed(model.selection.isEmpty && !model.wipSelected)
         }
         graph.actions.refsChanged = { [weak graph, weak navigator] refs in
             navigator?.update(refs: refs)
@@ -93,6 +96,7 @@ final class WorkbenchController: NSSplitViewController {
             inspector.refs = refs
             inspector.format = refs.format
         }
+        graph.actions.escapeUnhandled = { [weak self] in self?.setInspectorCollapsed(true) }
         graph.actions.showInNavigator = { [weak self, weak navigator] fullName in
             if let sidebar = self?.sidebarItem, sidebar.isCollapsed { sidebar.isCollapsed = false }
             navigator?.reveal(fullName: fullName)
@@ -190,6 +194,29 @@ final class WorkbenchController: NSSplitViewController {
         } else {
             super.toggleSidebar(sender)
         }
+    }
+
+    /// Opens or closes the inspector with the system animation (instant with Reduce Motion).
+    func setInspectorCollapsed(_ collapsed: Bool) {
+        guard let inspectorItem, inspectorItem.isCollapsed != collapsed else { return }
+        if collapsed {
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || view.window == nil {
+                inspectorItem.isCollapsed = true
+            } else {
+                inspectorItem.animator().isCollapsed = true
+            }
+        } else {
+            // Open at the shared inspector width (a collapsed split item does not reliably keep it).
+            inspectorItem.isCollapsed = false
+            applyWidths()
+        }
+    }
+
+    /// Esc anywhere in the workbench that nothing closer handled (search fields, sheets and the graph's own
+    /// modes come first): clear the selection, which closes the inspector; or close a manually opened one.
+    override func cancelOperation(_ sender: Any?) {
+        if graph?.clearSelection() == true { return }
+        setInspectorCollapsed(true)
     }
 
     override func toggleInspector(_ sender: Any?) {

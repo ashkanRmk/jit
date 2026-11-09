@@ -126,6 +126,11 @@ Chrome text uses the system's fonts. Counts use `.monospacedDigit()`. SF Symbols
 - Borders: hairline 0.5 pt, emphasis 1 pt. Glass gets no custom borders.
 - Shadows: `level1` (y 1, blur 3, 6 %), `level2` (y 4, blur 12, 10 %) — content, light appearance only.
 - Panels: window min 960×600; sidebar 200 / 248 / 380; inspector 340 / 360 / 560; content column max 520.
+- **Inspector visibility:** opens when something is selected (a commit, two commits, the WIP row) and closes
+  when the selection becomes empty; a new tab starts closed. Esc in the graph leaves search / solo / file
+  history / compare first, then clears the selection (closing the inspector); with nothing selected, Esc
+  closes an inspector opened by the toolbar button or ⌥⌘0, which keeps working as a manual toggle. It always
+  opens at the shared inspector width.
 - Density: compact 22 pt rows, comfortable 26 pt (default).
 
 ## Motion (`MotionToken`)

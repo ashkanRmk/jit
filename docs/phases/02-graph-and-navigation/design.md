@@ -200,7 +200,8 @@ Hierarchy, top to bottom:
    Renames show `old → new`. Merge commits: diff against first parent by default with a segmented
    control `First parent | Combined` disabled with a tooltip until Phase 3 ("Combined diff is planned").
 
-States: nothing selected → quiet placeholder "Select a commit"; loading files > 120 ms → inline spinner
+States: nothing selected → the inspector closes (design-system.md, Inspector visibility; opened manually it
+shows the quiet placeholder "Select a commit"); loading files > 120 ms → inline spinner
 in the files header; error → inline message in the files section only.
 
 Two commits selected → **Compare** view: "Comparing `a1b2c3d` → `e4f5a6b`", swap button, changed-file
