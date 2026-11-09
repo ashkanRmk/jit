@@ -150,6 +150,13 @@ extension RepositoryHandle {
         return try ChangedFileParser.parse(output)
     }
 
+    /// The message of an annotated tag (`refs/tags/<name>`).
+    public func tagMessage(_ fullName: String) async throws(GitCoreError) -> String {
+        let output = try await runRead(
+            ["for-each-ref", "--format=%(contents)", fullName], limit: 4 * 1024 * 1024)
+        return String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func runRead(_ arguments: [String], limit: Int) async throws(GitCoreError) -> [UInt8] {
         do {
             return try await gitEngine.run(

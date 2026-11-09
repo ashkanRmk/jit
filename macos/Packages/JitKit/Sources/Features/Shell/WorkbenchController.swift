@@ -12,8 +12,8 @@ struct WorkbenchActions {
     var openInTerminal: () -> Void
 }
 
-/// The three-region workbench (design §3.3): system glass sidebar, opaque main content, system
-/// inspector. Widths are global (`LayoutState`); collapse flags belong to the tab.
+/// The three-region workbench (design §3.3): branch navigator on the system glass sidebar, the commit
+/// graph (opaque content), and the commit inspector. Widths are global (`LayoutState`); collapse flags belong to the tab.
 @MainActor
 final class WorkbenchController: NSSplitViewController {
     let tab: TabModel
@@ -22,6 +22,9 @@ final class WorkbenchController: NSSplitViewController {
     private let actions: WorkbenchActions
     private var sidebarItem: NSSplitViewItem?
     private var inspectorItem: NSSplitViewItem?
+    private(set) var graph: GraphViewController?
+    private(set) var navigator: NavigatorViewController?
+    let inspectorModel = InspectorModel()
     private var needsWidthRestore = true
     private var isApplyingWidths = false
 
@@ -47,18 +50,24 @@ final class WorkbenchController: NSSplitViewController {
         splitView.dividerStyle = .thin
         splitView.isVertical = true
 
-        let sidebar = NSSplitViewItem(sidebarWithViewController: Self.host(SidebarView(session: session)))
+        let navigator = NavigatorViewController(tab: tab, model: model)
+        let graph = GraphViewController(session: session, tab: tab, model: model)
+        connect(graph: graph, navigator: navigator)
+        self.graph = graph
+        self.navigator = navigator
+
+        let sidebar = NSSplitViewItem(sidebarWithViewController: navigator)
         sidebar.minimumThickness = PanelMetrics.sidebarMin
         sidebar.maximumThickness = PanelMetrics.sidebarMax
         sidebar.canCollapse = true
         sidebar.isCollapsed = tab.sidebarCollapsed
 
         let main = NSSplitViewItem(
-            viewController: Self.host(WorkbenchMainView(session: session, tab: tab, actions: actions)))
+            viewController: MainPaneController(graph: graph, session: session, tab: tab, actions: actions))
         main.minimumThickness = PanelMetrics.contentColumnMax - 160
 
         let inspector = NSSplitViewItem(
-            inspectorWithViewController: Self.host(InspectorView(session: session, actions: actions)))
+            inspectorWithViewController: Self.host(CommitInspectorView(model: inspectorModel)))
         inspector.minimumThickness = PanelMetrics.inspectorMin
         inspector.maximumThickness = PanelMetrics.inspectorMax
         inspector.canCollapse = true
@@ -69,6 +78,34 @@ final class WorkbenchController: NSSplitViewController {
         addSplitViewItem(inspector)
         sidebarItem = sidebar
         inspectorItem = inspector
+    }
+
+    /// Graph ↔ navigator ↔ inspector (design §3.4–§3.5).
+    private func connect(graph: GraphViewController, navigator: NavigatorViewController) {
+        let inspector = inspectorModel
+        graph.actions.selectionChanged = { model in
+            inspector.show(selection: model.selection, wip: model.wipSelected)
+        }
+        graph.actions.refsChanged = { [weak graph, weak navigator] refs in
+            navigator?.update(refs: refs)
+            navigator?.repository = graph?.history?.repository
+            inspector.handle = graph?.history?.repository
+            inspector.refs = refs
+            inspector.format = refs.format
+        }
+        graph.actions.showInNavigator = { [weak self, weak navigator] fullName in
+            if let sidebar = self?.sidebarItem, sidebar.isCollapsed { sidebar.isCollapsed = false }
+            navigator?.reveal(fullName: fullName)
+        }
+        inspector.selectCommit = { [weak graph] oid in graph?.select(oid: oid) }
+        inspector.showFileHistory = { [weak graph] path, isDirectory in
+            graph?.showFileHistory(path: path, isDirectory: isDirectory)
+        }
+        navigator.actions = NavigatorViewController.Actions(
+            showInGraph: { [weak graph] oid in graph?.select(oid: oid) },
+            solo: { [weak graph] name in graph?.solo(name) },
+            togglePin: { [weak graph] name in graph?.togglePin(name) },
+            isPinned: { [weak graph] name in graph?.viewModel.pinned.contains(name) ?? false })
     }
 
     private static func host<V: View>(_ view: V) -> NSViewController {
@@ -161,5 +198,45 @@ final class WorkbenchController: NSSplitViewController {
         } else {
             super.toggleInspector(sender)
         }
+    }
+}
+
+/// The main region: the graph, with the repository's error / first-load state over it.
+@MainActor
+final class MainPaneController: NSViewController {
+    let graph: GraphViewController
+    let session: RepositorySession
+    let tab: TabModel
+    let actions: WorkbenchActions
+
+    init(graph: GraphViewController, session: RepositorySession, tab: TabModel, actions: WorkbenchActions) {
+        self.graph = graph
+        self.session = session
+        self.tab = tab
+        self.actions = actions
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func loadView() {
+        let root = NSView()
+        addChild(graph)
+        graph.view.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(graph.view)
+        let overlay = NSHostingView(rootView: SessionStateOverlay(session: session, tab: tab, actions: actions))
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.sizingOptions = []
+        root.addSubview(overlay)
+        for view in [graph.view, overlay] {
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                view.topAnchor.constraint(equalTo: root.topAnchor),
+                view.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            ])
+        }
+        view = root
     }
 }

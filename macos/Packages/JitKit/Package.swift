@@ -28,6 +28,9 @@ let package = Package(
         .testTarget(
             name: "GitCoreTests", dependencies: ["GitCore", "GitTestKit"], exclude: ["Resources"], swiftSettings: strict),
         .testTarget(name: "ServicesTests", dependencies: ["Services", "GitCore", "GitTestKit"], swiftSettings: strict),
+        .testTarget(
+            name: "FeaturesTests", dependencies: ["Features", "Services", "GitCore", "GitTestKit", "DesignSystem"],
+            swiftSettings: strict),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"], swiftSettings: strict),
     ],
     swiftLanguageModes: [.v6]

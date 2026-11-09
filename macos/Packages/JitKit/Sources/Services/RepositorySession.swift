@@ -54,6 +54,9 @@ public final class RepositorySession {
     public private(set) var error: GitCoreError?
     /// Number of completed status refreshes (diagnostics: churn measurements, tests).
     public private(set) var refreshCount = 0
+    /// The tab's history view state; created with the handle, started by the graph view (so it can apply
+    /// the tab's persisted scope first).
+    public private(set) var history: HistoryController?
 
     /// Called on the main actor after `info`, `status` or `error` change (tab title/dot, recents).
     @ObservationIgnored public var onChange: (@MainActor (RepositorySession) -> Void)?
@@ -76,6 +79,7 @@ public final class RepositorySession {
         self.watchesFileSystem = watchesFileSystem
         self.handle = handle
         self.info = handle?.info
+        if let handle { history = HistoryController(handle: handle) }
     }
 
     public var isWatching: Bool { watcher?.isRunning ?? false }
@@ -103,6 +107,7 @@ public final class RepositorySession {
             lifecycle = .active
             startWatching()
             scheduleRefresh(InvalidationKind.allCases, reason: .activation)
+            history?.activate()
         }
     }
 
@@ -114,6 +119,7 @@ public final class RepositorySession {
             loadTask?.cancel()
             loadTask = nil
             cancelRefresh()
+            history?.deactivate()
             lifecycle = .inactive
         default:
             return
@@ -132,6 +138,8 @@ public final class RepositorySession {
         loadTask?.cancel()
         loadTask = nil
         cancelRefresh()
+        history?.close()
+        history = nil
         handle = nil
         lifecycle = .closed
     }
@@ -142,10 +150,13 @@ public final class RepositorySession {
         if handle == nil || error != nil {
             stopWatching()
             cancelRefresh()
+            history?.close()
+            history = nil
             handle = nil
             load()
         } else {
             scheduleRefresh(InvalidationKind.allCases, reason: .user)
+            history?.refsMayHaveChanged()
         }
     }
 
@@ -170,6 +181,7 @@ public final class RepositorySession {
                 guard !Task.isCancelled else { return }
                 self.handle = handle
                 self.info = handle.info
+                if self.history == nil { self.history = HistoryController(handle: handle) }
                 self.onChange?(self)
                 // Watch before the first status so nothing changed during it is missed (events arriving
                 // meanwhile queue a refresh that coalesces with this one).
@@ -272,6 +284,7 @@ public final class RepositorySession {
             return
         }
         scheduleRefresh(batch.kinds, reason: .fileSystem)
+        if !batch.kinds.isDisjoint(with: [.refs, .head]) { history?.refsMayHaveChanged() }
     }
 }
 
