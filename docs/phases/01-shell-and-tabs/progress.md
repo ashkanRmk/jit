@@ -14,8 +14,12 @@ Git 2.54.0 (Homebrew), XcodeGen 2.46.0
   commit is cherry-picked onto it.
 - **Real glass captures:** Screen Recording is available in this session, so every Phase 1 screenshot is a real
   window-server capture (glass included). **Reduce Transparency / Increase Contrast** need the system setting
-  toggled by a person (Jit and this agent don't change system settings): `scripts/testing/capture-accessibility.sh
-  <suffix>` is ready for that — carried over below.
+  toggled by a person (Jit and this agent don't change system settings). The owner turned Reduce Transparency on
+  and ran `scripts/testing/capture-accessibility.sh reducetransparency` (2026-11-09): tabs become opaque
+  `surface.chromeOpaque` capsules with hairlines, the selected one `accent.muted` with the system accent edge;
+  system toolbar items and the sidebar go opaque too (`screenshots/*-reducetransparency-*`). A first run had the
+  setting off and produced normal-glass images; they were discarded and the script now checks the setting.
+  Increase Contrast is carried over below.
 - **Inactive-window CPU burst** (Phase 0 observation): not reproduced in three 60 s idle runs (active, background).
 - Cold launch / GPU power: still user-run (reboot / root) — carried over.
 
@@ -71,7 +75,8 @@ Git 2.54.0 (Homebrew), XcodeGen 2.46.0
 - `~/.gitconfig` SHA-256 before and after all profile operations (incl. Fill from Git config):
   `b00247605a19f522c00f8aee694e21f1d36d5ddcf0706883015c5d9842af930f` — unchanged (re-checked at the end of the
   phase). State files `0600`.
-- Screenshots: `docs/phases/01-shell-and-tabs/screenshots/` — 42 real captures (21 screens × light/dark), see its README.
+- Screenshots: `docs/phases/01-shell-and-tabs/screenshots/` — 48 real captures (21 screens × light/dark, plus tab
+  bar, workbench and new-tab page with Reduce Transparency on), see its README.
 
 ## Performance (release build)
 | Metric | Previous | Now | Method |
@@ -117,9 +122,9 @@ Full table, reading and methods: `docs/performance.md`.
   `-JitShowProfileEditor`).
 
 ## Known issues / carry-overs
-- **Reduce Transparency / Increase Contrast real captures** — need a person to toggle the setting and run
-  `scripts/testing/capture-accessibility.sh reducetransparency|increasecontrast`. Code paths are implemented
-  (opaque `surface.chromeOpaque` tabs, accent edges). Medium; owner, before Phase 2 review.
+- **Increase Contrast real captures** — need a person to toggle the setting and run
+  `scripts/testing/capture-accessibility.sh increasecontrast` (the script refuses to run unless the setting is
+  on). Code paths are implemented (high-contrast tokens, accent edge on the selected tab). Low; owner.
 - **VoiceOver pass and Reduce Motion** checked only by code review and labels in tests, not with VoiceOver running.
   Medium; Phase 6 accessibility audit.
 - **Framework-internal memory growth** ≈ 16–21 KB per tab open/close (SwiftUI glass container per-identity state,

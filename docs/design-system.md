@@ -135,5 +135,6 @@ Renders (real screen captures): `docs/phases/01-shell-and-tabs/screenshots/`.
   150 ms, static (no shimmer).
 
 ## Open items
-- Reduce Transparency and Increase Contrast captures need the system settings toggled by a person
-  (see `docs/phases/01-shell-and-tabs/progress.md`).
+- Reduce Transparency is verified by real captures (`docs/phases/01-shell-and-tabs/screenshots/*-reducetransparency-*`).
+  Increase Contrast captures still need the system setting toggled by a person
+  (`scripts/testing/capture-accessibility.sh increasecontrast`).

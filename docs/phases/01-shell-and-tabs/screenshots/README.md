@@ -13,5 +13,8 @@ repositories and `JIT_APP_SUPPORT` (fake identity "Ada Lovelace"). Window 1180 Ã
 | Profiles | `profile-indicator`, `profile-none` (warning-tinted capsule), `profile-popover`, `profile-popover-none`, `profile-sheet` |
 | Settings | `settings-general`, `settings-profiles` |
 
-Each exists as `-light` and `-dark`. Reduce Transparency / Increase Contrast captures need the system setting
-toggled by a person: `scripts/testing/capture-accessibility.sh <suffix>` (see progress.md).
+Each exists as `-light` and `-dark`. With the system's **Reduce Transparency** on (toggled by the owner, verified by
+the script): `tabbar-default-reducetransparency`, `workbench-normal-reducetransparency`,
+`newtab-recents-reducetransparency` â€” opaque `surface.chromeOpaque` tab capsules with hairlines, the selected tab
+`accent.muted` with the system accent edge. Increase Contrast: run `scripts/testing/capture-accessibility.sh
+increasecontrast` with the setting on (see progress.md).
