@@ -61,3 +61,7 @@ docs/                      product, architecture, design system, performance, se
   [`docs/performance.md`](docs/performance.md), [`docs/security.md`](docs/security.md),
   [`docs/release.md`](docs/release.md), [`docs/product.md`](docs/product.md), [`docs/adr/`](docs/adr/).
 - [`docs/phases/`](docs/phases/) — one folder per phase (design, implementation plan, kickoff prompt, progress).
+
+## License
+Jit is released under the [MIT License](LICENSE). The Git it bundles is licensed separately under the GNU GPL v2
+(Help ▸ Acknowledgements).

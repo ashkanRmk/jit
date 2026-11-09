@@ -130,7 +130,7 @@ XcodeGen 2.46.0; development Git 2.54.0 (Homebrew); **bundled Git 2.56.0**.
 
 ## Known issues / carry-overs
 - **Before publishing (owner)**: the GitHub repository is **private** — a release there is only downloadable by
-  collaborators; make it (or a releases-only repository) public; choose Jit's source license; approve the
+  collaborators; make it (or a releases-only repository) public; approve the
   GitHub Release (notes `docs/releases/v1.0.0.md`, assets `build/release/1.0.0/publish/`).
 - **If you later get a Developer ID** (no longer blocking): install a Developer ID Application certificate; run
   `xcrun notarytool store-credentials jit-notary --key <AuthKey.p8> --key-id <ID> --issuer <UUID>`; create
@@ -141,7 +141,7 @@ XcodeGen 2.46.0; development Git 2.54.0 (Homebrew); **bundled Git 2.56.0**.
 - **Clean-VM acceptance** (ADR-0048) on macOS 26.0 and latest, without CLT, with the notarized DMG — release
   blocker for public distribution.
 - **OAuth clients** not registered (`OAuthClients.plist` absent → OAuth "not configured"; PAT/SSH work). Owner.
-- **Jit has no source license**; decide before publishing.
+- Jit's source license: **MIT** (owner, 2026-11-10; `LICENSE`).
 - Real-account E/F (two GitHub + self-managed GitLab) not run; rig only.
 - Phase 6 carry-overs still open: live VoiceOver walkthrough, XCUITest target, Instruments hitches/Metal by
   hand, visual re-review of settings/browser/resolver/clone in Reduce Transparency and Increase Contrast.

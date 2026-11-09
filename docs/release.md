@@ -23,7 +23,7 @@ and notarization), 0048 (clean-machine protocol), 0049 (versioning, arm64-only).
 - Before 1.0 ships publicly (owner): register the public OAuth clients (GitHub OAuth app with Device Flow;
   GitLab.com application, redirect `jit://oauth/gitlab`, scopes `read_api read_repository write_repository`) and
   add `macos/Resources/OAuthClients.plist` (`GitHubClientID`, `GitLabClientID`). Without it OAuth sign-in shows
-  "not configured"; PAT and SSH work. Decide Jit's own source license (the repository has none).
+  "not configured"; PAT and SSH work. Jit itself is MIT-licensed (`LICENSE`).
 
 ## 2. Building a release
 Change the version **only** in `macos/App/Config/Version.xcconfig` (`MARKETING_VERSION`, increase
