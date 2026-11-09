@@ -24,7 +24,7 @@ fp = r["physical_footprint"] or "0 MB"
 value, unit = fp.split()
 mb = float(value) * {"KB": 1/1024, "MB": 1, "GB": 1024}.get(unit, 1)
 print(f"scenario=idle-{t}tabs metric=cpu_percent value={r['cpu_percent_mean']:.3f} max={r['cpu_percent_max']:.3f} unit=%")
-print(f"scenario=idle-{t}tabs metric=idle_wakeups_per_s value={r['idle_wakeups_per_sample_mean']:.3f} unit=1/s")
+print(f"scenario=idle-{t}tabs metric=top_idlew_per_s value={r["idle_wakeups_per_sample_mean"]:.3f} unit=info")
 print(f"scenario=idle-{t}tabs metric=footprint value={mb:.1f} unit=MB")
 print(f"scenario=idle-{t}tabs metric=threads value={r['threads_max']} unit=count")
 pm = r.get("powermetrics") or {}

@@ -56,6 +56,13 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
   `[JIT_OPEN=<repo>] [JIT_APP_SUPPORT=<dir>] scripts/benchmarks/idle.sh [label]`,
   `swift run -c release --package-path macos/Packages/JitKit JitBench [spawn-latency|discovery|status-parse|all]`;
   env-gated app modes `JIT_BENCHMARK_TAB_SWITCH=1`, `JIT_STRESS_OPEN_CLOSE=<repo>` (all builds)
+- Phase 6 benchmarks (ADR-0041): `scripts/benchmarks/gen-repos.sh` (bench repos in `~/Library/Caches/jit-bench/p6`),
+  `scripts/benchmarks/run-all.sh [--quick|--no-idle|--ci]` → `benchmarks/results/`, `scripts/benchmarks/compare.sh <json>`,
+  `scripts/benchmarks/scenarios/{app-scenario,idle,launch-warm,launch-cold,glass-cost}.sh`,
+  `JitBench micro`; app: `-JitBenchmarkScenario <name>` (+ `JIT_BENCH_REPOS`, `JIT_BENCH_RUNS`, `JIT_BENCH_HOLD=1`),
+  `-JitOpaqueChrome YES` (glass A/B). Traces: `scripts/benchmarks/instruments/trace.sh` + `signposts.py`/`hotspots.py`
+- Snapshots (ADR-0040): `swift test --package-path macos/Packages/JitKit --filter SnapshotTests`; record with
+  `UPDATE_SNAPSHOTS=1` (review PNG diffs by hand); details in `docs/testing.md`
 - History fixtures (outside the repo, `~/Library/Caches/jit-bench/`): `scripts/benchmarks/make-history-fixture.sh --standard`
   (or `<commits> <branches> <out>`); graph benchmark: `JIT_BENCHMARK_GRAPH=1 JIT_OPEN=<repo> <release Jit binary>`
 - Lane golden files: `UPDATE_GOLDEN=1 swift test --package-path macos/Packages/JitKit --filter LaneGoldenTests`
@@ -79,4 +86,4 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
   `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`, `-JitUITestOpenRepository <path>`,
   `-JitSnapshot <png>` (debug only; renders the window to PNG, glass approximated),
   `-JitGraphSelectRow <n>` [`-JitGraphCompareRow <m>`], `-JitGraphSearch <text>` [`-JitGraphOnlyMatches YES`],
-  `-JitGraphSelectWIP YES`, `-JitDiscardSheet <path>`, `-graphDensity compact|comfortable` (debug only except the last)
+  `-JitGraphSelectWIP YES`, `-JitDiscardSheet <path>`, `-JitShowCommandPalette YES` [`-JitPaletteQuery <text>`], `-graphDensity compact|comfortable` (debug only except the last)

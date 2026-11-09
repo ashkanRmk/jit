@@ -184,3 +184,24 @@ cloneRepository(_:engine:) — free function (no repository yet)
 - Provider API clients (`GitHubProvider`, `GitLabProvider`) use per-instance ephemeral URLSessions with
   `ScopedTrustDelegate` and proxy dictionaries; OAuth refresh is single-flight and just in time.
 - `jit-git-helper` (Foundation-only executable) is embedded at `Contents/Helpers/`; `TestRig` is dev-only.
+
+## Phase 6 — performance, palette and accessibility
+
+- **Signposts** (`GitCore/Diagnostics/Signposts.swift`, ADR-0041): one registry, Points of Interest,
+  subsystem `com.example.jit`; app intervals (`launch.firstWindow`, `repo.open`, `graph.firstPage`,
+  `graph.page`, `diff.switch`, `tab.switch`, `ops.run`) and GitCore spans (`core.*`). Benchmark scenarios
+  (`-JitBenchmarkScenario`, Features/Benchmark) measure through the same intervals.
+- **Tab lifecycle** (ADR-0042): only the visible tab of a foreground window watches and refreshes; closing or
+  suspending a tab calls `WorkbenchController.tearDown()` (detaches hosted SwiftUI views that hold their
+  controller) and cross-model closures in `connect()` capture weakly. The accounts service is created lazily
+  (`AppModel.configureAccounts`).
+- **Cache limits** (ADR-0043): `GitCore/Diagnostics/CacheLimits.swift`; memory pressure posts
+  `CacheLimits.trimNotification` (code views drop line layouts, the palette its file index) and suspends
+  inactive sessions.
+- **Snapshot tokens**: the three reads (index entry, HEAD, blob of the working-tree bytes) run concurrently; one
+  fingerprint per token, read before the hashed content; the before/after comparison still retries on change.
+- **Commands** (ADR-0044): `CommandRegistry` builds the main menu and feeds the ⌘K palette
+  (`Features/CommandPalette`); enabled state via `validateMenuItem` along the main window's responder chain,
+  reasons via `CommandAvailability`; ranking off the main actor.
+- **Accessibility**: `CodeLinesView` row elements (headings, rotors, custom line actions through
+  `CodeLinesDelegate`), `GraphTableView` rotors.

@@ -3,6 +3,93 @@
 Budget (§15.1, `docs/roadmap.md` §7) and measured results. Numbers are reported as measured; nothing
 here is estimated. Raw outputs are written to `scripts/benchmarks/out/` (git-ignored).
 
+## Phase 6 — final report (2026-11-09)
+
+Reference Mac (ADR-0041): MacBook Pro `Mac17,9`, Apple M5 Pro, 24 GB, macOS 27.2 (26B123), Git 2.54.0 (Homebrew), AC
+power, Low Power Mode off. Release build, launched through LaunchServices outside Xcode, medians and p90 over ≥ 10
+runs after a warm-up. **Conditions:** the machine was busy throughout (load average ≈ 4.5; GitKraken's renderer
+and WindowServer ≈ 45 % CPU each, Claude, Teams) — absolute times carry that noise (diff switch varied 43–53 ms
+between identical runs). Full results: `scripts/benchmarks/baseline/reference.json` (+ `reference-summary.md`);
+start-of-phase baseline: `baseline/phase6-start.json`. Repositories: `scripts/benchmarks/gen-repos.sh`.
+
+### §15.1 targets
+
+| Metric | Target | Phase 6 start | Final | Method | Status |
+|---|---|---|---|---|---|
+| Warm launch → first window key | < 500 ms | 264.6 / p90 274.3 ms | **259.3 / p90 266.1 ms** | `scenarios/launch-warm.sh` (n = 10) | met |
+| Cold launch → first window key | < 1 s | 236.0 / p90 253.8 ms | **241.0 / p90 249.5 ms** | `scenarios/launch-cold.sh` (`sudo purge` before each of 5 runs — an approximation of cold) | met |
+| Idle CPU after settling | 0.0–0.2 % | 0.0 % (top), 2.4 % peak with 5 tabs (not reproducible) | **0.00 %** (0, 1, 5 tabs); powermetrics 0.007–0.10 ms/s CPU visible / minimized / hidden (≤ 0.01 %) | `scenarios/idle.sh`, `powermetrics.sh` | met |
+| Idle wakeups | minimal | top IDLEW 1–9/s (noisy) | **0–0.34 interrupt wakeups/s, 0 package-idle wakeups** (powermetrics) | same | met |
+| Idle network | none | none | **0 sockets, 0 bytes** (0, 1, 5 tabs; 30–60 s windows) | `network-idle.sh` | met |
+| Idle memory, no repository | < 120 MB | 32 MB | **32 MB** | `footprint` | met |
+| Memory, typical repository open | < 200 MB | 71 MB (1 tab, branchy-10k) | **72 MB**; 5 tabs 70–74 MB; 6 tabs after switching 110 MB; 100k fully loaded 102 MB | idle / multi-tab / graph-scroll | met |
+| Graph scrolling | 60 FPS | step 1.68 / p95 2.04 ms | **1.63 / p95 1.92 ms, 0 of 400 steps > 16.7 ms** (huge-100k) | `graph-scroll` (programmatic steps; Animation Hitches by hand: not run) | met (main-thread budget) |
+| Diff switching | immediate for normal files | 63.5 / p90 68.7 ms | **51.9 / p90 53.7 ms** (43–53 across runs) | `diff-switch` (many-files, file → file) | met (< Phase 3's 50 ms budget in most runs; see bottlenecks) |
+| Tab switching | immediate (< 16 ms, P1) | 16.7 / p90 27.8 ms | **17.4 / p90 31.6 ms** | `multi-tab` (6 tabs, select → next main-queue turn) | **near miss** (see bottlenecks) |
+| Idle memory growth | none | open/close ×50: 150 → 531 MB, settled 411 MB | **149 → 157 MB, settled 66 MB; `leaks`: 0** | `open-close-loop` | met |
+
+### Other Phase 6 metrics
+
+| Metric | Start | Final | Method |
+|---|---|---|---|
+| Repo open → first graph rows, branchy-10k | 169.9 / p90 181.3 ms | 178.6 / p90 180.7 ms | `open-repo` |
+| Repo open, many-files (500 changes) | 134.7 ms | 137.2 ms | `many-files` |
+| Graph first page, huge-100k (no commit-graph, 1,000 refs, 500 tags) | 707.5 ms | 735.2 ms (single run) | `graph-scroll` |
+| Page append (main thread) | 0.34 ms | 0.35 ms | `graph-scroll` |
+| 50,000-line diff (200 hunks) switch | — (was hidden by the minified file) | 155.3 / p90 170.6 ms, 191 MB | `large-diff` |
+| 5 MB single-line diff switch / footprint | 194 ms / **1,215 MB** | 167.5 ms / **211 MB** | `large-diff` |
+| Lane layout 10k / 100k (parse + layout + store) | 5.6 / 49.4 ms | 5.6 / 50.3 ms | `JitBench micro` |
+| Status parse, 100k entries | 8.6 ms | 8.1 ms | same |
+| Diff parse, 50k-line patch (3.1 MB) | 0.96 ms | 0.97 ms | same |
+| Patch build, one line of the 50k-line file | 8.5 ms | 9.4 ms | same |
+| Glass cost (glass vs `-JitOpaqueChrome`, huge-100k) | — | idle Jit energy 0.017 vs 0.015; scroll step 1.71 vs 1.80 ms (0 over 16.7 ms both); Jit energy while scrolling 948 vs 843 (+12 %); tab switch 17.2 vs 15.8 ms | `scenarios/glass-cost.sh` (single runs) |
+
+`JitBench micro`: within a run, p90 is within 0.1–4.5 % of the median; between the two runs above the medians moved
+0.6–10 % (patch build 8.5 → 9.4 ms) on the busy machine — above the design's 3 % criterion, so CI uses the loose
+(2.5×) thresholds and only the reference-Mac run counts. The custom harness is kept (no third-party dependency).
+
+### Optimizations (each from a trace or benchmark)
+
+1. **Closed tabs leaked** (heap: 50 graph controllers, sessions, handles after 50 cycles). Hosted SwiftUI views
+   held their owning controller (graph bar/overlay, diff chrome) and `WorkbenchController.connect` closures captured
+   models strongly. Teardown on close + weak captures → 531 → 157 MB peak, 411 → 66 MB settled, 0 leaks.
+2. **Diff switch** spent its time in 7 sequential Git processes (snapshot token before and after the diff) and in
+   byte-wise fingerprint hashing (183 samples). Concurrent token reads, one fingerprint per token, word-wise content
+   hash → 63.5 → 43–52 ms.
+3. **5 MB minified line**: 220 MB of `CTLine` glyph advances, ≈ 400 MB large mallocs, 236 MB GPU surfaces. Lines
+   laid out up to 10,000 characters, width capped → 1,215 → 211 MB.
+4. **Tab switch** re-applied split-view divider positions every time (190 main-thread samples / 40 switches → 0).
+   Latency unchanged; reverted three toolbar guards that did not measurably help.
+5. **Launch**: the accounts service (Keychain, `NWPathMonitor`) was created at launch through the window
+   controller; now lazy (`LaunchWorkTests`). Launch time itself needed no change (first-window layout ≈ 60 ms
+   dominates main-thread time).
+
+### Bottlenecks and options for what is not clearly met
+
+- **Tab switch (17.4 ms median, p90 31.6 ms vs < 16 ms).** Time Profiler: about half is `NSToolbarView` layout
+  of the SwiftUI tab strip (glass tab selection re-render ≈ 1.4 ms of it per the opaque A/B), the rest SwiftUI
+  relayout of the shown workbench; the p90 comes from switching onto the 100k and 50k-file tabs. Options: render the
+  tab strip as AppKit views (large change, loses the glass morph), or keep each workbench's hosted SwiftUI subtrees
+  stable across switches (medium). Phase 1 measured 6.6 ms with far less chrome; the measured value is reported,
+  not tuned.
+- **Diff switch for normal files (≈ 43–53 ms).** Three Git process waves (token, diff, token) ≈ 18–20 ms and a ≈
+  13 ms SwiftUI relayout of the inspector per switch. Option: replace the after-diff token's processes with
+  file-system fingerprints of `.git/index` and the file (safe only together with the write-gate re-check; deferred
+  as a data-safety decision, §26 priority 1).
+- **Large files (155–168 ms for 4–5 MB files)** are dominated by Git hashing and diffing the file twice.
+- **Graph first page on huge-100k (≈ 0.7 s)** is Git's `--topo-order` walk without a commit-graph file and 1,500
+  refs; with a commit-graph Phase 2 measured 143–156 ms. Option: offer `git commit-graph write` (mutation; needs an
+  explicit user action).
+
+### Not measured
+
+- Instruments Animation Hitches during a real trackpad fling and live-resize drag (programmatic steps and AppleScript
+  resizes were measured instead).
+- Compositor-side GPU cost of glass: powermetrics' per-process GPU counter reads 0 for Jit and WindowServer on this
+  machine, and WindowServer energy is dominated by other apps.
+- Release-build memory of the repository browser and credential-delivery overhead (Phase 5 carry-overs; no real
+  provider accounts in this environment).
+
 ## Phase 4 — 2026-11-09
 
 MacBook Pro `Mac17,9` (Apple M5 Pro, 24 GB), macOS 27.2, Git 2.54.0 (Homebrew), release builds unless noted.

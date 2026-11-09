@@ -1,0 +1,63 @@
+# Benchmark run 2026-11-09T14:33:25+00:00 (7c20127)
+
+Mac17,9 (Apple M5 Pro, 24 GB), macOS 27.2 (26B123), git version 2.54.0, power ac, Low Power Mode off
+
+| Scenario | Metric | Median | p90 | Unit | Runs |
+|---|---|---|---|---|---|
+| diff-switch | diff.switch | 51.948 | 53.652 | ms | 10 |
+| diff-switch | footprint | 193.500 | 193.500 | MB | 1 |
+| graph-scroll | footprint_all_loaded | 101.800 | 101.800 | MB | 1 |
+| graph-scroll | graph.firstRows | 735.200 | 735.200 | ms | 1 |
+| graph-scroll | page_append | 0.350 | 0.350 | ms | 5 |
+| graph-scroll | row_draw | 0.008 | 0.015 | ms | 9898 |
+| graph-scroll | scroll_step | 1.630 | 1.920 | ms | 400 |
+| idle-0tabs | cpu_percent | 0.000 | 0.000 | % | 1 |
+| idle-0tabs | footprint | 32.000 | 32.000 | MB | 1 |
+| idle-0tabs | idle_wakeups_per_s | 19.000 | 19.000 | 1/s | 1 |
+| idle-0tabs | network_bytes | 0.000 | 0.000 | bytes | 1 |
+| idle-0tabs | pm_cpu_ms_per_s | 0.000 | 0.000 | ms/s | 1 |
+| idle-0tabs | pm_energy_impact | 0.000 | 0.000 | energy | 1 |
+| idle-0tabs | pm_gpu_ms_per_s | 0.000 | 0.000 | ms/s | 1 |
+| idle-0tabs | pm_wakeups_per_s | 0.000 | 0.000 | 1/s | 1 |
+| idle-0tabs | threads | 4.000 | 4.000 | count | 1 |
+| idle-1tabs | cpu_percent | 0.000 | 0.000 | % | 1 |
+| idle-1tabs | footprint | 72.000 | 72.000 | MB | 1 |
+| idle-1tabs | idle_wakeups_per_s | 0.000 | 0.000 | 1/s | 1 |
+| idle-1tabs | network_bytes | 0.000 | 0.000 | bytes | 1 |
+| idle-1tabs | pm_cpu_ms_per_s | 0.000 | 0.000 | ms/s | 1 |
+| idle-1tabs | pm_energy_impact | 0.000 | 0.000 | energy | 1 |
+| idle-1tabs | pm_gpu_ms_per_s | 0.000 | 0.000 | ms/s | 1 |
+| idle-1tabs | pm_wakeups_per_s | 0.000 | 0.000 | 1/s | 1 |
+| idle-1tabs | threads | 3.000 | 3.000 | count | 1 |
+| idle-5tabs | cpu_percent | 0.000 | 0.000 | % | 1 |
+| idle-5tabs | footprint | 70.000 | 70.000 | MB | 1 |
+| idle-5tabs | idle_wakeups_per_s | 4.000 | 4.000 | 1/s | 1 |
+| idle-5tabs | network_bytes | 0.000 | 0.000 | bytes | 1 |
+| idle-5tabs | pm_cpu_ms_per_s | 0.000 | 0.000 | ms/s | 1 |
+| idle-5tabs | pm_energy_impact | 0.000 | 0.000 | energy | 1 |
+| idle-5tabs | pm_gpu_ms_per_s | 0.000 | 0.000 | ms/s | 1 |
+| idle-5tabs | pm_wakeups_per_s | 0.000 | 0.000 | 1/s | 1 |
+| idle-5tabs | threads | 4.000 | 4.000 | count | 1 |
+| large-diff | diff.switch.minified | 167.525 | 172.772 | ms | 10 |
+| large-diff | diff.switch.table | 155.268 | 170.614 | ms | 10 |
+| large-diff | footprint.minified | 210.900 | 210.900 | MB | 1 |
+| large-diff | footprint.table | 190.600 | 190.600 | MB | 1 |
+| launch-cold | first_window | 241.000 | 249.500 | ms | 5 |
+| launch-warm | first_window | 259.250 | 266.100 | ms | 10 |
+| many-files | core.status | 0.052 | 0.057 | ms | 10 |
+| many-files | graph.firstPage | 86.775 | 88.238 | ms | 10 |
+| many-files | repo.open | 137.174 | 139.192 | ms | 10 |
+| micro | diff-parse-50k | 0.968 | 1.010 | ms | 30 |
+| micro | lane-layout-100k | 50.257 | 50.276 | ms | 7 |
+| micro | lane-layout-10k | 5.639 | 5.759 | ms | 7 |
+| micro | patch-build-50k | 9.374 | 9.546 | ms | 30 |
+| micro | status-parse-100k | 8.055 | 8.264 | ms | 30 |
+| multi-tab | footprint | 110.000 | 110.000 | MB | 1 |
+| multi-tab | tab.switch | 17.412 | 31.610 | ms | 60 |
+| open-close-loop | footprint.after10 | 152.700 | 152.700 | MB | 1 |
+| open-close-loop | footprint.first | 149.100 | 149.100 | MB | 1 |
+| open-close-loop | footprint.last | 156.700 | 156.700 | MB | 1 |
+| open-close-loop | footprint.settled | 66.100 | 66.100 | MB | 1 |
+| open-repo | core.status | 0.003 | 0.003 | ms | 10 |
+| open-repo | graph.firstPage | 124.927 | 126.404 | ms | 10 |
+| open-repo | repo.open | 178.604 | 180.735 | ms | 10 |

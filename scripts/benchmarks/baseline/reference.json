@@ -1,0 +1,408 @@
+{
+  "build": "release",
+  "errors": [],
+  "git_sha": "7c20127",
+  "git_version": "git version 2.54.0",
+  "machine": {
+    "chip": "Apple M5 Pro",
+    "low_power_mode": false,
+    "macos": "27.2",
+    "macos_build": "26B123",
+    "model": "Mac17,9",
+    "power_source": "ac",
+    "ram_gb": 24,
+    "thermal": [
+      "Note: No CPU power status has been recorded"
+    ]
+  },
+  "scenarios": {
+    "diff-switch": {
+      "diff.switch": {
+        "max": 86.833,
+        "median": 51.948,
+        "p90": 53.652,
+        "runs": 10,
+        "unit": "ms"
+      },
+      "footprint": {
+        "median": 193.5,
+        "p90": 193.5,
+        "runs": 1,
+        "unit": "MB"
+      }
+    },
+    "graph-scroll": {
+      "footprint_all_loaded": {
+        "median": 101.8,
+        "p90": 101.8,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "graph.firstRows": {
+        "median": 735.2,
+        "p90": 735.2,
+        "runs": 1,
+        "unit": "ms"
+      },
+      "page_append": {
+        "median": 0.35,
+        "p90": 0.35,
+        "runs": 5,
+        "unit": "ms"
+      },
+      "row_draw": {
+        "median": 0.008,
+        "p90": 0.015,
+        "runs": 9898,
+        "unit": "ms"
+      },
+      "scroll_step": {
+        "median": 1.63,
+        "over_16ms": 0,
+        "p90": 1.92,
+        "runs": 400,
+        "unit": "ms"
+      }
+    },
+    "idle-0tabs": {
+      "cpu_percent": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "%"
+      },
+      "footprint": {
+        "median": 32.0,
+        "p90": 32.0,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "network_bytes": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "bytes"
+      },
+      "pm_cpu_ms_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "ms/s"
+      },
+      "pm_energy_impact": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "energy"
+      },
+      "pm_gpu_ms_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "ms/s"
+      },
+      "pm_wakeups_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "1/s"
+      },
+      "threads": {
+        "median": 4.0,
+        "p90": 4.0,
+        "runs": 1,
+        "unit": "count"
+      },
+      "top_idlew_per_s": {
+        "median": 19.0,
+        "p90": 19.0,
+        "runs": 1,
+        "unit": "info"
+      }
+    },
+    "idle-1tabs": {
+      "cpu_percent": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "%"
+      },
+      "footprint": {
+        "median": 72.0,
+        "p90": 72.0,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "network_bytes": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "bytes"
+      },
+      "pm_cpu_ms_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "ms/s"
+      },
+      "pm_energy_impact": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "energy"
+      },
+      "pm_gpu_ms_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "ms/s"
+      },
+      "pm_wakeups_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "1/s"
+      },
+      "threads": {
+        "median": 3.0,
+        "p90": 3.0,
+        "runs": 1,
+        "unit": "count"
+      },
+      "top_idlew_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "info"
+      }
+    },
+    "idle-5tabs": {
+      "cpu_percent": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "%"
+      },
+      "footprint": {
+        "median": 70.0,
+        "p90": 70.0,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "network_bytes": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "bytes"
+      },
+      "pm_cpu_ms_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "ms/s"
+      },
+      "pm_energy_impact": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "energy"
+      },
+      "pm_gpu_ms_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "ms/s"
+      },
+      "pm_wakeups_per_s": {
+        "median": 0.0,
+        "p90": 0.0,
+        "runs": 1,
+        "unit": "1/s"
+      },
+      "threads": {
+        "median": 4.0,
+        "p90": 4.0,
+        "runs": 1,
+        "unit": "count"
+      },
+      "top_idlew_per_s": {
+        "median": 4.0,
+        "p90": 4.0,
+        "runs": 1,
+        "unit": "info"
+      }
+    },
+    "large-diff": {
+      "diff.switch.minified": {
+        "max": 174.604,
+        "median": 167.525,
+        "p90": 172.772,
+        "runs": 10,
+        "unit": "ms"
+      },
+      "diff.switch.table": {
+        "max": 182.285,
+        "median": 155.268,
+        "p90": 170.614,
+        "runs": 10,
+        "unit": "ms"
+      },
+      "footprint.minified": {
+        "median": 210.9,
+        "p90": 210.9,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "footprint.table": {
+        "median": 190.6,
+        "p90": 190.6,
+        "runs": 1,
+        "unit": "MB"
+      }
+    },
+    "launch-cold": {
+      "first_window": {
+        "max": 249.5,
+        "median": 241.0,
+        "p90": 249.5,
+        "runs": 5,
+        "unit": "ms"
+      }
+    },
+    "launch-warm": {
+      "first_window": {
+        "max": 270.4,
+        "median": 259.25,
+        "p90": 266.1,
+        "runs": 10,
+        "triggers": "key",
+        "unit": "ms"
+      }
+    },
+    "many-files": {
+      "core.status": {
+        "max": 0.093,
+        "median": 0.052,
+        "p90": 0.057,
+        "runs": 10,
+        "unit": "ms"
+      },
+      "graph.firstPage": {
+        "max": 89.114,
+        "median": 86.775,
+        "p90": 88.238,
+        "runs": 10,
+        "unit": "ms"
+      },
+      "repo.open": {
+        "max": 140.693,
+        "median": 137.174,
+        "p90": 139.192,
+        "runs": 10,
+        "unit": "ms"
+      }
+    },
+    "micro": {
+      "diff-parse-50k": {
+        "median": 0.968291,
+        "p90": 1.009959,
+        "retained_kib": 1536,
+        "runs": 30,
+        "unit": "ms"
+      },
+      "lane-layout-100k": {
+        "median": 50.257333,
+        "p90": 50.275916,
+        "retained_kib": 18525,
+        "runs": 7,
+        "unit": "ms"
+      },
+      "lane-layout-10k": {
+        "median": 5.63875,
+        "p90": 5.75925,
+        "retained_kib": 2222,
+        "runs": 7,
+        "unit": "ms"
+      },
+      "patch-build-50k": {
+        "median": 9.3745,
+        "p90": 9.546041,
+        "runs": 30,
+        "unit": "ms"
+      },
+      "status-parse-100k": {
+        "median": 8.054875,
+        "p90": 8.264416,
+        "retained_kib": 5376,
+        "runs": 30,
+        "unit": "ms"
+      }
+    },
+    "multi-tab": {
+      "footprint": {
+        "median": 110.0,
+        "p90": 110.0,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "tab.switch": {
+        "max": 58.616,
+        "median": 17.412,
+        "p90": 31.61,
+        "runs": 60,
+        "unit": "ms"
+      }
+    },
+    "open-close-loop": {
+      "footprint.after10": {
+        "median": 152.7,
+        "p90": 152.7,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "footprint.first": {
+        "median": 149.1,
+        "p90": 149.1,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "footprint.last": {
+        "median": 156.7,
+        "p90": 156.7,
+        "runs": 1,
+        "unit": "MB"
+      },
+      "footprint.settled": {
+        "median": 66.1,
+        "p90": 66.1,
+        "runs": 1,
+        "unit": "MB"
+      }
+    },
+    "open-repo": {
+      "core.status": {
+        "max": 0.004,
+        "median": 0.003,
+        "p90": 0.003,
+        "runs": 10,
+        "unit": "ms"
+      },
+      "graph.firstPage": {
+        "max": 126.459,
+        "median": 124.927,
+        "p90": 126.404,
+        "runs": 10,
+        "unit": "ms"
+      },
+      "repo.open": {
+        "max": 183.53,
+        "median": 178.604,
+        "p90": 180.735,
+        "runs": 10,
+        "unit": "ms"
+      }
+    }
+  },
+  "schema": 1,
+  "timestamp": "2026-11-09T14:33:25+00:00"
+}

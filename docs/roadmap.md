@@ -7,7 +7,9 @@
 > [`phases/02-graph-and-navigation/progress.md`](phases/02-graph-and-navigation/progress.md)); **Phase 3 implemented**
 > ([`progress.md`](phases/03-working-directory-and-diff/progress.md)); **Phase 4 implemented** (branch
 > `phase/04-git-workflows-and-conflicts`, see
-> [`phases/04-git-workflows-and-conflicts/progress.md`](phases/04-git-workflows-and-conflicts/progress.md)); Phases 5–8 are plans. Each phase folder under
+> [`phases/04-git-workflows-and-conflicts/progress.md`](phases/04-git-workflows-and-conflicts/progress.md)); **Phase 5 implemented**
+> ([`progress.md`](phases/05-profiles-and-providers/progress.md)); **Phase 6 implemented with carry-overs** (branch
+> `phase/06-polish-and-performance`, see [`progress.md`](phases/06-polish-and-performance/progress.md)); Phases 7–8 are plans. Each phase folder under
 > [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
 > such as **§7.4** point into that file.
@@ -172,6 +174,8 @@ Assigned across the phase designs; check here before adding one (Phase 6 audits 
 | ⌥⌘↓ / ⌥⌘↑, ⌘S, ⇧⌘R | Conflict resolver: next / previous block, save, mark resolved | P4 |
 | ⌃⌘P | Open profile switcher | P5 |
 | ⌘K | Command palette | P6 |
+| ⌥⌘← / ⌥⌘→ | Focus previous / next pane | P6 |
+| ⌘+ / ⌘- / ⌘0 | Larger / smaller / default code text | P6 |
 | ⌥⌘S | Create stash | P4 |
 
 ### Cross-cutting technical decisions and ADR backlog

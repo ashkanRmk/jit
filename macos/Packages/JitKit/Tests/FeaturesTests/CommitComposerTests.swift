@@ -95,7 +95,11 @@ import Testing
         model.activate()
         model.summary = "Work in progress"
         model.details = "Second paragraph"
-        try await Task.sleep(for: .milliseconds(700))
+        // The draft is saved after a debounce; wait for it on disk instead of a fixed sleep (flaky under load).
+        #expect(
+            try await waitUntil {
+                CommitDrafts(location: w.location).draft(for: model.repositoryKey).description == "Second paragraph"
+            })
         let reopened = CommitComposerModel(
             session: w.session, profiles: w.profiles, drafts: CommitDrafts(location: w.location))
         reopened.activate()

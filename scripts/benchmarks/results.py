@@ -130,6 +130,8 @@ def compare(base_path, cand_path, loose=False):
     rows, regressions, missing = [], 0, 0
     for name, metrics in sorted(base["scenarios"].items()):
         for metric, b in sorted(metrics.items()):
+            if b.get("unit") == "info":
+                continue  # informational only (e.g. top's IDLEW, ADR-0041)
             c = cand.get("scenarios", {}).get(name, {}).get(metric)
             if c is None:
                 rows.append((name, metric, b["median"], None, "MISSING")); missing += 1; continue
