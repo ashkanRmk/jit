@@ -68,7 +68,7 @@ public struct KeychainStore: SecretStore {
     public let servicePrefix: String
     let useDataProtection: Bool
 
-    public init(servicePrefix: String = Bundle.main.bundleIdentifier ?? "com.example.jit") {
+    public init(servicePrefix: String = Bundle.main.bundleIdentifier ?? "com.ashkanrmk.jit") {
         self.servicePrefix = servicePrefix
         useDataProtection = Self.hasDataProtectionKeychain()
     }

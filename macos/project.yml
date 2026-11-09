@@ -54,7 +54,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Jit
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
-        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSHumanReadableCopyright: "$(JIT_COPYRIGHT)"
   JitAppTests:
     type: bundle.unit-test
     platform: macOS
@@ -71,7 +71,7 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.jit.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.ashkanrmk.jit.tests
 schemes:
   Jit:
     build:

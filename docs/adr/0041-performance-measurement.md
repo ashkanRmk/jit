@@ -16,7 +16,7 @@ busy machine while `powermetrics` showed ≈ 0.1/s.
 - **Authority:** the reference Mac (MacBook Pro `Mac17,9`, M5 Pro, 24 GB, macOS 27.2) decides pass/fail.
   Release builds launched outside Xcode only; median and p90 over ≥ 10 runs after a warm-up; environment
   (model, chip, RAM, OS build, Git, power source, Low Power Mode, thermal state) recorded in every result.
-- **Instrumentation:** one `Signposts` registry in GitCore (Points of Interest, subsystem `com.example.jit`),
+- **Instrumentation:** one `Signposts` registry in GitCore (Points of Interest, subsystem `com.ashkanrmk.jit`),
   names `<category>.<what>`, details only counts or a Git subcommand. Scenario drivers measure through the
   same intervals (`-JitBenchmarkScenario`, inert unless passed).
 - **Harness:** `scripts/benchmarks/run-all.sh` → `benchmarks/results/<date>-<sha>.json` (schema 1:

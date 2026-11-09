@@ -188,7 +188,7 @@ cloneRepository(_:engine:) — free function (no repository yet)
 ## Phase 6 — performance, palette and accessibility
 
 - **Signposts** (`GitCore/Diagnostics/Signposts.swift`, ADR-0041): one registry, Points of Interest,
-  subsystem `com.example.jit`; app intervals (`launch.firstWindow`, `repo.open`, `graph.firstPage`,
+  subsystem `com.ashkanrmk.jit`; app intervals (`launch.firstWindow`, `repo.open`, `graph.firstPage`,
   `graph.page`, `diff.switch`, `tab.switch`, `ops.run`) and GitCore spans (`core.*`). Benchmark scenarios
   (`-JitBenchmarkScenario`, Features/Benchmark) measure through the same intervals.
 - **Tab lifecycle** (ADR-0042): only the visible tab of a foreground window watches and refreshes; closing or

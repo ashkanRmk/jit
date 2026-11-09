@@ -12,3 +12,12 @@ scripts/benchmarks/out/
 .DS_Store
 benchmarks/results/
 __pycache__/
+# Release signing material and local release settings — never committed (Phase 7)
+*.p12
+*.cer
+*.p8
+AuthKey_*.p8
+*.provisionprofile
+*.mobileprovision
+release.local.env
+notary-*.json

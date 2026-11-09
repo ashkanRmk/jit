@@ -90,7 +90,7 @@ final class FakeCredentialSource: CredentialSource {
 
 /// Real login-keychain round trip under a throwaway service prefix (items deleted afterwards).
 @Suite(.serialized) struct KeychainStoreTests {
-    let store = KeychainStore(servicePrefix: "com.example.jit.tests.\(UUID().uuidString.prefix(8))")
+    let store = KeychainStore(servicePrefix: "com.ashkanrmk.jit.tests.\(UUID().uuidString.prefix(8))")
 
     @Test func roundTripOverwriteDeleteAndAttributes() async throws {
         let reference = SecretReference.account(.new())
