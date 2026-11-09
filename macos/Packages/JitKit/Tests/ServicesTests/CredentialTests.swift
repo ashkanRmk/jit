@@ -68,12 +68,14 @@ final class FakeCredentialSource: CredentialSource {
     }
 
     @Test func secretBufferWipedOnDeinit() {
-        let observed = Mutex<[UInt8]?>(nil)
-        SecretBytes.wipeObserver = { buffer in observed.withLock { $0 = Array(buffer) } }
+        // The hook is process-wide and other suites create secrets in parallel: look for this buffer's wipe.
+        let observed = Mutex<[[UInt8]]>([])
+        SecretBytes.wipeObserver = { buffer in observed.withLock { $0.append(Array(buffer)) } }
         defer { SecretBytes.wipeObserver = nil }
         do { _ = SecretBytes(utf8: "wipe-me-please") }
-        #expect(observed.withLock { $0 }?.allSatisfy { $0 == 0 } == true)
-        #expect(observed.withLock { $0 }?.count == 14)
+        let wipes = observed.withLock { $0 }
+        #expect(wipes.contains { $0.count == 14 && $0.allSatisfy { $0 == 0 } })
+        #expect(wipes.allSatisfy { buffer in buffer.allSatisfy { $0 == 0 } })
     }
 
     @Test func memoryStoreRoundTrip() async throws {
