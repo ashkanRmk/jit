@@ -154,7 +154,14 @@ public actor GitEngine {
 
     /// Classifies the folder at `url` (or the repository enclosing it).
     public func discoverRepository(at url: URL) async throws(GitCoreError) -> RepositoryInfo {
-        try await RepositoryDiscovery(engine: self, timeout: configuration.discoveryTimeout).discover(at: url.path)
+        // A missing working directory would otherwise surface as a launch failure.
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw .pathNotFound(path: url.path)
+        }
+        guard isDirectory.boolValue else { throw .notARepository(path: url.path) }
+        return try await RepositoryDiscovery(engine: self, timeout: configuration.discoveryTimeout).discover(
+            at: url.path)
     }
 
     private static func environment(

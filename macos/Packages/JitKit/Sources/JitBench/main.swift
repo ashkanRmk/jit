@@ -3,7 +3,7 @@ import Foundation
 import GitCore
 import GitTestKit
 
-// Dev-only micro-benchmarks for GitCore. Usage: JitBench [spawn-latency|discovery|all] [--iterations N] [--out DIR]
+// Dev-only micro-benchmarks for GitCore. Usage: JitBench [spawn-latency|discovery|status-parse|all] [--iterations N] [--out DIR]
 // Writes one JSON file per benchmark (default: scripts/benchmarks/out/).
 
 struct Result: Encodable {
@@ -77,7 +77,7 @@ while let argument = arguments.first {
     case "--iterations": iterations = Int(arguments.removeFirst()) ?? iterations
     case "--out": outDirectory = arguments.removeFirst()
     case "-h", "--help":
-        print("JitBench [spawn-latency|discovery|all] [--iterations N] [--out DIR]")
+        print("JitBench [spawn-latency|discovery|status-parse|all] [--iterations N] [--out DIR]")
         exit(0)
     default: selection = argument
     }
@@ -99,5 +99,34 @@ if selection == "all" || selection == "discovery" {
     let url = URL(fileURLWithPath: repo.path)
     try await measure("discovery", iterations: iterations, git: git, outDirectory: outDirectory) {
         _ = try await engine.discoverRepository(at: url)
+    }
+}
+
+if selection == "all" || selection == "status-parse" {
+    // A synthetic 100k-entry porcelain v2 `-z` sample in Git's exact record shapes (ordinary, rename,
+    // unmerged, untracked) with realistic path lengths.
+    let oid = String(repeating: "a1b2c3d4e5", count: 4)
+    var sample: [UInt8] = Array(
+        "# branch.oid \(oid)\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +1 -2\0".utf8)
+    for index in 0..<100_000 {
+        let path = "Sources/Module\(index % 97)/Subsystem\(index % 13)/File\(index).swift"
+        switch index % 10 {
+        case 0: sample += Array("2 R. N... 100644 100644 100644 \(oid) \(oid) R100 \(path)\0old/\(path)\0".utf8)
+        case 1: sample += Array("u UU N... 100644 100644 100644 100644 \(oid) \(oid) \(oid) \(path)\0".utf8)
+        case 2, 3: sample += Array("? \(path)\0".utf8)
+        default: sample += Array("1 .M N... 100644 100644 100644 \(oid) \(oid) \(path)\0".utf8)
+        }
+    }
+    var zoneStats = malloc_statistics_t()
+    malloc_zone_statistics(nil, &zoneStats)
+    let before = zoneStats.size_in_use
+    let retained = try StatusParser.parse(sample)
+    malloc_zone_statistics(nil, &zoneStats)
+    let retainedBytes = Int(zoneStats.size_in_use) - Int(before)
+    print(
+        "status-parse: sample \(sample.count / 1024) KiB, \(retained.entries.count) entries, "
+            + "snapshot overhead beyond the shared output buffer ≈ \(retainedBytes / 1024) KiB")
+    try await measure("status-parse", iterations: max(10, iterations / 10), git: git, outDirectory: outDirectory) {
+        _ = try StatusParser.parse(sample)
     }
 }

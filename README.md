@@ -3,9 +3,11 @@
 A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + AppKit), native Liquid
 Glass design, driving the Git CLI.
 
-**Status: Phase 0 (foundation) done on branch `phase/00-foundation`.** The app opens a folder and shows
-what its Swift Git core discovered (repository kind, top level, HEAD, Git version) with designed empty,
-loading and error states, plus a debug-only design-system gallery. Report:
+**Status: Phase 1 (native shell & repository tabs) on branch `phase/01-shell-and-tabs`.** One window with
+glass repository tabs restored on relaunch, a new-tab page with recents and drag-and-drop, a workbench
+skeleton showing branch, upstream, operation state and live working-directory counts (FSEvents, only for
+the visible tab), System/Light/Dark appearance, and identity-only Git profiles that never touch your
+global Git config. Reports: [`docs/phases/01-shell-and-tabs/progress.md`](docs/phases/01-shell-and-tabs/progress.md),
 [`docs/phases/00-foundation/progress.md`](docs/phases/00-foundation/progress.md).
 
 ## Prerequisites
@@ -25,8 +27,8 @@ All commands: [`CLAUDE.md`](CLAUDE.md#commands).
 
 ## Layout
 ```
-macos/App/                 thin app target (entry point, windows, menus, launch probe)
-macos/Packages/JitKit/     GitCore, GitTestKit, DesignSystem, Features, JitBench + tests
+macos/App/                 thin app target (AppKit entry point, menus, launch/benchmark hooks)
+macos/Packages/JitKit/     GitCore, GitTestKit, Services, DesignSystem, Features, JitBench + tests
 macos/project.yml          XcodeGen spec (project is generated, not committed)
 scripts/build/             build, test, lint scripts
 scripts/benchmarks/        launch and idle benchmarks

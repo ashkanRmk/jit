@@ -16,10 +16,12 @@ jobs:
   build-and-test:
     runs-on: macos-26
     timeout-minutes: 45
-    env:
-      JIT_DERIVED_DATA: ${{ runner.temp }}/DerivedData
     steps:
       - uses: actions/checkout@v4
+
+      # `runner.temp` is not available in job-level `env`, so export it from a step.
+      - name: Configure DerivedData location
+        run: echo "JIT_DERIVED_DATA=$RUNNER_TEMP/DerivedData" >> "$GITHUB_ENV"
 
       - name: Select Xcode 26 or newer
         run: |
