@@ -1,7 +1,7 @@
 # Release
 
-Status (1.0.0, 2026-11-10): **the pipeline is implemented and verified ad-hoc. Developer ID signing,
-notarization, stapling and clean-VM acceptance are blocked on credentials and VM access.** See
+Status (1.0.0, 2026-11-10): **distributed free as an ad-hoc-signed, non-notarized DMG** (owner decision,
+ADR-0049 addendum). The Developer ID path (steps 07–08) is implemented but unused; clean-VM acceptance pending. See
 [`phases/07-packaging-and-release/progress.md`](phases/07-packaging-and-release/progress.md).
 Decisions: ADR-0019 (bundled Git), 0020 (no updater), 0045 (entitlements/sandbox), 0046 (signing), 0047 (DMG
 and notarization), 0048 (clean-machine protocol), 0049 (versioning, arm64-only).
@@ -48,6 +48,14 @@ scripts/release/release.sh --from-step 07           # resume, e.g. after a notar
 | 10 | `09-validate.sh` | SHA-256, signatures, ticket, Gatekeeper (DMG + app), runtime, archs, Git in DMG | `validation.txt` |
 
 All outputs are in `build/release/<version>/` (git-ignored). dSYMs stay there, private — never in the DMG.
+
+### Publishing an ad-hoc release (current mode)
+1. `scripts/release/release.sh --version X.Y.Z --adhoc` from a clean tree (About shows the commit).
+2. Assets in `build/release/X.Y.Z/publish/`: the DMG, `Jit-X.Y.Z.dmg.sha256`, `SHA256SUMS`,
+   `git-<v>.tar.xz`, `jit-git-build-scripts-X.Y.Z.tar.gz` (GPLv2 corresponding source for the bundled Git).
+3. Notes from `docs/releases/vX.Y.Z.md` (first-launch steps and the DMG SHA-256 must be in them).
+4. With the owner's approval: tag `vX.Y.Z` on the build commit, `gh release create` with the notes and assets.
+   The repository (or a releases repository) must be public for users to download.
 
 ### Publishing (owner approval required)
 Tag `vX.Y.Z` on the release commit. Attach to the GitHub Release: the DMG, its SHA-256, and the GPLv2

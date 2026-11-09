@@ -1,7 +1,9 @@
 # Phase 07 — Packaging & release: progress report
 
-Status: **blocked (Developer ID certificate and notarization credentials)**. Every local step is implemented and
-verified with ad-hoc signing; clean-VM acceptance has not been run (no VM tooling; owner chose local + test rig).
+Status: **complete with carry-overs — distributed ad-hoc (owner decision 2026-11-10: free, no paid Apple
+Developer Program; ADR-0049 addendum)**. Every local step is implemented and verified with ad-hoc signing;
+notarization is out of scope by that decision; clean-VM acceptance has not been run (no VM tooling; owner chose
+local + test rig).
 Branch / PR: `phase/07-packaging-and-release` (PR link added when opened)
 Environment: MacBook Pro `Mac17,9` (Apple M5 Pro, 24 GB), macOS 27.2 (26B123), Xcode 27.2 (27B52), Swift 6.4.2,
 XcodeGen 2.46.0; development Git 2.54.0 (Homebrew); **bundled Git 2.56.0**.
@@ -127,7 +129,10 @@ XcodeGen 2.46.0; development Git 2.54.0 (Homebrew); **bundled Git 2.56.0**.
 - Finder deleted `.VolumeIcon.icns` during the layout pass (DMG volume icon missing). It's now added after.
 
 ## Known issues / carry-overs
-- **Blocked on credentials (owner)**: install a Developer ID Application certificate; run
+- **Before publishing (owner)**: the GitHub repository is **private** — a release there is only downloadable by
+  collaborators; make it (or a releases-only repository) public; choose Jit's source license; approve the
+  GitHub Release (notes `docs/releases/v1.0.0.md`, assets `build/release/1.0.0/publish/`).
+- **If you later get a Developer ID** (no longer blocking): install a Developer ID Application certificate; run
   `xcrun notarytool store-credentials jit-notary --key <AuthKey.p8> --key-id <ID> --issuer <UUID>`; create
   `scripts/release/release.local.env` with `JIT_SIGN_IDENTITY="Developer ID Application: … (TEAMID)"` and
   `JIT_TEAM_ID`; then run `scripts/release/release.sh --version 1.0.0` (steps 01–09). Expected: `07` prints

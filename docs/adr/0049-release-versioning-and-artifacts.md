@@ -22,3 +22,14 @@
   the notary JSON/log, private `dSYMs/` (never in the DMG), and for publication the Git source tarball
   (`build/git-src/git-<v>.tar.xz`), `build-git.sh` and `git-version.env` (GPLv2 corresponding source,
   ADR-0019).
+
+## Addendum 2026-11-10 — free ad-hoc distribution (owner decision)
+The owner chose not to join the paid Apple Developer Program. 1.0.0 is distributed free as the **ad-hoc-signed,
+non-notarized** DMG (Hardened Runtime still on). Consequences, documented in the README and release notes:
+first launch needs Privacy & Security → Open Anyway (or removing the quarantine attribute) once per version;
+SHA-256 checksums are published with every release for users to verify; after an update macOS may ask once
+for Keychain access because ad-hoc builds have no stable signing identity; the broker's Developer ID team check
+(ADR-0046) is inactive and only the executable-path check applies. §24 G "correct signing and notarization"
+is knowingly not met. The Developer ID steps (07–08) stay in the pipeline for a later switch.
+Release assets: DMG, `.sha256`, `SHA256SUMS`, `git-<v>.tar.xz`, `jit-git-build-scripts-<v>.tar.gz`
+(prepared in `build/release/<v>/publish/`), notes in `docs/releases/v<v>.md`.
