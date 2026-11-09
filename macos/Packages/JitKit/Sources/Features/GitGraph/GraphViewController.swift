@@ -30,6 +30,8 @@ final class GraphViewController: NSViewController {
     let model: AppModel
     let viewModel = GraphViewModel()
     var actions = Actions()
+    /// Phase 4 write actions (context menus, command bar, banner).
+    var operations: OperationsController?
 
     private(set) var history: HistoryController?
     private let style: GraphStyle
@@ -1220,6 +1222,46 @@ extension GraphViewController: NSMenuDelegate {
         {
             item("Solo \(branch.text)") { [weak self] in self?.solo(fullName) }
         }
+        if let operations, session.info?.topLevel != nil {
+            commitWriteItems(commit.oid.hex(snapshot.format), operations: operations).forEach(menu.addItem)
+        }
+    }
+
+    /// Phase 4 write actions on a commit (design §3.6–§3.7, §3.10).
+    private func commitWriteItems(_ hex: String, operations: OperationsController) -> [NSMenuItem] {
+        let short = String(hex.prefix(7))
+        let current = operations.currentBranch ?? "HEAD"
+        let isHead = session.status?.branch.oid == hex
+        let selected = selectedCommitRows().map { snapshot.row($0).oid.hex(snapshot.format) }
+        var items: [NSMenuItem] = [.separator()]
+        items.append(ClosureMenuItem(title: "Check Out \(short)…") { operations.switchTo(.detach(hex)) })
+        items.append(ClosureMenuItem(title: "New Branch Here…") { operations.newBranch(at: hex, label: short) })
+        items.append(.separator())
+        if !isHead {
+            items.append(
+                ClosureMenuItem(title: "Merge \(short) into \(current)…") {
+                    operations.merge(source: hex, label: short)
+                })
+            items.append(
+                ClosureMenuItem(title: "Rebase \(current) onto \(short)…") {
+                    operations.rebase(onto: hex, label: short)
+                })
+            let picks = selected.contains(hex) ? selected : [hex]
+            items.append(
+                ClosureMenuItem(title: picks.count == 1 ? "Cherry-pick \(short)" : "Cherry-pick \(picks.count) Commits")
+                {
+                    operations.cherryPick(picks)
+                })
+        }
+        items.append(ClosureMenuItem(title: "Revert \(short)") { operations.revert(hex) })
+        if let remote = operations.webRemoteURL, let url = WebLink.map(remoteURL: remote, target: .commit(hex)) {
+            items.append(.separator())
+            items.append(
+                ClosureMenuItem(title: "Copy Link to Commit on \(url.host == "gitlab.com" ? "GitLab" : "GitHub")") {
+                    Pasteboard.copy(url.absoluteString)
+                })
+        }
+        return items
     }
 
     private func labelUnderClick(row: Int) -> RefLabel? { pillUnderClick(row: row)?.label }
@@ -1237,7 +1279,11 @@ extension GraphViewController: NSMenuDelegate {
     /// Copy / pin / solo / navigator actions for one ref label.
     private func labelItems(_ label: RefLabel, fullName: String) -> [NSMenuItem] {
         let pinned = viewModel.pinned.contains(fullName)
-        return [
+        var write: [NSMenuItem] = []
+        if let operations, let ref = operations.refs?.ref(named: fullName) {
+            write = NavigatorViewController.branchWriteItems(ref, operations: operations) + [.separator()]
+        }
+        return write + [
             ClosureMenuItem(title: "Copy Name") { Pasteboard.copy(label.text) },
             ClosureMenuItem(title: pinned ? "Unpin" : "Pin to Left") { [weak self] in self?.togglePin(fullName) },
             ClosureMenuItem(title: "Solo \(label.text)") { [weak self] in self?.solo(fullName) },

@@ -25,6 +25,10 @@ public enum GitCoreError: Error, Sendable, Equatable {
     case refused(summary: String)
     /// The result did not match the expected bytes; the target was rolled back where possible.
     case verificationFailed(summary: String)
+    /// A Git command failed and was classified (Phase 4, design §4.11).
+    case failed(ClassifiedFailure)
+    /// A commit-creating operation needs an active profile (§6.2); nothing ran.
+    case noActiveProfile
 
     public var summary: String {
         switch self {
@@ -56,12 +60,17 @@ public enum GitCoreError: Error, Sendable, Equatable {
             "Another Git process is using this repository (index.lock exists). Try again when it finishes."
         case let .staleSnapshot(summary), let .refused(summary), let .verificationFailed(summary):
             summary
+        case let .failed(failure):
+            failure.summary
+        case .noActiveProfile:
+            "Choose a profile first: this operation creates commits."
         }
     }
 
     /// Redacted raw diagnostic text, if any, for a "Details" disclosure.
     public var detail: String? {
         if case let .processFailed(_, _, detail) = self, !detail.isEmpty { return detail }
+        if case let .failed(failure) = self, !failure.detail.isEmpty { return failure.detail }
         return nil
     }
 }

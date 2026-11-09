@@ -387,7 +387,7 @@ public enum StatusParser {
 }
 
 /// A multi-step operation left in progress in the repository.
-public enum OperationState: Sendable, Equatable {
+public enum OperationState: Sendable, Hashable {
     case none
     case merging
     case rebasing(step: Int?, total: Int?)

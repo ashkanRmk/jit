@@ -24,6 +24,7 @@ public enum ProcessEnvironment {
         "GIT_EDITOR": "true",
         "GIT_SEQUENCE_EDITOR": "true",
         "GIT_MERGE_AUTOEDIT": "no",
+        "GCM_INTERACTIVE": "never",
         "GIT_PAGER": "cat",
         "PAGER": "cat",
     ]

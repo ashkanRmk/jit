@@ -175,6 +175,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
             case .gap: parts.append(cell.text)
             case .file: parts.append("File \(cell.text)")
             case .filler: continue
+            case .conflict, .resolved, .marker: parts.append(cell.text)
             }
             if cell.isFullWidth { break }
         }

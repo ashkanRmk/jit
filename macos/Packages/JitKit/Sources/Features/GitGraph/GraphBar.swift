@@ -20,34 +20,39 @@ struct GraphBar: View {
         let location = commandLocation
         let changes = CommandBarChanges.count(controller.session.status?.summary)
         let layout = commandLayout(location: location, changes: changes)
-        HStack(spacing: Space.s4) {
-            CommandBarLeading(controller: controller, layout: layout, location: location, changes: changes)
-                .fixedSize()
-            Spacer(minLength: 0)
-            GlassControlGroup(spacing: Space.s3) {
-                scopeMenu
-                searchField
-                if model.isSearching { matchControls }
-                ForEach(chips, id: \.id) { chip in
-                    ChipView(chip: chip)
-                        .transition(RevealTransition.transition(reduceMotion: reduceMotion))
+        VStack(spacing: Space.s3) {
+            HStack(spacing: Space.s4) {
+                CommandBarLeading(controller: controller, layout: layout, location: location, changes: changes)
+                    .fixedSize()
+                Spacer(minLength: 0)
+                GlassControlGroup(spacing: Space.s3) {
+                    scopeMenu
+                    searchField
+                    if model.isSearching { matchControls }
+                    ForEach(chips, id: \.id) { chip in
+                        ChipView(chip: chip)
+                            .transition(RevealTransition.transition(reduceMotion: reduceMotion))
+                    }
+                }
+                Spacer(minLength: 0)
+                if controller.isSlow || isDeepRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel(isDeepRunning ? "Searching all history" : "Loading history")
                 }
             }
-            Spacer(minLength: 0)
-            // A merge/rebase/… in progress stays visible (it was in the Phase 1 header).
-            if let operation = controller.session.status?.operation, let title = OperationChip.title(for: operation) {
-                OperationChip(title: title)
-            }
-            if controller.isSlow || isDeepRunning {
-                ProgressView()
-                    .controlSize(.small)
-                    .accessibilityLabel(isDeepRunning ? "Searching all history" : "Loading history")
+            if let operations = controller.operations {
+                OperationBanner(controller: operations)
             }
         }
+        .animation(reduceMotion ? nil : MotionToken.panel.animation, value: controller.session.operationState == .clean)
         .padding(.horizontal, Space.s5)
         .padding(.vertical, Space.s3)
         .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: chips.map(\.id))
         .onChange(of: model.focusSearchToken) { searchFocused = true }
+        // A flexible frame reports the width the pane offers, even while a child would overflow; measuring the
+        // content itself would report the overflowing width and nothing would ever move into `⋯`.
+        .frame(maxWidth: .infinity)
         .onGeometryChange(for: CGFloat.self) {
             $0.size.width
         } action: {
@@ -68,7 +73,7 @@ struct GraphBar: View {
     private func commandLayout(location: CommandBarLocation, changes: Int?) -> CommandBarLayout {
         var groups: [CommandBarGroup] = [.location]
         if changes != nil { groups.append(.changes) }
-        groups.append(.terminal)
+        groups += [.sync, .branch, .stash, .terminal]
         let font = TypeToken.callout.nsFont
         func text(_ string: String) -> CGFloat { ceil((string as NSString).size(withAttributes: [.font: font]).width) }
         let capsule = 2 * Space.s5  // horizontal padding of a glass capsule / button
@@ -80,6 +85,12 @@ struct GraphBar: View {
                 labelled: capsule + text(location.repository) + IconSize.sm + 2 * Space.s3 + branch,
                 iconOnly: capsule + branch),
             .terminal: .init(labelled: capsule + icon + text("Terminal"), iconOnly: capsule + IconSize.md),
+            .sync: .init(
+                labelled: 3 * (capsule + icon) + text("Fetch") + text("Pull ↓99") + text("Publish") + 2 * IconSize.sm,
+                iconOnly: 3 * (capsule + icon) + 2 * IconSize.sm),
+            .branch: .init(labelled: capsule + icon + text("Branch"), iconOnly: capsule + IconSize.md),
+            .stash: .init(
+                labelled: 2 * (capsule + icon) + text("Stash") + text("Pop"), iconOnly: 2 * (capsule + IconSize.md)),
         ]
         if let changes {
             widths[.changes] = .init(

@@ -160,7 +160,7 @@ with `DispatchIO`, `F_SETNOSIGPIPE` on the write end).
 ## Verified
 - Tests: `scripts/build/test-core.sh` — **370 passed** (43 + 243 + 70 + 14 across the four test targets); skipped: none.
   Xcode app tests (`scripts/build/test-app.sh`): **23 passed, 0 failed** (xcresult summary). Lint clean.
-- Property tests: 150 cases in every `test-core` run; 50,000-case local run: pending.
+- Property tests: 150 cases in every `test-core` run; **50,000 local cases passed** (`JIT_PROPERTY_SEED=3210513369`, 5,528 s: 16,367 stage, 8,436 unstage, 8,019 discard, 6,184 keep-only, 1,783 refused as ambiguous final newline with nothing changed, 9,211 without a change or selection to apply). Run on the build before the review hardening commit, which only adds refusals for selections the property test never sends.
 - Real workflow (debug app, generated repositories, screenshots in `screenshots/`): command bar; working
   directory panel (normal, conflicts); discard sheet; diffs in the inspector and in Focused Diff (unified,
   side by side, full file, highlighted, selection capsule, no-newline note, binary); blame; composer.

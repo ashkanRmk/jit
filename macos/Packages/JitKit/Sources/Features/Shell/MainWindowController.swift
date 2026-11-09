@@ -21,7 +21,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     private var controllers: [UUID: NSViewController] = [:]
     private let chrome = ChromeState()
     private var profilePopover: NSPopover?
+    private var activityPopover: NSPopover?
     private weak var profileItem: NSToolbarItem?
+    private weak var activityItem: NSToolbarItem?
     private weak var pendingSeparatorSplitView: NSSplitView?
     private weak var stripView: NSView?
     private weak var profileHost: NSView?
@@ -34,6 +36,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     static let stripIdentifier = NSToolbarItem.Identifier("jit.tabs")
     static let overflowIdentifier = NSToolbarItem.Identifier("jit.tabs.overflow")
     static let profileIdentifier = NSToolbarItem.Identifier("jit.profile")
+    /// Operation activity (Phase 4): present only while the active tab has running or recent operations.
+    static let activityIdentifier = NSToolbarItem.Identifier("jit.activity")
     /// Tracks the active workbench's sidebar divider, so the sidebar toggle sits beside the window controls
     /// over the sidebar and the tab strip starts at the sidebar's edge (macOS standard, as in Mail/Notes).
     static let sidebarSeparatorIdentifier = NSToolbarItem.Identifier("jit.sidebar.separator")
@@ -73,6 +77,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.presentOpenPanel = { [weak self] in self?.chooseRepository() }
         model.onOpenFailure = { [weak self] url, error in self?.presentOpenFailure(url, error) }
         observeProfiles()
+        observeActivity()
         observeForeground()
         updateSidebarSeparator()
         updateChromeWidth()
@@ -230,7 +235,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         if let workbench = container.current as? WorkbenchController, !workbench.isSidebarCollapsed {
             leading = max(leading, workbench.sidebarWidth)
         }
-        let trailing = 2 * Self.systemItemWidth + profileWidth + Self.trailingInset
+        let activityWidth =
+            activityItem.map { _ in
+                max(Self.systemItemWidth, (activityItem?.view?.fittingSize.width ?? 0) + Space.s6)
+            } ?? 0
+        let trailing = 2 * Self.systemItemWidth + profileWidth + Self.trailingInset + activityWidth
         let strip = max(TabMetrics.minWidth + TabMetrics.newTabButton, width - leading - trailing)
         if abs((stripWidth?.constant ?? 0) - strip) > 0.5 { stripWidth?.constant = strip }
     }
@@ -245,7 +254,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar) + [Self.sidebarSeparatorIdentifier]
+        toolbarDefaultItemIdentifiers(toolbar) + [Self.sidebarSeparatorIdentifier, Self.activityIdentifier]
     }
 
     public func toolbar(
@@ -284,6 +293,16 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             item.label = "All Tabs"
             item.toolTip = "Show all tabs"
             return item
+        case Self.activityIdentifier:
+            // A standard toolbar item: macOS renders it inside the system Liquid Glass toolbar (no custom material).
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            let host = NSHostingView(
+                rootView: ActivityToolbarView(model: model) { [weak self] in self?.toggleActivityPopover() })
+            item.view = host
+            item.label = "Activity"
+            item.toolTip = "Activity (⌥⌘A)"
+            activityItem = item
+            return item
         case Self.profileIdentifier:
             let item = NSToolbarItem(itemIdentifier: identifier)
             let host = NSHostingView(
@@ -300,6 +319,64 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         default:
             return nil
         }
+    }
+
+    // MARK: - Activity
+
+    private func observeActivity() {
+        withObservationTracking {
+            _ = model.activeTabID
+            _ = model.activeTab?.session?.operations.records.isEmpty
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.updateActivityItem()
+                self?.observeActivity()
+            }
+        }
+        updateActivityItem()
+    }
+
+    /// Idle with no history: no item at all (no reserved empty chrome, design §3.1).
+    private func updateActivityItem() {
+        guard let toolbar = window?.toolbar else { return }
+        let hasActivity = !(model.activeTab?.session?.operations.records.isEmpty ?? true)
+        let index = toolbar.items.firstIndex { $0.itemIdentifier == Self.activityIdentifier }
+        if hasActivity, index == nil {
+            let profile =
+                toolbar.items.firstIndex { $0.itemIdentifier == Self.profileIdentifier } ?? toolbar.items.count
+            toolbar.insertItem(withItemIdentifier: Self.activityIdentifier, at: profile)
+            updateChromeWidth()
+        } else if !hasActivity, let index {
+            activityPopover?.performClose(nil)
+            toolbar.removeItem(at: index)
+            updateChromeWidth()
+        }
+    }
+
+    public func toggleActivityPopover() {
+        if let activityPopover, activityPopover.isShown {
+            activityPopover.performClose(nil)
+            return
+        }
+        guard let center = model.activeTab?.session?.operations else { return }
+        if activityItem == nil {
+            // ⌥⌘A with no activity yet: show the empty state anchored at the profile item.
+            guard let anchor = profileItem?.view else { return }
+            show(ActivityPopover(center: center), from: anchor)
+            return
+        }
+        guard let anchor = activityItem?.view else { return }
+        show(ActivityPopover(center: center), from: anchor)
+    }
+
+    private func show(_ content: ActivityPopover, from anchor: NSView) {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        let host = NSHostingController(rootView: content)
+        host.sizingOptions = .preferredContentSize
+        popover.contentViewController = host
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        activityPopover = popover
     }
 
     // MARK: - Overflow menu
@@ -421,6 +498,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     private func newTabActions() -> NewTabActions {
         NewTabActions(
             open: { [weak self] in self?.chooseRepository() },
+            clone: { [weak self] in self?.presentClone() },
             openPath: { [weak self] path in self?.model.open(URL(fileURLWithPath: path)) },
             locate: { [weak self] path in
                 self?.chooseRepository { url in self?.model.open(url, forgettingRecent: path) }
@@ -479,6 +557,44 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     @objc public func clearRecentRepositories(_ sender: Any?) { model.recents.clear() }
     @objc public func showProfileSwitcher(_ sender: Any?) { toggleProfilePopover() }
 
+    // MARK: Phase 4 actions (Repository / Branch / File menus)
+
+    private var activeOperations: OperationsController? { (container.current as? WorkbenchController)?.operations }
+
+    @objc public func showActivity(_ sender: Any?) { toggleActivityPopover() }
+    @objc public func fetchRepository(_ sender: Any?) { activeOperations?.fetch() }
+    @objc public func fetchAllRemotes(_ sender: Any?) { activeOperations?.fetchAll() }
+    @objc public func pullRepository(_ sender: Any?) { activeOperations?.pull(.fastForwardOnly) }
+    @objc public func pullWithMerge(_ sender: Any?) { activeOperations?.pull(.merge) }
+    @objc public func pullWithRebase(_ sender: Any?) { activeOperations?.pull(.rebase) }
+    @objc public func pushRepository(_ sender: Any?) { activeOperations?.push() }
+    @objc public func showRemotes(_ sender: Any?) { activeOperations?.showRemotes() }
+    @objc public func stashChanges(_ sender: Any?) { activeOperations?.createStash() }
+    @objc public func popStash(_ sender: Any?) { activeOperations?.popLatest() }
+    @objc public func newBranch(_ sender: Any?) {
+        activeOperations?.newBranch(at: "HEAD", label: activeOperations?.currentBranch ?? "HEAD")
+    }
+    @objc public func resolveConflicts(_ sender: Any?) { activeOperations?.openNextConflict() }
+    @objc public func continueOperation(_ sender: Any?) { activeOperations?.continueOperation() }
+    @objc public func abortOperation(_ sender: Any?) { activeOperations?.abort() }
+
+    @objc public func cloneRepository(_ sender: Any?) { presentClone() }
+
+    /// File ▸ Clone… (⇧⌘N) and the new-tab page: a standard sheet; the clone opens in a new tab.
+    public func presentClone() {
+        guard let window, window.attachedSheet == nil else { return }
+        let host = NSHostingController(rootView: AnyView(EmptyView()))
+        let clone = CloneModel(engine: model.engine, preferences: model.preferences)
+        clone.finish = { [weak self, weak host] path in
+            if let host { self?.window?.endSheet(host.view.window ?? NSWindow()) }
+            if let path { self?.model.open(URL(fileURLWithPath: path)) }
+        }
+        host.rootView = AnyView(CloneSheet(model: clone))
+        host.sizingOptions = .preferredContentSize
+        let sheet = NSWindow(contentViewController: host)
+        window.beginSheet(sheet)
+    }
+
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let isRepository = model.activeTab?.isRepository == true
         switch menuItem.action {
@@ -501,6 +617,21 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             #selector(openRepositoryInTerminal(_:)), #selector(copyRepositoryPath(_:)):
             return isRepository
         case #selector(clearRecentRepositories(_:)): return !model.recents.entries.isEmpty
+        case #selector(fetchRepository(_:)), #selector(fetchAllRemotes(_:)), #selector(showRemotes(_:)),
+            #selector(showActivity(_:)), #selector(newBranch(_:)):
+            return activeOperations != nil
+        case #selector(pullRepository(_:)), #selector(pullWithMerge(_:)), #selector(pullWithRebase(_:)):
+            return activeOperations?.session.status?.branch.upstream != nil
+        case #selector(pushRepository(_:)):
+            return activeOperations.map { !$0.headIsDetached } ?? false
+        case #selector(stashChanges(_:)):
+            return !(activeOperations?.session.status?.summary?.isClean ?? true)
+        case #selector(popStash(_:)):
+            return !(activeOperations?.session.stashes?.isEmpty ?? true)
+        case #selector(resolveConflicts(_:)):
+            return (activeOperations?.session.operationState.conflicted ?? 0) > 0
+        case #selector(continueOperation(_:)), #selector(abortOperation(_:)):
+            return activeOperations?.session.operationState.isDrivable ?? false
         default: return true
         }
     }

@@ -166,7 +166,7 @@ extension RepositoryHandle {
         return message.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    func runRead(_ arguments: [String], limit: Int) async throws(GitCoreError) -> [UInt8] {
+    nonisolated func runRead(_ arguments: [String], limit: Int) async throws(GitCoreError) -> [UInt8] {
         do {
             return try await gitEngine.run(
                 GitCommand(arguments, in: workingDirectory, kind: .read, timeout: .seconds(120), stdoutLimit: limit)

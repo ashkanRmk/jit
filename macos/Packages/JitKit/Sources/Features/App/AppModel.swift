@@ -124,9 +124,20 @@ public final class AppModel {
         guard hasPendingWrites else { return done() }
         withObservationTracking {
             _ = tabs.map { $0.session?.pendingWrites }
+            _ = tabs.map { $0.session?.operations.records }
         } onChange: { [weak self] in
             Task { @MainActor in self?.whenWritesFinish(done) }
         }
+    }
+
+    /// Running operations across tabs (quit confirmation, design §5).
+    public var runningOperations: [String] {
+        tabs.flatMap { tab in (tab.session?.operations.running ?? []).map { "\($0.title) — \(tab.title)" } }
+    }
+
+    /// Quit: cancels every cancel-safe operation (fetch, clone, push); the rest finish first (bounded wait).
+    public func cancelCancellableOperations() {
+        for tab in tabs { _ = tab.session?.operations.cancelAllCancellable() }
     }
 
     public func flush() {

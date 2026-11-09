@@ -62,14 +62,23 @@ public final class RepositorySession {
     /// The UI disables conflicting actions while non-empty (design §4.7). Phase 4 lifts this into
     /// OperationCenter.
     public private(set) var pendingWrites: [String] = []
-    public var isBusy: Bool { !pendingWrites.isEmpty }
+    public var isBusy: Bool { !pendingWrites.isEmpty || operations.isBusy }
+
+    /// Activity of this repository (Phase 4): running and recent operations.
+    public let operations = OperationCenter()
+    /// The in-progress merge/rebase/… with banner details; refreshed by FSEvents and after operations.
+    public internal(set) var operationState: RepoOperationState = .clean
+    /// `stash@{n}` entries, newest first; `nil` until first requested (lazy, design §3.11).
+    public internal(set) var stashes: [StashEntry]?
+    @ObservationIgnored var operationStateTask: Task<Void, Never>?
+    @ObservationIgnored var stashTask: Task<Void, Never>?
 
     /// Called on the main actor after `info`, `status` or `error` change (tab title/dot, recents).
     @ObservationIgnored public var onChange: (@MainActor (RepositorySession) -> Void)?
 
     @ObservationIgnored private let engine: GitEngine
     @ObservationIgnored private let watchesFileSystem: Bool
-    @ObservationIgnored private var handle: RepositoryHandle?
+    @ObservationIgnored private(set) var handle: RepositoryHandle?
     @ObservationIgnored private var watcher: RepositoryWatcher?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -239,7 +248,7 @@ public final class RepositorySession {
     }
 
     @discardableResult
-    private func write<T: Sendable>(
+    func write<T: Sendable>(
         _ description: String, refresh: Set<InvalidationKind> = [.index, .worktree],
         _ body: @Sendable (RepositoryHandle) async throws(GitCoreError) -> T
     ) async throws(GitCoreError) -> T {
@@ -277,6 +286,8 @@ public final class RepositorySession {
                 guard !Task.isCancelled else { return }
                 self.apply(status)
                 self.lifecycle = .active
+                // Requests made before the handle existed (stash list for the command bar) run now.
+                if self.stashes == nil { self.loadStashes() }
                 self.loadTask = nil
             } catch .cancelled {
                 return
@@ -291,7 +302,7 @@ public final class RepositorySession {
     }
 
     /// One refresh in flight plus at most one queued; invalidations accumulate while one runs.
-    private func scheduleRefresh(_ kinds: some Sequence<InvalidationKind>, reason: RefreshReason) {
+    func scheduleRefresh(_ kinds: some Sequence<InvalidationKind>, reason: RefreshReason) {
         pendingInvalidation.formUnion(kinds)
         guard refreshTask == nil else {
             refreshQueued = true
@@ -334,6 +345,11 @@ public final class RepositorySession {
 
     private func apply(_ newStatus: RepositoryStatus) {
         refreshCount += 1
+        if newStatus.operation != status?.operation
+            || (newStatus.summary?.conflicted ?? 0) != (status?.summary?.conflicted ?? 0)
+        {
+            refreshOperationState()
+        }
         Self.log.debug(
             "status refresh #\(self.refreshCount, privacy: .public) revision \(newStatus.revision, privacy: .public)")
         if error != nil { error = nil }
@@ -372,6 +388,8 @@ public final class RepositorySession {
         }
         scheduleRefresh(batch.kinds, reason: .fileSystem)
         if !batch.kinds.isDisjoint(with: [.refs, .head]) { history?.refsMayHaveChanged() }
+        if !batch.kinds.isDisjoint(with: [.operationState, .index, .head]) { refreshOperationState() }
+        if batch.kinds.contains(.refs) { refreshStashesIfLoaded() }
     }
 }
 

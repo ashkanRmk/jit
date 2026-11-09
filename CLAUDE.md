@@ -25,7 +25,10 @@ Git CLI. No Rust/FFI (ADR-0002), no web views, Electron, Tauri, local servers, d
 - Secrets live only in the Keychain. Never in argv, URLs, env dumps, logs or preferences.
 - Never modify `~/.gitconfig` or `~/.ssh/config`. Identity is applied per invocation.
 - Every mutation is serialized per repository and validated against the snapshot it was prepared on.
-- Destructive actions require explicit, specific confirmation.
+- Destructive actions require explicit, specific confirmation: `ConfirmationSheet` → `ConfirmationToken`
+  (minted only by `ConfirmationRequest.confirm()`); never plain `--force` (force-with-lease only).
+- Remote Git commands go through `GitEnvironment.remoteCommand(ExecContext)`; mutations take a `RepoStateToken`
+  and run inside `RepositoryHandle.performExclusive` (the one writer).
 - Colors, type, spacing, radii and motion come from `DesignSystem` tokens — never hardcoded in views.
 - Follow standard macOS conventions (Human Interface Guidelines) for window chrome, controls and their placement:
   system toolbar items and positions (e.g. the sidebar toggle beside the window controls with a sidebar
@@ -59,6 +62,10 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
   (review the diff of `Tests/GitCoreTests/Resources/lanes/` by hand)
 - Property tests: `JIT_PROPERTY_CASES=<n>` (default 150, 2,000 when `CI` is set), `JIT_PROPERTY_SEED=<seed>`
   re-runs a printed failing seed: `swift test --package-path macos/Packages/JitKit --filter ApplyPropertyTests`
+  (conflict documents: `--filter randomThreeWayEditsMatchGit`, default 60 cases, 400 with `CI`)
+- Phase 4 integration suites (real repos, local bare remotes, a local HTTP 401 stub):
+  `swift test --package-path macos/Packages/JitKit --filter "FrameworkTests|RemoteOperationTests|BranchOperationTests|IntegrationTests|ConflictTests|StashTests|SafetyRegressionTests"`;
+  abort/refusal tests compare `RepoFingerprint` (GitTestKit) before and after
 - State: `JIT_APP_SUPPORT=<dir>` replaces `~/Library/Application Support/Jit` (tests, screenshots, benchmarks —
   never run experiments against the real one)
 - Screenshots (real captures; needs Screen Recording): `scripts/testing/screenshot.sh <light|dark> <out.png>`

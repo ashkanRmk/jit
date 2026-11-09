@@ -113,11 +113,28 @@ navigator, find, options, focus; selection actions at the bottom), each a separa
 content so the body keeps every click. Blame: 240 pt `surface.sunken` gutter, initials avatar in a lane colour,
 age ramp = `accent.base` at 15–90 % opacity on the gutter edge.
 
+### Phase 4 — operations, banner, resolver
+- **Activity:** a standard toolbar item (system glass) present only while the active tab has activity; ring +
+  one-line label while running, one-shot checkmark on finish (160 ms in, ~900 ms hold, 200 ms out), quiet
+  clock glyph otherwise; popover rows are plain text on the popover material.
+- **Operation banner:** one floating capsule under the command bar, `tintedGlassBar(tint: .statusWarning)`
+  (glass tinted at 22 %; opaque `conflict.bg` with a hairline under Reduce Transparency); its buttons share one
+  `GlassControlGroup`, Resolve Next is the single `primaryGlassButton`.
+- **Sheets:** standard window-modal sheets; destructive buttons use the destructive role with
+  `status.danger` text, Cancel is the default; high-risk actions enable after 600 ms.
+- **Resolver:** chrome = one floating glass control group (navigator, Show Base, Save, Mark as Resolved —
+  prominent only when everything is resolved, Close). Content = opaque `CodeLinesView` panes on
+  `surface.canvas` with `surface.panel` pane headers; conflict rows `conflict.bg` with a `conflict.mark` bar,
+  resolved rows `resolved.bg` with an `accent.base` bar, the current block in the system selection colour. Block
+  actions are plain bordered buttons on `surface.panel` (never glass).
+- **Tokens added:** `conflict.bg`, `conflict.mark`, `resolved.bg`.
+
 ### Contrast guarantees (unit-tested, all four variants)
 Primary/secondary text ≥ 4.5:1 on canvas, panel, raised, sunken; tertiary text, accent, status and diff
 marks ≥ 3:1; lanes ≥ 3:1 on canvas; text on diff backgrounds and on accent ≥ 4.5:1; line numbers and
 change bars ≥ 3:1 on both diff backgrounds and `surface.sunken`; every `syntax.*` colour ≥ 4.5:1 on the
-canvas and both diff backgrounds; Increase Contrast values strictly stronger than regular for
+canvas and both diff backgrounds; text, syntax, line numbers and marks on `conflict.bg` / `resolved.bg`
+(Phase 4); Increase Contrast values strictly stronger than regular for
 secondary/tertiary text and borders.
 
 ## Typography (SF Pro / SF Mono — `TypeToken`, applied with `.typeStyle(_:)`)

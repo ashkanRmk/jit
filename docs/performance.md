@@ -3,6 +3,21 @@
 Budget (§15.1, `docs/roadmap.md` §7) and measured results. Numbers are reported as measured; nothing
 here is estimated. Raw outputs are written to `scripts/benchmarks/out/` (git-ignored).
 
+## Phase 4 — 2026-11-09
+
+MacBook Pro `Mac17,9` (Apple M5 Pro, 24 GB), macOS 27.2, Git 2.54.0 (Homebrew), release builds unless noted.
+
+| Metric (implementation.md §4) | Target | Measured | Method |
+|---|---|---|---|
+| Idle CPU after a completed fetch, banner visible (repo mid-cherry-pick), activity item shown | 0.0–0.2 % | **0.00 %** mean over 30 samples, **0** idle wakeups in 58 s, 3 threads, 64 MB footprint | release app, Repository ▸ Fetch, 10 s settle, `top -l 31 -s 2 -stats cpu,idlew,threads`, `footprint` |
+| Resolver open, 5,000-line file with 20 blocks (classify + stage blobs + `merge-file` + parse) | < 250 ms | **59–60 ms** (3 runs) | `swift test -c release --filter load5000LineConflictWith20Blocks` |
+| Auth failure without prompt (local HTTP 401) | fail fast | ~50 ms isolated (debug) | `authFailureFailsFastWithoutPrompt` |
+| Progress stream rate | ≤ 10 Hz, buffer 1 | 99 updates in < 100 ms → ≤ 2 yielded; `.bufferingNewest(1)` keeps only the newest | `progressThrottledToTenHertz`, `progressStreamDropsStaleValues` |
+
+Not measured: Core Animation commits / GPU with the banner visible (needs Instruments / root `powermetrics`; CPU
+and wakeups above were 0), post-operation graph refresh on a 10k-commit repo with 50 new commits, memory after
+closing the resolver, Leaks during 50 fetch/merge cycles.
+
 ## Phase 3 — 2026-11-09
 
 MacBook Pro `Mac17,9` (Apple M5 Pro, 24 GB), macOS 27.2, Git 2.54.0 (Homebrew), release builds unless noted.
