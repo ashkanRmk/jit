@@ -155,65 +155,18 @@ private final class ChildProcess: @unchecked Sendable {
         #if DEBUG
             dispatchPrecondition(condition: .notOnQueue(.main))
         #endif
-        var outPipe: [Int32] = [-1, -1]
-        var errPipe: [Int32] = [-1, -1]
-        guard pipe(&outPipe) == 0 else { return complete(.failure(.launchFailed(errno: errno))) }
-        guard pipe(&errPipe) == 0 else {
-            let code = errno
-            close(outPipe[0])
-            close(outPipe[1])
-            return complete(.failure(.launchFailed(errno: code)))
+        let spawned: SpawnedChild
+        switch SpawnedChild.spawn(spec) {
+        case .success(let child): spawned = child
+        case .failure(let error): return complete(.failure(error))
         }
-        // Close-on-exec on all four ends, so a concurrent spawn elsewhere in the process (one that does
-        // not use CLOEXEC_DEFAULT) cannot inherit a write end and delay EOF. `adddup2` clears the flag
-        // on the child's stdout/stderr.
-        for fd in [outPipe[0], outPipe[1], errPipe[0], errPipe[1]] {
-            _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
-        }
-        for fd in [outPipe[0], errPipe[0]] {
-            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
-        }
+        pid = spawned.pid
+        liveGroups.insert(spawned.pid)
 
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
-        posix_spawn_file_actions_adddup2(&actions, outPipe[1], STDOUT_FILENO)
-        posix_spawn_file_actions_adddup2(&actions, errPipe[1], STDERR_FILENO)
-        posix_spawn_file_actions_addchdir(&actions, spec.workingDirectory)
+        stdoutSource = makeReader(fd: spawned.stdout, isStdout: true)
+        stderrSource = makeReader(fd: spawned.stderr, isStdout: false)
 
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        defer { posix_spawnattr_destroy(&attributes) }
-        let flags =
-            POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF
-            | POSIX_SPAWN_SETSIGMASK
-        posix_spawnattr_setflags(&attributes, Int16(flags))
-        var defaultSignals = sigset_t()
-        sigfillset(&defaultSignals)
-        posix_spawnattr_setsigdefault(&attributes, &defaultSignals)
-        var emptyMask = sigset_t()
-        sigemptyset(&emptyMask)
-        posix_spawnattr_setsigmask(&attributes, &emptyMask)
-
-        let argv = CStringArray([spec.executable] + spec.arguments)
-        let envp = CStringArray(spec.environment.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" })
-        var childPID: pid_t = 0
-        let status = posix_spawn(&childPID, spec.executable, &actions, &attributes, argv.pointers, envp.pointers)
-        close(outPipe[1])
-        close(errPipe[1])
-        guard status == 0 else {
-            close(outPipe[0])
-            close(errPipe[0])
-            return complete(.failure(classifySpawnFailure(status)))
-        }
-        pid = childPID
-        liveGroups.insert(childPID)
-
-        stdoutSource = makeReader(fd: outPipe[0], isStdout: true)
-        stderrSource = makeReader(fd: errPipe[0], isStdout: false)
-
-        let exit = DispatchSource.makeProcessSource(identifier: childPID, eventMask: .exit, queue: queue)
+        let exit = DispatchSource.makeProcessSource(identifier: spawned.pid, eventMask: .exit, queue: queue)
         exit.setEventHandler { [self] in reap(afterExitEvent: true) }
         // The child may exit before kqueue registration completes; check again once it is armed.
         exit.setRegistrationHandler { [self] in reap() }
@@ -224,18 +177,6 @@ private final class ChildProcess: @unchecked Sendable {
             schedule(after: timeout) { [self] in
                 terminate(because: .timedOut(seconds: ChildProcessMath.roundedUp(timeout)))
             }
-        }
-    }
-
-    private func classifySpawnFailure(_ code: Int32) -> GitCoreError {
-        let executableUsable = access(spec.executable, X_OK) == 0
-        switch code {
-        case ENOENT where executableUsable, ENOTDIR where executableUsable:
-            return .pathNotFound(path: spec.workingDirectory)
-        case EACCES where executableUsable:
-            return .permissionDenied(path: spec.workingDirectory)
-        default:
-            return .launchFailed(errno: code)
         }
     }
 
@@ -375,25 +316,11 @@ private final class ChildProcess: @unchecked Sendable {
         }
         let signal = waitStatus & 0x7f
         let exitCode: Int32 = signal == 0 ? (waitStatus >> 8) & 0xff : 128 + signal
-        let output = ProcessOutput(exitCode: exitCode, stdout: stdout, stderr: stderr)
         guard spec.acceptedExitCodes.contains(exitCode) else {
-            let detail = Redaction.redact(output.stderrText.trimmingCharacters(in: .whitespacesAndNewlines))
-            let firstLine = detail.split(whereSeparator: \.isNewline).first.map(String.init)
-            let summary =
-                signal != 0
-                ? "Git was stopped by signal \(signal)."
-                : (firstLine.map { Self.humanize($0) } ?? "Git exited with status \(exitCode).")
-            return complete(.failure(.processFailed(exitCode: exitCode, summary: summary, detail: detail)))
+            return complete(.failure(ChildProcessMath.exitFailure(waitStatus: waitStatus, stderr: stderr).error))
         }
+        let output = ProcessOutput(exitCode: exitCode, stdout: stdout, stderr: stderr)
         complete(.success(output))
-    }
-
-    private static func humanize(_ line: String) -> String {
-        for prefix in ["fatal: ", "error: "] where line.hasPrefix(prefix) {
-            let message = line.dropFirst(prefix.count)
-            return message.prefix(1).uppercased() + message.dropFirst()
-        }
-        return line
     }
 
     private func complete(_ result: Result<ProcessOutput, GitCoreError>) {
@@ -429,6 +356,28 @@ final class LiveProcessGroups: Sendable {
 }
 
 enum ChildProcessMath {
+    static func humanize(_ line: String) -> String {
+        for prefix in ["fatal: ", "error: "] where line.hasPrefix(prefix) {
+            let message = line.dropFirst(prefix.count)
+            return message.prefix(1).uppercased() + message.dropFirst()
+        }
+        return line
+    }
+
+    /// The error for a child that exited with an unaccepted status (`waitStatus` from `waitpid`).
+    static func exitFailure(waitStatus: Int32, stderr: [UInt8]) -> (exitCode: Int32, error: GitCoreError) {
+        let signal = waitStatus & 0x7f
+        let exitCode: Int32 = signal == 0 ? (waitStatus >> 8) & 0xff : 128 + signal
+        let text = String(decoding: stderr.suffix(ProcessRunner.stderrLimit), as: UTF8.self)
+        let detail = Redaction.redact(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        let firstLine = detail.split(whereSeparator: \.isNewline).first.map(String.init)
+        let summary =
+            signal != 0
+            ? "Git was stopped by signal \(signal)."
+            : (firstLine.map { humanize($0) } ?? "Git exited with status \(exitCode).")
+        return (exitCode, .processFailed(exitCode: exitCode, summary: summary, detail: detail))
+    }
+
     /// Whole seconds for user-facing timeout messages: 400 ms → 1, 15 s → 15.
     static func roundedUp(_ duration: Duration) -> Int {
         let (seconds, attoseconds) = duration.components
@@ -441,6 +390,83 @@ func processGroupHasMembers(_ pgid: pid_t) -> Bool {
     var members = [pid_t](repeating: 0, count: 4)
     let bytes = members.withUnsafeMutableBytes { proc_listpgrppids(pgid, $0.baseAddress, Int32($0.count)) }
     return bytes > 0
+}
+
+/// A launched child: pid (= process group id) and the parent's non-blocking read ends of its pipes.
+struct SpawnedChild {
+    let pid: pid_t
+    let stdout: Int32
+    let stderr: Int32
+
+    /// `posix_spawn` with stdin `/dev/null`, its own session/process group, default signals and only
+    /// stdout/stderr inherited.
+    static func spawn(_ spec: ProcessSpec) -> Result<SpawnedChild, GitCoreError> {
+        var outPipe: [Int32] = [-1, -1]
+        var errPipe: [Int32] = [-1, -1]
+        guard pipe(&outPipe) == 0 else { return .failure(.launchFailed(errno: errno)) }
+        guard pipe(&errPipe) == 0 else {
+            let code = errno
+            close(outPipe[0])
+            close(outPipe[1])
+            return .failure(.launchFailed(errno: code))
+        }
+        // Close-on-exec on all four ends, so a concurrent spawn elsewhere in the process (one that does
+        // not use CLOEXEC_DEFAULT) cannot inherit a write end and delay EOF. `adddup2` clears the flag
+        // on the child's stdout/stderr.
+        for fd in [outPipe[0], outPipe[1], errPipe[0], errPipe[1]] {
+            _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+        }
+        for fd in [outPipe[0], errPipe[0]] {
+            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        }
+
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_adddup2(&actions, outPipe[1], STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(&actions, errPipe[1], STDERR_FILENO)
+        posix_spawn_file_actions_addchdir(&actions, spec.workingDirectory)
+
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        let flags =
+            POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF
+            | POSIX_SPAWN_SETSIGMASK
+        posix_spawnattr_setflags(&attributes, Int16(flags))
+        var defaultSignals = sigset_t()
+        sigfillset(&defaultSignals)
+        posix_spawnattr_setsigdefault(&attributes, &defaultSignals)
+        var emptyMask = sigset_t()
+        sigemptyset(&emptyMask)
+        posix_spawnattr_setsigmask(&attributes, &emptyMask)
+
+        let argv = CStringArray([spec.executable] + spec.arguments)
+        let envp = CStringArray(spec.environment.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" })
+        var childPID: pid_t = 0
+        let status = posix_spawn(&childPID, spec.executable, &actions, &attributes, argv.pointers, envp.pointers)
+        close(outPipe[1])
+        close(errPipe[1])
+        guard status == 0 else {
+            close(outPipe[0])
+            close(errPipe[0])
+            return .failure(classifySpawnFailure(status, spec: spec))
+        }
+        return .success(SpawnedChild(pid: childPID, stdout: outPipe[0], stderr: errPipe[0]))
+    }
+
+    private static func classifySpawnFailure(_ code: Int32, spec: ProcessSpec) -> GitCoreError {
+        let executableUsable = access(spec.executable, X_OK) == 0
+        switch code {
+        case ENOENT where executableUsable, ENOTDIR where executableUsable:
+            return .pathNotFound(path: spec.workingDirectory)
+        case EACCES where executableUsable:
+            return .permissionDenied(path: spec.workingDirectory)
+        default:
+            return .launchFailed(errno: code)
+        }
+    }
 }
 
 /// A NUL-terminated `char *[]` that owns its strings for the duration of a `posix_spawn` call.
