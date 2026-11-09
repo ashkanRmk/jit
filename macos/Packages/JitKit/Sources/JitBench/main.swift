@@ -68,6 +68,23 @@ func measure(
 }
 
 var arguments = Array(CommandLine.arguments.dropFirst())
+
+// `JitBench make-history <commits> <branches> <out>`: deterministic history fixture (fast-import).
+if arguments.first == "make-history" {
+    guard arguments.count == 4, let commits = Int(arguments[1]), let branches = Int(arguments[2]) else {
+        print("usage: JitBench make-history <commits> <branches> <out-directory>")
+        exit(2)
+    }
+    let out = arguments[3]
+    if FileManager.default.fileExists(atPath: out) {
+        print("error: \(out) already exists")
+        exit(1)
+    }
+    let started = ContinuousClock.now
+    let head = try SyntheticHistory(commits: commits, branches: branches).build(at: out)
+    print("make-history: \(commits) commits, \(branches) branches → \(out) HEAD \(head) in \(ContinuousClock.now - started)")
+    exit(0)
+}
 var iterations = 200
 var outDirectory = "scripts/benchmarks/out"
 var selection = "all"
@@ -78,6 +95,7 @@ while let argument = arguments.first {
     case "--out": outDirectory = arguments.removeFirst()
     case "-h", "--help":
         print("JitBench [spawn-latency|discovery|status-parse|all] [--iterations N] [--out DIR]")
+        print("JitBench make-history <commits> <branches> <out-directory>")
         exit(0)
     default: selection = argument
     }

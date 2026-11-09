@@ -108,3 +108,12 @@ Recorded in `docs/phases/00-foundation/progress.md`.
 - **Micro-benchmarks**: `swift run -c release --package-path macos/Packages/JitKit JitBench
   [spawn-latency|discovery|all] [--iterations N]` — real Git, a fresh `GitTestKit` sandbox repository,
   3 warm-up iterations, `ContinuousClock`, JSON per benchmark.
+- **History fixtures** (Phase 2): `scripts/benchmarks/make-history-fixture.sh --standard` builds
+  `history-1000`, `history-10000` and `history-100000` under `$JIT_FIXTURES` (default
+  `~/Library/Caches/jit-bench/`, outside the repository) with `git fast-import` from GitTestKit's
+  `SyntheticHistory`: `main` + up to 8 concurrent feature branches, a merge every 20 commits, the newest
+  50 feature branches kept as refs, 200 tags (every 4th annotated), `origin/main` trailing `main`. Fixed
+  seed, dates and identities: the same arguments give the same HEAD (`history-100000` →
+  `f7f267864f778bf8e05824a9fd47c2521cac93a5`). Build time on the reference Mac: 0.5 s / 0.9 s / 6.2 s.
+  Custom sizes: `make-history-fixture.sh <commits> <branches> <out>`. Real-world cross-check: a clone of
+  `https://github.com/git/git` at `~/Code/git-src`.
