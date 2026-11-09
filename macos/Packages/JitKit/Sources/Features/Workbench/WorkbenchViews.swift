@@ -1,3 +1,4 @@
+import AppKit
 import DesignSystem
 import GitCore
 import Services
@@ -135,7 +136,13 @@ struct RepositoryErrorView: View {
             HStack(spacing: Space.s4) {
                 Button("Retry", action: actions.retry)
                     .keyboardShortcut(.defaultAction)
-                Button("Locate…", action: actions.locate)
+                if error.isGitRuntimeProblem {
+                    Button("Git Settings…") {
+                        NSApp.sendAction(Selector(("showSettingsGit:")), to: nil, from: nil)
+                    }
+                } else {
+                    Button("Locate…", action: actions.locate)
+                }
                 Button("Remove Tab", role: .destructive, action: actions.removeTab)
             }
             .controlSize(.large)
@@ -147,14 +154,24 @@ struct RepositoryErrorView: View {
     }
 }
 
+extension GitCoreError {
+    /// Jit has no usable Git (the fix is in Settings ▸ Git, not in the repository).
+    var isGitRuntimeProblem: Bool {
+        switch self {
+        case .gitNotFound, .gitTooOld: true
+        default: false
+        }
+    }
+}
+
 /// Plain-language recovery guidance per error.
 enum ErrorGuidance {
     static func text(for error: GitCoreError) -> String? {
         switch error {
         case .gitNotFound:
-            "Install the Xcode Command Line Tools (run “xcode-select --install” in Terminal) or Git from Homebrew, then try again."
+            "The Git that comes with Jit couldn't be used. Open Settings ▸ Git to choose another Git or install the Command Line Tools, then try again."
         case let .gitTooOld(found, required):
-            "This Mac has Git \(found). Install Git \(required) or newer — for example from Homebrew — then try again."
+            "The selected Git is version \(found). Open Settings ▸ Git to choose Git \(required) or newer, or switch back to the Git that comes with Jit."
         case .unsafeRepository:
             "Git protects you from repositories owned by other users. If you trust this folder, you can allow it with “git config --global --add safe.directory <path>”. Jit never changes this setting for you."
         case .permissionDenied:

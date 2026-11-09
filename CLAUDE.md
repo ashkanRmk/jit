@@ -82,7 +82,7 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
   never run experiments against the real one)
 - Screenshots (real captures; needs Screen Recording): `scripts/testing/screenshot.sh <light|dark> <out.png>`
 - Debug launch args: `-JitOpen <path>` / env `JIT_OPEN` (all builds), `-JitAppearance light|dark`,
-  `-JitShowGallery YES`, `-JitGallerySection <name>`, `-JitShowSettings general|profiles|accounts|network`, `-JitShowRepositoryBrowser YES`,
+  `-JitShowGallery YES`, `-JitGallerySection <name>`, `-JitShowSettings general|profiles|accounts|network|git`, `-JitShowRepositoryBrowser YES`,
   `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`, `-JitUITestOpenRepository <path>`,
   `-JitSnapshot <png>` (debug only; renders the window to PNG, glass approximated),
   `-JitGraphSelectRow <n>` [`-JitGraphCompareRow <m>`], `-JitGraphSearch <text>` [`-JitGraphOnlyMatches YES`],

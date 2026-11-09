@@ -6,11 +6,11 @@ import SwiftUI
 
 /// Settings (⌘,) in the macOS System Settings style (design §3.2): a `NavigationSplitView` with the system
 /// sidebar (Liquid Glass by the system) and grouped `Form` panes — General, Profiles, Accounts, Servers &
-/// Network. No custom chrome.
+/// Network, Git. No custom chrome.
 @MainActor
 public final class SettingsWindowController: NSWindowController {
     public enum Pane: String, CaseIterable, Identifiable, Sendable {
-        case general, profiles, accounts, network
+        case general, profiles, accounts, network, git
 
         public var id: String { rawValue }
 
@@ -20,6 +20,7 @@ public final class SettingsWindowController: NSWindowController {
             case .profiles: "Profiles"
             case .accounts: "Accounts"
             case .network: "Servers & Network"
+            case .git: "Git"
             }
         }
 
@@ -29,6 +30,7 @@ public final class SettingsWindowController: NSWindowController {
             case .profiles: "person.2"
             case .accounts: "person.crop.circle.badge.checkmark"
             case .network: "network"
+            case .git: "terminal"
             }
         }
     }
@@ -88,6 +90,7 @@ struct SettingsRootView: View {
                     ProfilesSettingsView(accounts: accounts, engine: engine) { navigation.pane = $0 }
                 case .accounts: AccountsSettingsView(accounts: accounts) { navigation.pane = $0 }
                 case .network: NetworkSettingsView(accounts: accounts)
+                case .git: GitSettingsView(preferences: preferences, engine: engine)
                 }
             }
             .navigationTitle(navigation.pane.title)

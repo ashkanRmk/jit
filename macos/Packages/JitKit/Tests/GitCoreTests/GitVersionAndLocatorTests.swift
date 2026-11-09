@@ -74,9 +74,44 @@ final class FakeProbe: FileProbe {
     }
 
     @Test func ignoresEnvOverrideInRelease() throws {
-        let probe = FakeProbe(executables: ["/custom/git", "/opt/homebrew/bin/git"])
-        let location = try locate(probe, debug: false, environment: ["JIT_GIT_PATH": "/custom/git"])
-        #expect(location.source == .homebrew)
+        let probe = FakeProbe(executables: ["/custom/git", "/Jit.app/Contents/Resources/git/bin/git"])
+        let configuration = GitLocator.Configuration(
+            allowsEnvironmentOverride: false, environment: ["JIT_GIT_PATH": "/custom/git"],
+            bundledGitPath: "/Jit.app/Contents/Resources/git/bin/git")
+        let location = try GitLocator(configuration: configuration, probe: probe).locate()
+        #expect(location.source == .bundled)
+    }
+
+    @Test func gitLocatorPrefersCustomThenBundled() throws {
+        let bundled = "/Jit.app/Contents/Resources/git/bin/git"
+        let probe = FakeProbe(executables: ["/custom/git", bundled, "/opt/homebrew/bin/git"])
+        var configuration = GitLocator.Configuration(
+            allowsEnvironmentOverride: false, environment: [:], bundledGitPath: bundled, userOverridePath: "/custom/git"
+        )
+        #expect(try GitLocator(configuration: configuration, probe: probe).locate().source == .userOverride)
+        // A custom Git that disappeared falls back to the bundled one.
+        configuration.userOverridePath = "/gone/git"
+        #expect(
+            try GitLocator(configuration: configuration, probe: probe).locate()
+                == GitLocation(path: bundled, source: .bundled))
+    }
+
+    @Test func releaseIgnoresHomebrewAndUsesInstalledDeveloperTools() throws {
+        let probe = FakeProbe(executables: ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"])
+        let release = GitLocator.Configuration(allowsEnvironmentOverride: false, environment: [:])
+        #expect(throws: GitCoreError.gitNotFound) { try GitLocator(configuration: release, probe: probe).locate() }
+        let withCLT = FakeProbe(executables: ["/opt/homebrew/bin/git", "/usr/bin/git", GitLocator.commandLineToolsGit])
+        #expect(
+            try GitLocator(configuration: release, probe: withCLT).locate()
+                == GitLocation(path: GitLocator.commandLineToolsGit, source: .system))
+    }
+
+    @Test func gitLocatorSkipsXcrunShimWithoutCLT() {
+        // Release configuration, no bundled Git, no CLT: the shim must never be chosen (it would prompt).
+        let probe = FakeProbe(executables: ["/usr/bin/git"])
+        let release = GitLocator.Configuration(allowsEnvironmentOverride: false, environment: [:])
+        #expect(throws: GitCoreError.gitNotFound) { try GitLocator(configuration: release, probe: probe).locate() }
+        #expect(!probe.queries.withLock { $0.contains("/usr/bin/git") })
     }
 
     @Test func prefersHomebrewOverUsrBin() throws {
@@ -134,5 +169,60 @@ final class FakeProbe: FileProbe {
         let info = try await GitEngine().gitInfo()
         print("GitCore uses \(info.path) (\(info.source.rawValue)), version \(info.version.displayString)")
         #expect(info.version >= .minimum)
+    }
+}
+
+/// `GitEngine.validateGit(at:)` and `setUserGitPath(_:)` against tiny fake Git scripts.
+@Suite struct GitValidationTests {
+    func fakeGit(version: String, execPath: String? = nil) throws -> String {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "jit-fake-git-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let exec = execPath ?? directory.path
+        let script = """
+            #!/bin/sh
+            case "$1" in
+              --version) echo "git version \(version)" ;;
+              --exec-path) echo "\(exec)" ;;
+              *) exit 1 ;;
+            esac
+            """
+        let path = directory.appendingPathComponent("git").path
+        try script.write(toFile: path, atomically: true, encoding: .utf8)
+        chmod(path, 0o755)
+        return path
+    }
+
+    @Test func gitLocatorRejectsOldVersion() async throws {
+        let engine = GitEngine()
+        let old = try fakeGit(version: "2.20.0")
+        await #expect(
+            throws: GitCoreError.gitTooOld(found: GitVersion(parsing: "git version 2.20.0")!, required: .minimum)
+        ) {
+            try await engine.validateGit(at: old)
+        }
+    }
+
+    @Test func validationRejectsMissingExecPathAndMissingFile() async throws {
+        let engine = GitEngine()
+        let broken = try fakeGit(version: "2.50.0", execPath: "/nonexistent/libexec/git-core")
+        await #expect(throws: GitCoreError.self) { try await engine.validateGit(at: broken) }
+        await #expect(throws: GitCoreError.pathNotFound(path: "/nonexistent/git")) {
+            try await engine.validateGit(at: "/nonexistent/git")
+        }
+    }
+
+    @Test func setUserGitPathSwitchesTheGitInUse() async throws {
+        let first = try fakeGit(version: "2.50.0")
+        let second = try fakeGit(version: "2.51.1")
+        let engine = GitEngine(
+            configuration: .init(
+                locator: .init(allowsEnvironmentOverride: false, environment: [:], userOverridePath: first)))
+        #expect(try await engine.validateGit(at: second).version.displayString == "2.51.1")
+        #expect(try await engine.gitInfo().path == first)
+        await engine.setUserGitPath(second)
+        let info = try await engine.gitInfo()
+        #expect(info.path == second)
+        #expect(info.source == .userOverride)
     }
 }

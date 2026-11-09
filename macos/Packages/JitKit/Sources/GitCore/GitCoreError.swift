@@ -33,7 +33,7 @@ public enum GitCoreError: Error, Sendable, Equatable {
     public var summary: String {
         switch self {
         case .gitNotFound:
-            "Git isn't installed on this Mac."
+            "Jit couldn't find a Git it can use."
         case let .gitTooOld(found, required):
             "Git \(found) is too old. Jit needs Git \(required) or newer."
         case .notARepository:

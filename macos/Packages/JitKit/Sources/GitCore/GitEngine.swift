@@ -82,6 +82,10 @@ public actor GitEngine {
 
     public nonisolated let configuration: Configuration
     private let runner: ProcessRunner
+    /// Where to look for Git; the user's custom Git can change while Jit runs (Settings ▸ Git).
+    private var locator: GitLocator.Configuration
+    /// Bumped by `setUserGitPath` so a probe that started before the change is not cached.
+    private var locatorGeneration = 0
     private var executable: GitExecutable?
     /// One shared probe for concurrent first callers (actor reentrancy would otherwise start several).
     private var probe: Task<Result<GitExecutable, GitCoreError>, Never>?
@@ -89,15 +93,57 @@ public actor GitEngine {
     public init(configuration: Configuration = Configuration()) {
         self.configuration = configuration
         self.runner = ProcessRunner(terminationGrace: configuration.terminationGrace)
+        self.locator = configuration.locator
+    }
+
+    /// Switches to the user's custom Git (or back to the bundled/default resolution with `nil`). The next
+    /// command locates and probes Git again. Validate the path first with `validateGit(at:)`.
+    public func setUserGitPath(_ path: String?) {
+        locator.userOverridePath = path
+        locatorGeneration += 1
+        executable = nil
+        probe = nil
+    }
+
+    /// Checks that `path` is a usable Git without adopting it: it starts, reports a version at least
+    /// `GitVersion.minimum`, and its `--exec-path` is an existing directory. Runs Git only at `path`.
+    public func validateGit(at path: String) async throws(GitCoreError) -> GitExecutable {
+        guard configuration.probe.isExecutableFile(path) else { throw .pathNotFound(path: path) }
+        let executable = try await Self.probeVersion(
+            GitLocation(path: path, source: .userOverride), configuration, runner)
+        let spec = ProcessSpec(
+            executable: path,
+            arguments: ["--exec-path"],
+            workingDirectory: "/",
+            environment: Self.environment(for: path, kind: .read, configuration: configuration),
+            timeout: .seconds(10),
+            stdoutLimit: 4096
+        )
+        let execPath = try await runner.run(spec).stdoutText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: execPath, isDirectory: &isDirectory), isDirectory.boolValue
+        else {
+            throw .internalError(summary: "The Git at \(path) reports a missing helper directory (\(execPath)).")
+        }
+        return executable
     }
 
     /// Locates Git and checks its version against `GitVersion.minimum`.
     public func gitInfo() async throws(GitCoreError) -> GitExecutable {
         if let executable { return executable }
         if Task.isCancelled { throw .cancelled }
-        let task = probe ?? Task { [configuration, runner] in await Self.locateAndProbe(configuration, runner) }
+        let task =
+            probe
+            ?? Task { [configuration, locator, runner] in
+                await Self.locateAndProbe(locator, configuration, runner)
+            }
         probe = task
+        let generation = locatorGeneration
         let result = await task.value
+        guard generation == locatorGeneration else {
+            // The Git choice changed while probing: resolve again with the new choice.
+            return try await gitInfo()
+        }
         probe = nil
         let found = try result.get()
         executable = found
@@ -105,19 +151,19 @@ public actor GitEngine {
     }
 
     private static func locateAndProbe(
-        _ configuration: Configuration, _ runner: ProcessRunner
+        _ locator: GitLocator.Configuration, _ configuration: Configuration, _ runner: ProcessRunner
     ) async -> Result<GitExecutable, GitCoreError> {
         do throws(GitCoreError) {
-            return .success(try await probeGit(configuration, runner))
+            let location = try GitLocator(configuration: locator, probe: configuration.probe).locate()
+            return .success(try await probeVersion(location, configuration, runner))
         } catch {
             return .failure(error)
         }
     }
 
-    private static func probeGit(
-        _ configuration: Configuration, _ runner: ProcessRunner
+    private static func probeVersion(
+        _ location: GitLocation, _ configuration: Configuration, _ runner: ProcessRunner
     ) async throws(GitCoreError) -> GitExecutable {
-        let location = try GitLocator(configuration: configuration.locator, probe: configuration.probe).locate()
         let spec = ProcessSpec(
             executable: location.path,
             arguments: ["--version"],
