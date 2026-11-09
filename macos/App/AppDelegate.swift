@@ -13,6 +13,7 @@ import os
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
     static func main() {
+        LaunchSignpost.begin()
         LaunchProbe.startIfRequested()
         let app = NSApplication.shared
         let delegate = AppDelegate()
@@ -202,6 +203,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 NSApp.terminate(nil)
             }
         }
+        switch BenchmarkScenario.current {
+        case .none: break
+        case .unknown(let name):
+            // Never runs anything; logged so a typo in a script is visible.
+            Benchmarks.report("scenario=\(name) error=unknown-scenario\n")
+        case .scenario(let scenario):
+            if let controller = windowController, scenario != .graphScroll {
+                Task {
+                    await BenchmarkScenarioRunner.run(
+                        scenario, model: model, controller: controller, report: Benchmarks.report)
+                    NSApp.terminate(nil)
+                }
+            }
+        }
         if environment["JIT_BENCHMARK_TAB_SWITCH"] != nil, let controller = windowController {
             Task { await Benchmarks.tabSwitch(model: model, controller: controller) }
         }
@@ -220,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 /// subsystem `jit.performance`) for Instruments. Inactive in normal launches.
 @MainActor
 final class LaunchProbe {
-    private static let signposter = OSSignposter(subsystem: "jit.performance", category: .pointsOfInterest)
+    private static let signposter = OSSignposter(subsystem: Signposts.subsystem, category: .pointsOfInterest)
     private let interval: OSSignpostIntervalState
     private var observers: [any NSObjectProtocol] = []
 
@@ -281,6 +296,29 @@ final class LaunchProbe {
         let startMs = Double(start.tv_sec) * 1000 + Double(start.tv_usec) / 1000
         let nowMs = Double(now.tv_sec) * 1000 + Double(now.tv_usec) / 1000
         return nowMs - startMs
+    }
+}
+
+/// `launch.firstWindow` (P6.1): process `main()` → first window key + one main-queue turn (the frame commits).
+/// Always on; `OSSignposter` costs nothing while no trace records.
+@MainActor
+enum LaunchSignpost {
+    private static var token: Signposts.Token?
+    private static var observer: (any NSObjectProtocol)?
+
+    static func begin() {
+        token = Signposts.begin(Signposts.launchFirstWindow)
+        observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { _ in MainActor.assumeIsolated { finish() } }
+    }
+
+    private static func finish() {
+        observer.map(NotificationCenter.default.removeObserver)
+        observer = nil
+        guard let token else { return }
+        self.token = nil
+        DispatchQueue.main.async { Signposts.end(token) }
     }
 }
 

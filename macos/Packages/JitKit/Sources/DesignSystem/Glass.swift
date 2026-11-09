@@ -9,6 +9,13 @@ import SwiftUI
 // - Untinted by default; `accent.tint` only on the single primary action of a surface.
 // - Never on rows, cells, cards or anything inside scrolling content. Never animated while idle.
 
+/// Glass-cost A/B switch (P6.2, design §4.1): `-JitOpaqueChrome YES` replaces Jit's own glass (tab strip,
+/// capsules, floating bars) with the Reduce Transparency opaque surfaces, so Instruments can attribute GPU
+/// cost to glass. Inert unless the argument is passed; system chrome (toolbar, sidebar, popovers) stays system.
+public enum GlassPolicy {
+    public static let opaqueChrome: Bool = UserDefaults.standard.bool(forKey: "JitOpaqueChrome")
+}
+
 /// Applies Liquid Glass to a custom chrome control, or an opaque chrome surface when Reduce
 /// Transparency is on.
 public struct GlassSurface<S: Shape>: ViewModifier {
@@ -17,7 +24,7 @@ public struct GlassSurface<S: Shape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     public func body(content: Content) -> some View {
-        if reduceTransparency {
+        if reduceTransparency || GlassPolicy.opaqueChrome {
             content
                 .background(ColorToken.surfaceChromeOpaque.color, in: shape)
                 .overlay(shape.stroke(ColorToken.borderStrong.color, lineWidth: Border.hairline))
@@ -85,7 +92,7 @@ public struct TintedGlassBar<S: Shape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     public func body(content: Content) -> some View {
-        if reduceTransparency {
+        if reduceTransparency || GlassPolicy.opaqueChrome {
             content
                 .background(ColorToken.conflictBackground.color, in: shape)
                 .overlay(shape.stroke(tint.color.opacity(0.6), lineWidth: Border.hairline))

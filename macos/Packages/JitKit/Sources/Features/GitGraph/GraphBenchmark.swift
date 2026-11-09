@@ -20,7 +20,10 @@ public enum GraphBenchmark {
         historyStartedAt = .now
     }
 
-    public static var isEnabled: Bool { ProcessInfo.processInfo.environment["JIT_BENCHMARK_GRAPH"] != nil }
+    public static var isEnabled: Bool {
+        ProcessInfo.processInfo.environment["JIT_BENCHMARK_GRAPH"] != nil
+            || BenchmarkScenario.current == .scenario(.graphScroll)
+    }
 
     public static func prepare() {
         guard isEnabled else { return }

@@ -102,6 +102,11 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         codeView.dataSource = model.source
         scrollView.isHidden = model.source == nil
         updateMessage()
+        if model.source != nil, let token = model.switchSignpost {
+            model.switchSignpost = nil
+            view.window?.displayIfNeeded()
+            Signposts.end(token)
+        }
     }
 
     /// The message layer exists only when there is something to say (it would otherwise eat clicks).

@@ -15,7 +15,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     private let container = ContentContainerViewController()
 
     /// The visible tab's graph (benchmarks).
-    var activeGraph: GraphViewController? { (container.current as? WorkbenchController)?.graph }
+    var activeGraph: GraphViewController? { activeWorkbench?.graph }
+    /// The visible tab's workbench, if it is a repository tab.
+    var activeWorkbench: WorkbenchController? { container.current as? WorkbenchController }
     /// One controller per loaded tab, kept while the tab is open (instant switching); dropped when the
     /// tab closes or its session is suspended under memory pressure.
     private var controllers: [UUID: NSViewController] = [:]

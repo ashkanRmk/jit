@@ -10,3 +10,5 @@ xcuserdata/
 scripts/benchmarks/out/
 # macOS
 .DS_Store
+benchmarks/results/
+__pycache__/

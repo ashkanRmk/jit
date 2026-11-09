@@ -25,6 +25,8 @@ public final class TabModel: Identifiable {
     @ObservationIgnored public var inspectorCollapsed: Bool
     @ObservationIgnored public var ui: [String: JSONValue]
     @ObservationIgnored public let session: RepositorySession?
+    /// `repo.open` interval of an open in progress; ended when the first graph rows are on screen.
+    @ObservationIgnored var openSignpost: Signposts.Token?
 
     init(
         id: UUID = UUID(), kind: Kind, title: String, branch: String? = nil, session: RepositorySession? = nil,

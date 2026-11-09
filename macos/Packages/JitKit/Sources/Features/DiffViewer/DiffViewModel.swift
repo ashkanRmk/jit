@@ -187,8 +187,15 @@ public final class DiffViewModel {
         load(target, keepPosition: true)
     }
 
+    /// `diff.switch`: a new file was selected; ended by the view when the first frame with it is drawn.
+    @ObservationIgnored public var switchSignpost: Signposts.Token?
+
     private func load(_ target: DiffTarget, keepPosition: Bool) {
         self.target = target
+        if !keepPosition {
+            switchSignpost.map(Signposts.end)
+            switchSignpost = Signposts.begin(Signposts.diffSwitch)
+        }
         loadTask?.cancel()
         spinnerTask?.cancel()
         if !keepPosition {

@@ -79,6 +79,9 @@ public final class OperationCenter {
         summarize: @escaping @Sendable (T) -> OperationSummary,
         _ body: @escaping @Sendable (AsyncStream<OperationProgress>.Continuation) async throws(GitCoreError) -> T
     ) async -> Result<T, PresentableError> {
+        // No detail: operation titles can contain branch names.
+        let interval = Signposts.begin(Signposts.operation)
+        defer { Signposts.end(interval) }
         let id = UUID()
         records.insert(
             OperationRecord(

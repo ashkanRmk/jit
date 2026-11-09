@@ -123,6 +123,42 @@ if arguments.first == "make-history" {
     )
     exit(0)
 }
+// `JitBench micro [--iterations N] [--out file.json]`: P6.2 GitCore micro-benchmarks.
+if arguments.first == "micro" {
+    var iterations = 30
+    var out: String?
+    var rest = Array(arguments.dropFirst())
+    while let argument = rest.first {
+        rest.removeFirst()
+        switch argument {
+        case "--iterations": iterations = Int(rest.removeFirst()) ?? iterations
+        case "--out": out = rest.removeFirst()
+        default: break
+        }
+    }
+    try await MicroBench.run(iterations: iterations, out: out)
+    exit(0)
+}
+
+// `JitBench make-bench-repo <name|--list> <out>`: Phase 6 benchmark repositories (gen-repos.sh).
+if arguments.first == "make-bench-repo" {
+    if arguments.count == 2, arguments[1] == "--list" {
+        print(BenchRepo.allCases.map(\.rawValue).joined(separator: " "))
+        exit(0)
+    }
+    guard arguments.count == 3, let repo = BenchRepo(rawValue: arguments[1]) else {
+        print("usage: JitBench make-bench-repo <\(BenchRepo.allCases.map(\.rawValue).joined(separator: "|"))> <out>")
+        exit(2)
+    }
+    if FileManager.default.fileExists(atPath: arguments[2]) {
+        print("error: \(arguments[2]) already exists")
+        exit(1)
+    }
+    let started = ContinuousClock.now
+    let head = try repo.build(at: arguments[2])
+    print("make-bench-repo: \(repo.rawValue) → \(arguments[2]) HEAD \(head) in \(ContinuousClock.now - started)")
+    exit(0)
+}
 var iterations = 200
 var outDirectory = "scripts/benchmarks/out"
 var selection = "all"

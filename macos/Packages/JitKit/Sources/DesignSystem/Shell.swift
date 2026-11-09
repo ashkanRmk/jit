@@ -111,7 +111,7 @@ public struct GlassTab<ID: Hashable & Sendable>: ViewModifier {
     @Environment(\.colorSchemeContrast) private var contrast
 
     public func body(content: Content) -> some View {
-        if reduceTransparency {
+        if reduceTransparency || GlassPolicy.opaqueChrome {
             content
                 .background(
                     isSelected ? ColorToken.accentMuted.color : ColorToken.surfaceChromeOpaque.color, in: Capsule()
