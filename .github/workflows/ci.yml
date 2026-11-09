@@ -58,7 +58,7 @@ jobs:
         run: scripts/build/build-app.sh release
 
   # Advisory performance gate (ADR-0041): release micro-benchmarks on a shared runner, compared with the
-  # reference baseline using loose thresholds (2.5×). The reference-Mac run (run-all.sh) is the authority.
+  # reference baseline using loose thresholds (4× for times/memory). The reference-Mac run (run-all.sh) is the authority.
   performance:
     runs-on: macos-26
     timeout-minutes: 30

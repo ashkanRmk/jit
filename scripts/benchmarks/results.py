@@ -107,9 +107,10 @@ def collect(out, summary, lines_path, micro=None):
     print(open(summary).read())
 
 # Thresholds (ADR-0041): relative for times/memory, absolute for idle CPU and wakeups.
-# Loose mode (CI): relative metrics may reach 2.5x the reference (the shared runner is different, slower
-# hardware than the reference Mac, so only order-of-magnitude regressions should fail); absolute limits x2.5.
-LOOSE_RATIO = 2.5
+# Loose mode (CI): relative metrics may reach 4x the reference. The shared runner is different, slower and
+# noisy hardware (observed 1.6x-2.85x the reference for the same commit), so only large regressions should
+# fail there; absolute limits x2.5. The reference-Mac run (ADR-0041) remains the authority.
+LOOSE_RATIO = 4.0
 
 def threshold(metric, unit, loose):
     factor = 2.5 if loose else 1.0
