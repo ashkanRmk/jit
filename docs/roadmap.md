@@ -1,24 +1,27 @@
 # Jit — Implementation Roadmap
 
-> Status: **Phase 0 implemented** (branch `phase/00-foundation`, see
-> [`phases/00-foundation/progress.md`](phases/00-foundation/progress.md)); **Phase 1 implemented** (branch
-> `phase/01-shell-and-tabs`, see [`phases/01-shell-and-tabs/progress.md`](phases/01-shell-and-tabs/progress.md));
-> **Phase 2 implemented** (branch `phase/02-graph-and-navigation`, see
-> [`phases/02-graph-and-navigation/progress.md`](phases/02-graph-and-navigation/progress.md)); **Phase 3 implemented**
-> ([`progress.md`](phases/03-working-directory-and-diff/progress.md)); **Phase 4 implemented** (branch
-> `phase/04-git-workflows-and-conflicts`, see
-> [`phases/04-git-workflows-and-conflicts/progress.md`](phases/04-git-workflows-and-conflicts/progress.md)); **Phase 5 implemented**
-> ([`progress.md`](phases/05-profiles-and-providers/progress.md)); **Phase 6 implemented with carry-overs** (branch
-> `phase/06-polish-and-performance`, see [`progress.md`](phases/06-polish-and-performance/progress.md)); **Phase 7 implemented,
-blocked on credentials** (Developer ID signing, notarization and clean-VM acceptance pending; branch
-`phase/07-packaging-and-release`, see [`progress.md`](phases/07-packaging-and-release/progress.md)); Phase 8 is a plan. Each phase folder under
-> [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
+> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.1, a
+> local test build ([notes](releases/v0.0.1.md)); the public 1.0.0 is not yet published.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
+>
+> | Phase | State | Report |
+> |---|---|---|
+> | 0 Foundation & design | implemented | [`progress.md`](phases/00-foundation/progress.md) |
+> | 1 Native shell & repository tabs | implemented | [`progress.md`](phases/01-shell-and-tabs/progress.md) |
+> | 2 Git graph & navigation | implemented | [`progress.md`](phases/02-graph-and-navigation/progress.md) |
+> | 3 Working directory & diff | implemented | [`progress.md`](phases/03-working-directory-and-diff/progress.md) |
+> | 4 Everyday workflows & conflicts | implemented | [`progress.md`](phases/04-git-workflows-and-conflicts/progress.md) |
+> | 5 Profiles & providers | implemented | [`progress.md`](phases/05-profiles-and-providers/progress.md) |
+> | 6 Polish & performance | implemented with carry-overs | [`progress.md`](phases/06-polish-and-performance/progress.md) |
+> | 7 Packaging & release | implemented with carry-overs — ad-hoc signed, not notarized (owner decision 2026-11-10, ADR-0049 addendum) | [`progress.md`](phases/07-packaging-and-release/progress.md) |
+> | 8 Post-V1 | planned | [`design.md`](phases/08-post-v1/design.md) |
+>
+> Each phase folder under [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
 > such as **§7.4** point into that file.
 
 Jit is a native macOS Git client written entirely in Swift: SwiftUI + AppKit UI in the native
-Liquid Glass design language, a Foundation-only `GitCore` module, and the installed (later bundled)
-Git CLI underneath. Premium visual quality and near-zero idle cost are release requirements, not
+Liquid Glass design language, a Foundation-only `GitCore` module, and the Git CLI underneath (installed Git in
+development builds, bundled Git 2.56.0 in release builds). Premium visual quality and near-zero idle cost are release requirements, not
 polish (§2, §3, §15).
 
 > **Owner decisions that amend the master prompt** (the master prompt itself is kept verbatim):
@@ -28,6 +31,8 @@ polish (§2, §3, §15).
 >   for the control/navigation layer, opaque content layer (amends §1 deployment target and §3.1).
 > - Benchmark: lighter than GitKraken (Electron) and at least as light as Fork, with a clearly more
 >   beautiful design than Fork.
+> - [ADR-0049](adr/0049-release-versioning-and-artifacts.md) — **arm64-only**, and (addendum, 2026-11-10) 1.0.0 is
+>   distributed **free, ad-hoc signed and not notarized**; Developer ID signing and notarization stay scripted but unused.
 
 ---
 
@@ -68,8 +73,8 @@ Captured on the planning machine. Phase 0 re-verifies all of it.
 | 4 | Everyday workflows & conflicts | [`04-git-workflows-and-conflicts`](phases/04-git-workflows-and-conflicts/) | Fetch/pull/push/clone (no stored credentials yet), branch ops, merge/rebase/cherry-pick/revert, three-way conflict resolver, continue/abort. | XL |
 | 5 | Profiles & providers | [`05-profiles-and-providers`](phases/05-profiles-and-providers/) | Global profiles with SSH/PAT/OAuth, Keychain, GitHub/GitLab/self-managed browsing & clone, custom CA, proxy, mismatch handling. | XL |
 | 6 | Polish & performance | [`06-polish-and-performance`](phases/06-polish-and-performance/) | Profiled and optimized build hitting (or honestly reporting against) §15.1 targets; a11y, keyboard, command palette, visual regression suite. | L |
-| 7 | Packaging & release | [`07-packaging-and-release`](phases/07-packaging-and-release/) | Universal, signed, notarized, stapled DMG with bundled Git, verified on a clean macOS VM against scenarios A–G (§24). | M |
-| 8 | Post-V1 roadmap | [`08-post-v1`](phases/08-post-v1/) | Epics for interactive rebase, stash, worktrees, reflog, reset, tags, patches, LFS, submodules… | — |
+| 7 | Packaging & release | [`07-packaging-and-release`](phases/07-packaging-and-release/) | Planned: universal, signed, notarized, stapled DMG with bundled Git, verified on a clean macOS VM against scenarios A–G (§24). **Delivered:** arm64-only, ad-hoc signed DMG with bundled Git, verified locally and against the enterprise rig; notarization and the clean VM were not run (§10). | M |
+| 8 | Post-V1 roadmap | [`08-post-v1`](phases/08-post-v1/) | Epics for reflog, reset, tags, interactive rebase, commit surgery, worktrees, patches, signing, submodules, LFS… (stash shipped in Phase 4). | — |
 
 ### Scope adjustments versus the master prompt's phase list (§22)
 
@@ -295,3 +300,47 @@ A phase is done when its `progress.md` shows, with evidence:
 6. Invariants in §6 above re-checked; new ADRs written for decisions made.
 7. `docs/` updated to match reality; nothing unimplemented described as done.
 8. A strict self-review (§25 step 5) completed and its findings fixed or logged.
+
+## 10. Current state and what remains
+
+As of 2026-11-10 (`main` at `e99efe6`). The per-phase `progress.md` files are the detailed record; this is the
+summary across them.
+
+**Done.** All V1 milestones of Phases 0–7. Last full local run (commit `d3bd9b8`): `test-core.sh` 745 passed,
+0 failed; `test-app.sh` exit 0; `lint.sh` clean; rig suites against the bundled Git 139 passed. Artifact:
+`build/release/1.0.0/Jit-1.0.0.dmg` (11 MB, arm64, ad-hoc signed).
+
+**Test build 0.0.1 (2026-11-10).** `MARKETING_VERSION` is 0.0.1 for installed-app testing;
+`build/release/0.0.1/Jit-0.0.1.dmg` (10 MB, arm64, ad-hoc) passed the ad-hoc structure validation and a launch
+smoke test. The test suites were not re-run for it. Details: [`releases/v0.0.1.md`](releases/v0.0.1.md).
+
+**To publish 1.0.0 (owner)**
+- Set `MARKETING_VERSION` back to 1.0.0 in `macos/App/Config/Version.xcconfig`.
+- Make the GitHub repository (or a releases-only repository) public; it is private today.
+- Rebuild the DMG from the commit to be tagged — the existing one was built from `d3bd9b8`, before the CI fixes
+  and the MIT license landed — then update the SHA-256 in [`releases/v1.0.0.md`](releases/v1.0.0.md).
+- Create the `v1.0.0` tag and the GitHub Release (notes `releases/v1.0.0.md`, assets `build/release/1.0.0/publish/`).
+- Get CI green on `main`: the latest run did not start (GitHub Actions billing / spending limit), and the run
+  before it failed the advisory performance gate. The gate was relaxed to 4× in `e99efe6`; that is unverified in CI.
+
+**Never verified**
+- Developer ID signing, notarization, stapling, Gatekeeper acceptance, and the credential-broker team check
+  with a real Developer ID build (no certificate; not blocking after the ad-hoc decision).
+- Clean-VM acceptance (ADR-0048) on macOS 26.0 and latest without developer tools.
+- OAuth against real providers: no OAuth clients are registered (`OAuthClients.plist` absent), so OAuth shows
+  "not configured". Scenarios E/F ran against the local enterprise rig only, not real GitHub/GitLab accounts.
+- PGP signature of the Git tarball (SHA-256 is pinned against kernel.org's list).
+- Phase 6 carry-overs: live VoiceOver walkthrough of scenarios B–D; Instruments Animation Hitches and Metal
+  System Trace by hand; by-eye review of settings, repository browser, conflict resolver and clone sheet under
+  Reduce Transparency / Increase Contrast; repository-browser memory and credential overhead in release.
+- Reference machine not confirmed by the owner; performance numbers were taken on a busy machine.
+
+**Known gaps**
+- No XCUITest target (palette navigation, keyboard-only commit and conflict resolution, accessibility audit).
+- Tab switch 17.4 ms median / 31.6 ms p90 against the 16 ms target.
+- In a short window with a diff open, the inspector split gives the file list little height.
+- Light-mode Finder screenshot of the DMG not taken.
+
+**Next: Phase 8.** Independent epics, each on `epic/<name>`, in the suggested order reflog → reset → tags →
+interactive rebase → commit surgery → history filters → worktrees → patches → remotes → branch history →
+signing → submodules → LFS. An opt-in updater (ADR-0020) is also a Phase 8 candidate.
