@@ -7,8 +7,8 @@ Glass design, driving the Git CLI. No Electron, web views, background daemons or
 
 ## Status
 
-**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.1, a local test build
-([notes](docs/releases/v0.0.1.md)); the public 1.0.0 is not yet published.**
+**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.2, a test build with a
+round of graph, panel and tab polish ([notes](docs/releases/v0.0.2.md)); the public 1.0.0 is not yet published.**
 
 | Phase | State | Report |
 |---|---|---|
@@ -48,7 +48,7 @@ Not in V1 by design: pull/merge request management, code review, CI dashboards, 
 
 ## What remains
 **To publish 1.0.0**
-- Set `MARKETING_VERSION` back to 1.0.0 in `macos/App/Config/Version.xcconfig` (it is 0.0.1 for testing).
+- Set `MARKETING_VERSION` back to 1.0.0 in `macos/App/Config/Version.xcconfig` (it is 0.0.2 for testing).
 - The GitHub repository is private, and there is no `v1.0.0` tag or GitHub Release yet. Notes are in
   [`docs/releases/v1.0.0.md`](docs/releases/v1.0.0.md); assets are produced into `build/release/1.0.0/publish/`.
 - The existing 1.0.0 DMG was built from `d3bd9b8`; `main` has moved on since (CI fixes, MIT license). Rebuild with
@@ -79,7 +79,7 @@ history filters, worktrees, patches, advanced remotes, branch history manipulati
   2.56.0 and doesn't need Xcode, the Command Line Tools or Homebrew. SSH uses the system `/usr/bin/ssh`.
 - **Get the app:** there is no public download yet (see [What remains](#what-remains)). Build the DMG yourself
   with `scripts/release/release.sh --adhoc` (see [`docs/release.md`](docs/release.md)), open
-  `build/release/0.0.1/Jit-0.0.1.dmg` and drag **Jit** to **Applications**. A DMG built on your own Mac is not
+  `build/release/0.0.2/Jit-0.0.2.dmg` and drag **Jit** to **Applications**. A DMG built on your own Mac is not
   quarantined and opens without the step below.
 - **First launch — Jit is not notarized by Apple** (it's signed ad-hoc). A DMG downloaded from the internet
   makes macOS show "“Jit” Not Opened — Apple could not verify…". Click **Done** (not Move to Trash), then either:
@@ -94,7 +94,8 @@ history filters, worktrees, patches, advanced remotes, branch history manipulati
   (tokens, SSH passphrases); choose **Always Allow**.
 - What's included: Jit, `jit-git-helper` (credential helper), and Git 2.56.0 under the GNU GPL v2. The license,
   the source location and a written offer are in **Help ▸ Acknowledgements**. Jit makes no network requests on
-  its own.
+  its own, with one exception you can switch off in **Settings ▸ General**: author pictures are looked up at
+  gravatar.com by a hash of the author's email, for commits on screen (ADR-0050).
 
 ## Develop
 

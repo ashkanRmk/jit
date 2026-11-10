@@ -3,7 +3,8 @@
 Status (1.0.0, 2026-11-10): **distributed free as an ad-hoc-signed, non-notarized DMG** (owner decision,
 ADR-0049 addendum). The Developer ID path (steps 07–08) is implemented but unused; clean-VM acceptance pending. See
 [`phases/07-packaging-and-release/progress.md`](phases/07-packaging-and-release/progress.md).
-Current version: **0.0.1**, a local test build of the same code ([`releases/v0.0.1.md`](releases/v0.0.1.md));
+Current version: **0.0.2**, a test build ([`releases/v0.0.2.md`](releases/v0.0.2.md); 0.0.1 was the first,
+[`releases/v0.0.1.md`](releases/v0.0.1.md));
 set `MARKETING_VERSION` back to 1.0.0 before the public release.
 Decisions: ADR-0019 (bundled Git), 0020 (no updater), 0045 (entitlements/sandbox), 0046 (signing), 0047 (DMG
 and notarization), 0048 (clean-machine protocol), 0049 (versioning, arm64-only).

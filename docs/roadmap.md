@@ -1,7 +1,7 @@
 # Jit — Implementation Roadmap
 
-> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.1, a
-> local test build ([notes](releases/v0.0.1.md)); the public 1.0.0 is not yet published.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
+> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.2, a
+> test build ([notes](releases/v0.0.2.md)); the public 1.0.0 is not yet published.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
 >
 > | Phase | State | Report |
 > |---|---|---|
@@ -96,7 +96,8 @@ These moves keep each phase a working vertical slice. They do not drop any requi
 - **Remote operations in Phase 4 run strictly non-interactive** (no stored credentials yet, never hang
   on a prompt). Phase 5 plugs credential delivery into the same execution path.
 - **Avatars:** Phases 2–4 use deterministic initials placeholders, no network. Provider avatars are an
-  opt-in in Phase 5 (§19 "no unintended remote requests").
+  opt-in in Phase 5 (§19 "no unintended remote requests"). Since 0.0.2 pictures come from Gravatar for
+  commits on screen, with an off switch (ADR-0050); initials remain the fallback.
 
 ## 4. Dependency graph
 
@@ -313,6 +314,12 @@ summary across them.
 **Test build 0.0.1 (2026-11-10).** `MARKETING_VERSION` is 0.0.1 for installed-app testing;
 `build/release/0.0.1/Jit-0.0.1.dmg` (10 MB, arm64, ad-hoc) passed the ad-hoc structure validation and a launch
 smoke test. The test suites were not re-run for it. Details: [`releases/v0.0.1.md`](releases/v0.0.1.md).
+
+**Test build 0.0.2 (2026-11-10).** An owner-requested UX round on top of V1 (spec:
+[`P8.ux.1`](phases/08-post-v1/specs/P8.ux.1-graph-and-panels.md); ADR-0050): location glyphs and hover
+expansion for ref labels, Gravatar pictures, a column header with reorder / resize / show-hide, the diff in
+the centre pane, section containers in both side panels, the search as a button, and the tab-close and
+inspector animations. Details and what was verified: [`releases/v0.0.2.md`](releases/v0.0.2.md).
 
 **To publish 1.0.0 (owner)**
 - Set `MARKETING_VERSION` back to 1.0.0 in `macos/App/Config/Version.xcconfig`.
