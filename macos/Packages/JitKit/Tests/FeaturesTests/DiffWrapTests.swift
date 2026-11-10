@@ -96,6 +96,28 @@ import Testing
                 == CGFloat(CodeLinesView.lineCount(length: 200, capacity: split.wrapCapacity)) * split.rowHeight)
     }
 
+    /// Side by side without wrapping scrolls sideways (0.0.4: long lines were cut off at the half's edge); with
+    /// wrapping it never does. Clicks still map to the half under the pointer.
+    @Test func sideBySideScrollsSidewaysWithoutWrapping() {
+        let source = Source([String(repeating: "y", count: 300), "z"])
+        source.columnCount = 2
+        let split = view(source, wraps: false)
+        #expect(split.horizontalOverflow > 0)
+        #expect(split.frame.width == 400 + split.horizontalOverflow)
+        #expect(split.column(at: NSPoint(x: 50, y: 1)) == 0)
+        #expect(split.column(at: NSPoint(x: 350, y: 1)) == 1)
+        split.reloadData()  // stable: the overflow does not feed back into the pane width
+        #expect(split.frame.width == 400 + split.horizontalOverflow)
+
+        let wrapped = view(source, wraps: true)
+        #expect(wrapped.horizontalOverflow == 0)
+        #expect(wrapped.frame.width == 400)
+
+        let short = Source(["a", "b"])
+        short.columnCount = 2
+        #expect(view(short, wraps: false).horizontalOverflow == 0)
+    }
+
     @Test func narrowerPaneWrapsMore() {
         let source = Source([String(repeating: "w", count: 300)])
         let view = view(source, wraps: true)

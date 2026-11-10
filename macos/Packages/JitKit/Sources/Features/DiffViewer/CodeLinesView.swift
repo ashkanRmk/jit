@@ -134,7 +134,20 @@ public final class CodeLinesView: NSView {
     /// Characters per visual line while wrapping.
     public private(set) var wrapCapacity = Int.max
 
-    private var cache: [CacheKey: [CTLine]] = [:]
+    /// Side by side without wrapping: how far the text of each half can scroll sideways (both halves together;
+    /// the line-number gutters stay put). 0 when nothing is wider than its half.
+    public private(set) var horizontalOverflow: CGFloat = 0
+    /// The clip view's x when the rows were last drawn: a sideways scroll redraws the whole pane.
+    private var drawnOriginX: CGFloat = 0
+    nonisolated(unsafe) private var clipObserver: (any NSObjectProtocol)?
+
+    /// Laid-out text of one cell plus its word-level changes (display UTF-16 ranges), drawn as rectangles.
+    private struct RenderedCell {
+        let lines: [CTLine]
+        let emphasis: [NSRange]
+    }
+
+    private var cache: [CacheKey: RenderedCell] = [:]
     private var cacheOrder: [CacheKey] = []
     private static let cacheLimit = CacheLimits.codeLines
     private var accessibilityRows: [Int: CodeRowElement] = [:]
@@ -175,6 +188,25 @@ public final class CodeLinesView: NSView {
         textSizeObserver.map(NotificationCenter.default.removeObserver)
         trimObserver.map(NotificationCenter.default.removeObserver)
         displayOptionsObserver.map(NSWorkspace.shared.notificationCenter.removeObserver)
+        clipObserver.map(NotificationCenter.default.removeObserver)
+    }
+
+    /// Side by side draws relative to the visible rect, so a sideways scroll must repaint, not just copy.
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        clipObserver.map(NotificationCenter.default.removeObserver)
+        clipObserver = nil
+        guard let clip = superview as? NSClipView else { return }
+        clip.postsBoundsChangedNotifications = true
+        clipObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: clip, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.horizontalOverflow > 0, abs(self.visibleRect.minX - self.drawnOriginX) > 0.25
+                else { return }
+                self.needsDisplay = true
+            }
+        }
     }
 
     public override var isFlipped: Bool { true }
@@ -202,23 +234,33 @@ public final class CodeLinesView: NSView {
     /// of such a line is summarized as "+N characters not shown". Copy and line actions use the document.
     public static let maxRenderedCharacters = CacheLimits.renderedLineCharacters
 
-    private var visibleWidth: CGFloat { enclosingScrollView?.contentSize.width ?? bounds.width }
+    /// The pane's width (without a scroll view, e.g. in tests: the frame minus the sideways overflow).
+    private var visibleWidth: CGFloat { enclosingScrollView?.contentSize.width ?? bounds.width - horizontalOverflow }
+
+    /// Width a column needs to show its longest line unwrapped.
+    private var contentColumnWidth: CGFloat {
+        // Room for the longest rendered prefix plus its "not shown" note.
+        let characters = min(dataSource?.maxColumnCharacters ?? 0, Self.maxRenderedCharacters + 40)
+        return gutterWidth + CGFloat(characters) * characterWidth + Space.s8
+    }
 
     public var columnWidth: CGFloat {
         let columns = CGFloat(dataSource?.columnCount ?? 1)
         let visible = visibleWidth / columns
         if wrapsLines { return visible }
-        // Room for the longest rendered prefix plus its "not shown" note.
-        let characters = min(dataSource?.maxColumnCharacters ?? 0, Self.maxRenderedCharacters + 40)
-        let content = gutterWidth + CGFloat(characters) * characterWidth + Space.s8
-        return columns == 1 ? max(visible, content) : visible
+        return columns == 1 ? max(visible, contentColumnWidth) : visible
     }
 
     public func reloadData() {
         clearCache()
         let rows = CGFloat(dataSource?.rowCount ?? 0)
         let columns = CGFloat(dataSource?.columnCount ?? 1)
-        let width = columns == 1 ? columnWidth : visibleWidth
+        let pane = visibleWidth
+        // Side by side scrolls sideways too (0.0.4: long lines were cut off): the document is wider by how much
+        // the longest line overflows its half; the halves scroll together.
+        let overflow = columns > 1 && !wrapsLines ? max(0, contentColumnWidth - pane / columns) : 0
+        horizontalOverflow = overflow
+        let width = columns == 1 ? columnWidth : pane + overflow
         rebuildRowOffsets()
         let content = rowOffsets?.last ?? rows * rowHeight
         let height = max(content, enclosingScrollView?.contentSize.height ?? 0)
@@ -339,12 +381,23 @@ public final class CodeLinesView: NSView {
     public func column(at point: NSPoint) -> Int {
         let columns = dataSource?.columnCount ?? 1
         guard columns > 1 else { return 0 }
-        return min(columns - 1, max(0, Int(point.x / (bounds.width / CGFloat(columns)))))
+        let x = point.x - paneOriginX
+        return min(columns - 1, max(0, Int(x / (paneWidth / CGFloat(columns)))))
+    }
+
+    /// Side by side: the halves are laid out over the visible part of the document (they scroll their text, not
+    /// themselves). Otherwise the whole document.
+    private var paneOriginX: CGFloat { (dataSource?.columnCount ?? 1) > 1 ? max(0, visibleRect.minX) : 0 }
+    private var paneWidth: CGFloat {
+        (dataSource?.columnCount ?? 1) > 1 ? bounds.width - horizontalOverflow : bounds.width
     }
 
     /// Scrolls so `row` is visible (centred when `center`).
     public func scrollToRow(_ row: Int, center: Bool = false) {
         var rect = rowRect(row)
+        // Keep the sideways position: the row's own rect spans the whole document width.
+        rect.origin.x = visibleRect.minX
+        rect.size.width = max(1, visibleRect.width)
         if center, let visible = enclosingScrollView?.documentVisibleRect {
             rect = rect.insetBy(dx: 0, dy: -(visible.height - rowHeight) / 2)
         }
@@ -362,7 +415,12 @@ public final class CodeLinesView: NSView {
         let visible = rows(in: dirtyRect)
         guard !visible.isEmpty else { return }
         let columns = source.columnCount
-        let columnWidth = bounds.width / CGFloat(columns)
+        let originX = paneOriginX
+        let paneWidth = paneWidth
+        let columnWidth = paneWidth / CGFloat(columns)
+        // Side by side: the text scrolls inside each half by the clip view's x.
+        let shift = columns > 1 ? originX : 0
+        drawnOriginX = originX
         for row in visible {
             let band = rowRect(row)
             let y = band.minY
@@ -370,15 +428,16 @@ public final class CodeLinesView: NSView {
             for column in 0..<columns {
                 let cell = source.cell(row: row, column: column)
                 if cell.isFullWidth, column > 0 { continue }
-                let width = cell.isFullWidth ? bounds.width : columnWidth
-                let rect = NSRect(x: CGFloat(column) * columnWidth, y: y, width: width, height: rowHeight)
+                let width = cell.isFullWidth ? paneWidth : columnWidth
+                let rect = NSRect(x: originX + CGFloat(column) * columnWidth, y: y, width: width, height: rowHeight)
                 guard rect.intersects(dirtyRect) else { continue }
-                drawCell(cell, row: row, column: column, in: rect, source: source, context: context)
+                drawCell(cell, row: row, column: column, in: rect, shift: shift, source: source, context: context)
                 if cell.isFullWidth { break }
             }
             if columns > 1 {
                 ColorToken.borderSubtle.nsColor.setFill()
-                NSRect(x: columnWidth - Border.hairline, y: y, width: Border.hairline, height: rowHeight).fill()
+                NSRect(x: originX + columnWidth - Border.hairline, y: y, width: Border.hairline, height: rowHeight)
+                    .fill()
             }
         }
     }
@@ -396,7 +455,8 @@ public final class CodeLinesView: NSView {
     }
 
     private func drawCell(
-        _ cell: CodeCell, row: Int, column: Int, in rect: NSRect, source: any CodeLinesDataSource, context: CGContext
+        _ cell: CodeCell, row: Int, column: Int, in rect: NSRect, shift: CGFloat, source: any CodeLinesDataSource,
+        context: CGContext
     ) {
         if let fill = background(for: cell.kind) {
             fill.setFill()
@@ -451,15 +511,17 @@ public final class CodeLinesView: NSView {
                 x += numberWidth + Space.s4
             }
         }
-        // Text.
-        let textX = cell.isFullWidth ? rect.minX + Space.s5 : rect.minX + gutter
+        // Text. Side by side it scrolls by `shift` under the fixed gutter, clipped to the text area.
+        let textStart = cell.isFullWidth ? rect.minX + Space.s5 : rect.minX + gutter
+        let textX = cell.isFullWidth ? textStart : textStart - shift
+        let textClip = NSRect(x: textStart, y: rect.minY, width: max(0, rect.maxX - textStart), height: rect.height)
         let key = CacheKey(row: row, column: column, generation: generation)
-        let lines: [CTLine]
+        let rendered: RenderedCell
         if let cached = cache[key] {
-            lines = cached
+            rendered = cached
         } else {
-            lines = makeTextLines(cell, row: row, column: column, source: source)
-            cache[key] = lines
+            rendered = makeTextLines(cell, row: row, column: column, source: source)
+            cache[key] = rendered
             cacheOrder.append(key)
             if cacheOrder.count > Self.cacheLimit {
                 let drop = cacheOrder.prefix(Self.cacheLimit / 4)
@@ -467,31 +529,44 @@ public final class CodeLinesView: NSView {
                 cacheOrder.removeFirst(drop.count)
             }
         }
-        // Search highlights under the text, on the visual line that holds them.
+        let lines = rendered.lines
+        context.saveGState()
+        context.clip(to: textClip)
+        // Word-level changes, then search highlights, under the text on the visual line that holds them.
+        // (Not CoreText's background attribute: in this flipped view it paints below the baseline, a line low.)
+        if !rendered.emphasis.isEmpty {
+            (cell.kind == .added ? ColorToken.diffAddMark : ColorToken.diffDeleteMark).nsColor
+                .withAlphaComponent(0.28).setFill()
+            fillRanges(rendered.emphasis, lines: lines, x: textX, top: rect.minY)
+        }
         let (ranges, current) = source.highlights(row: row, column: column)
         if !ranges.isEmpty {
-            for (index, line) in lines.enumerated() {
-                let span = CTLineGetStringRange(line)
-                let lineRange = NSRange(location: span.location, length: span.length)
-                let top = rect.minY + CGFloat(index) * rowHeight
-                for range in ranges {
-                    let part = lines.count == 1 ? range : NSIntersectionRange(range, lineRange)
-                    guard part.length > 0 else { continue }
-                    let start = CTLineGetOffsetForStringIndex(line, part.location, nil)
-                    let end = CTLineGetOffsetForStringIndex(line, part.location + part.length, nil)
-                    (range == current
-                        ? NSColor.findHighlightColor : NSColor.findHighlightColor.withAlphaComponent(0.35))
-                        .setFill()
-                    NSRect(x: textX + start, y: top + 1, width: max(2, end - start), height: rowHeight - 2).fill()
-                }
+            for range in ranges {
+                (range == current ? NSColor.findHighlightColor : NSColor.findHighlightColor.withAlphaComponent(0.35))
+                    .setFill()
+                fillRanges([range], lines: lines, x: textX, top: rect.minY)
             }
         }
-        context.saveGState()
-        context.clip(to: rect)
         for (index, line) in lines.enumerated() {
             drawLine(line, at: NSPoint(x: textX, y: baseline + CGFloat(index) * rowHeight), context: context)
         }
         context.restoreGState()
+    }
+
+    /// Fills `ranges` (UTF-16 in the laid-out string) with the current colour, one rectangle per visual line.
+    private func fillRanges(_ ranges: [NSRange], lines: [CTLine], x: CGFloat, top: CGFloat) {
+        for (index, line) in lines.enumerated() {
+            let span = CTLineGetStringRange(line)
+            let lineRange = NSRange(location: span.location, length: span.length)
+            let lineTop = top + CGFloat(index) * rowHeight
+            for range in ranges {
+                let part = NSIntersectionRange(range, lineRange)
+                guard part.length > 0 else { continue }
+                let start = CTLineGetOffsetForStringIndex(line, part.location, nil)
+                let end = CTLineGetOffsetForStringIndex(line, part.location + part.length, nil)
+                NSRect(x: x + start, y: lineTop + 1, width: max(2, end - start), height: rowHeight - 2).fill()
+            }
+        }
     }
 
     private func drawLine(_ line: CTLine, at point: NSPoint, context: CGContext) {
@@ -551,7 +626,8 @@ public final class CodeLinesView: NSView {
         return NSRange(location: start, length: end - start)
     }
 
-    private func makeTextLines(_ cell: CodeCell, row: Int, column: Int, source: any CodeLinesDataSource) -> [CTLine] {
+    private func makeTextLines(_ cell: CodeCell, row: Int, column: Int, source: any CodeLinesDataSource) -> RenderedCell
+    {
         let fullLength = (cell.text as NSString).length
         let text = renderedText(cell.text)
         let display = displayText(text)
@@ -567,13 +643,10 @@ public final class CodeLinesView: NSView {
             let mapped = displayRange(range, in: text)
             if NSMaxRange(mapped) <= length { attributed.addAttribute(.foregroundColor, value: color, range: mapped) }
         }
-        let emphasisColor = (cell.kind == .added ? ColorToken.diffAddMark : ColorToken.diffDeleteMark).nsColor
-            .withAlphaComponent(0.28)
+        var emphasis: [NSRange] = []
         for range in source.emphasis(row: row, column: column) where NSMaxRange(range) <= (text as NSString).length {
             let mapped = displayRange(range, in: text)
-            if NSMaxRange(mapped) <= length {
-                attributed.addAttribute(.backgroundColor, value: emphasisColor, range: mapped)
-            }
+            if NSMaxRange(mapped) <= length, mapped.length > 0 { emphasis.append(mapped) }
         }
         if showsWhitespace {
             for (index, unit) in display.utf16.enumerated() where unit == 0xB7 || unit == 0x2192 {
@@ -599,7 +672,7 @@ public final class CodeLinesView: NSView {
         // notes stay on the last visual line. The count matches `rebuildRowOffsets`.
         let capacity = wrapCapacity
         guard rowOffsets != nil, !cell.isFullWidth, length > capacity else {
-            return [CTLineCreateWithAttributedString(attributed)]
+            return RenderedCell(lines: [CTLineCreateWithAttributedString(attributed)], emphasis: emphasis)
         }
         let typesetter = CTTypesetterCreateWithAttributedString(attributed)
         let count = Self.lineCount(length: length, capacity: capacity)
@@ -614,7 +687,7 @@ public final class CodeLinesView: NSView {
             lines.append(CTTypesetterCreateLine(typesetter, CFRange(location: start, length: end - start)))
             start = end
         }
-        return lines
+        return RenderedCell(lines: lines, emphasis: emphasis)
     }
 
     // MARK: Input
