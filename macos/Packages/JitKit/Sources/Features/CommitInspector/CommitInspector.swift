@@ -85,11 +85,15 @@ final class InspectorModel {
         default: next = .compare(selection[0], selection[1])
         }
         guard next != mode else { return }
+        // Commit → commit keeps the shown content until the new one arrives: clearing it at once made the
+        // panel collapse to the bare id and lay out again a moment later (the inspector flickered).
+        let keepsContent: Bool
+        if case .commit = mode, case .commit = next { keepsContent = true } else { keepsContent = false }
         mode = next
         openedFilePath = nil
         expandedFolders = []
         diff?.close()
-        reload()
+        reload(keepingContent: keepsContent)
     }
 
     func swapComparison() {
@@ -101,12 +105,17 @@ final class InspectorModel {
         reload()
     }
 
-    private func reload() {
+    /// - Parameter keepingContent: leave the previous commit's details on screen while loading; they are
+    ///   replaced when the new ones arrive, or cleared once the spinner shows (a slow load never shows stale
+    ///   content for long).
+    private func reload(keepingContent: Bool = false) {
         // Selecting something else cancels the previous request, which kills its Git process (ADR-0005).
         task?.cancel()
         spinnerTask?.cancel()
-        details = nil
-        files = []
+        if !keepingContent || error != nil {
+            details = nil
+            files = []
+        }
         error = nil
         showsSpinner = false
         // The panel follows status itself; the inspector only switches it on and off.
@@ -119,6 +128,8 @@ final class InspectorModel {
         spinnerTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard let self, !Task.isCancelled else { return }
+            self.details = nil
+            self.files = []
             self.showsSpinner = true
         }
         let mode = self.mode
@@ -149,6 +160,8 @@ final class InspectorModel {
                 return
             } catch {
                 guard let self, !Task.isCancelled else { return }
+                self.details = nil
+                self.files = []
                 self.error = error.summary
                 self.finish()
             }

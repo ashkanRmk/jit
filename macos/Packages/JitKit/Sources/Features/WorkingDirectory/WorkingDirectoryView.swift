@@ -146,63 +146,77 @@ struct WorkingDirectoryView: View {
     // MARK: Sections
 
     private var fileList: some View {
-        // Each section is one container (0.0.2): its header row, its files, then a gap before the next.
-        List(selection: $model.selection) {
+        // One card per section, each with its own scrolling list. The cards share the panel's height equally,
+        // whatever their file counts: the layout does not jump as files move between Unstaged and Staged, and a
+        // long Unstaged list scrolls inside its card instead of pushing Staged out of view.
+        VStack(spacing: Space.s3) {
             ForEach(WDSection.displayOrder, id: \.self) { section in
                 if section != .conflicts || !model.list.conflicts.isEmpty {
-                    let items = model.items(section)
-                    let targeted = model.dropTarget == section
-                    SectionHeader(section: section, model: model)
-                        .dropTarget(section, model: model)
-                        .selectionDisabled()
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(Self.rowInsets)
-                        .listRowBackground(SectionCardBackground(position: .top, isTargeted: targeted))
-                    if items.isEmpty {
-                        EmptySectionRow(section: section, filtered: !model.filter.isEmpty)
-                            .dropTarget(section, model: model)
-                            .selectionDisabled()
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(Self.rowInsets)
-                            .listRowBackground(SectionCardBackground(position: .bottom, isTargeted: targeted))
-                    }
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    sectionCard(section)
+                }
+            }
+        }
+        .padding(.horizontal, Space.s4)
+        .padding(.vertical, Space.s3)
+        .animation(reduceMotion ? nil : MotionToken.select.animation, value: model.list)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Changed files")
+    }
+
+    private func sectionCard(_ section: WDSection) -> some View {
+        let items = model.items(section)
+        let targeted = model.dropTarget == section
+        let shape = RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        return VStack(spacing: 0) {
+            SectionHeader(section: section, model: model)
+                .padding(.horizontal, Space.s4)
+                .padding(.top, Space.s2)
+                .dropTarget(section, model: model)
+            if items.isEmpty {
+                EmptySectionRow(section: section, filtered: !model.filter.isEmpty)
+                    .padding(.horizontal, Space.s4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .contentShape(Rectangle())
+                    .dropTarget(section, model: model)
+            } else {
+                List(selection: $model.selection) {
+                    ForEach(items, id: \.id) { item in
                         row(item)
                             .frame(minHeight: 24)
                             .tag(item.id)
                             .listRowSeparator(.hidden)
                             .listRowInsets(Self.rowInsets)
                             .listRowBackground(
-                                SectionCardBackground(
-                                    position: index == items.count - 1 ? .bottom : .middle, isTargeted: targeted,
-                                    isSelected: model.selection.contains(item.id)))
+                                RowSelectionBackground(isSelected: model.selection.contains(item.id)))
                     }
-                    Color.clear
-                        .frame(height: Space.s3)
-                        .selectionDisabled()
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .accessibilityHidden(true)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .environment(\.defaultMinListRowHeight, Space.s3)
+                .contextMenu(forSelectionType: String.self) { ids in
+                    ContextMenu(model: model, files: model.files(for: ids))
+                }
+                .onKeyPress(.space) {
+                    guard !model.selection.isEmpty else { return .ignored }
+                    model.toggleSelection()
+                    return .handled
                 }
             }
         }
-        .listStyle(.inset)
-        .scrollContentBackground(.hidden)
-        .environment(\.defaultMinListRowHeight, Space.s3)
-        .animation(reduceMotion ? nil : MotionToken.select.animation, value: model.list)
-        .contextMenu(forSelectionType: String.self) { ids in
-            ContextMenu(model: model, files: model.files(for: ids))
-        }
-        .onKeyPress(.space) {
-            guard !model.selection.isEmpty else { return .ignored }
-            model.toggleSelection()
-            return .handled
-        }
-        .accessibilityLabel("Changed files")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(isTargetedFill(targeted), in: shape)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(ColorToken.borderSubtle.color, lineWidth: Border.hairline))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(section.title) files")
+    }
+
+    private func isTargetedFill(_ targeted: Bool) -> Color {
+        targeted ? ColorToken.accentMuted.color : ColorToken.surfaceRaised.color
     }
 
     /// Row content sits inside its section's container.
-    private static let rowInsets = EdgeInsets(top: 0, leading: Space.s6, bottom: 0, trailing: Space.s6)
+    private static let rowInsets = EdgeInsets(top: 0, leading: Space.s4, bottom: 0, trailing: Space.s4)
 
     @ViewBuilder
     private func row(_ item: WDItem) -> some View {
@@ -218,34 +232,18 @@ struct WorkingDirectoryView: View {
     }
 }
 
-/// The slice of a section's container behind one list row: the top row rounds the top corners, the last
-/// row the bottom ones, and the border runs around the whole section.
-private struct SectionCardBackground: View {
-    enum Position { case top, middle, bottom }
-
-    let position: Position
-    var isTargeted = false
-    var isSelected = false
+/// A file row's background inside its section card: the selection fill, or nothing.
+private struct RowSelectionBackground: View {
+    let isSelected: Bool
 
     var body: some View {
-        let radius = Radius.md
-        let top = position == .top ? radius : 0
-        let bottom = position == .bottom ? radius : 0
-        let shape = UnevenRoundedRectangle(
-            topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: bottom, topTrailingRadius: top,
-            style: .continuous)
-        ZStack {
-            shape.fill(isTargeted ? ColorToken.accentMuted.color : ColorToken.surfaceRaised.color)
-            if isSelected { Selection.fill }
-            // The full outline, pushed past the edges this row does not own; the clip removes the rest.
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(ColorToken.borderSubtle.color, lineWidth: Border.hairline)
-                .padding(.top, position == .top ? 0 : -2 * radius)
-                .padding(.bottom, position == .bottom ? 0 : -2 * radius)
+        if isSelected {
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .fill(Selection.fill)
+                .padding(.horizontal, Space.s2)
+        } else {
+            Color.clear
         }
-        .clipShape(shape)
-        // The list's row backgrounds run edge to edge; the container keeps a margin to the panel's sides.
-        .padding(.horizontal, Space.s4)
     }
 }
 

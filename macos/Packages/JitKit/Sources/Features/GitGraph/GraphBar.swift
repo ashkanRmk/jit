@@ -3,8 +3,8 @@ import GitCore
 import Services
 import SwiftUI
 
-/// The repository action bar: the everyday commands in the middle (`CommandBarActions`: Pull, Push, Fetch,
-/// Branch, Stash, Pop, Terminal) and changes, transient chips and search at the trailing end. Since 0.0.4 it
+/// The repository action bar: the everyday commands in the middle (`CommandBarActions`: Fetch, Branch, Pull,
+/// Push, Stash, Pop, Terminal) and changes, transient chips and search at the trailing end. Since 0.0.4 it
 /// has no glass and no container: plain tools with their names on an opaque strip. Rows scroll underneath.
 /// The current branch and the profile moved to the sidebar; the branch scope menu is gone.
 struct GraphBar: View {
@@ -90,7 +90,7 @@ struct GraphBar: View {
     /// Titles drop first, then groups move into `⋯` (`CommandBarLayout`). Widths are measured from the titles
     /// with the bar's font; the trailing side keeps what it needs.
     private func commandLayout(changes: Int?) -> CommandBarLayout {
-        let groups: [CommandBarGroup] = [.sync, .branch, .stash, .terminal]
+        let groups: [CommandBarGroup] = [.branch, .sync, .stash, .terminal]
         func item(_ title: String) -> CommandBarLayout.GroupWidth {
             .init(labelled: BarMetrics.itemWidth(title), iconOnly: BarMetrics.itemWidth(nil))
         }

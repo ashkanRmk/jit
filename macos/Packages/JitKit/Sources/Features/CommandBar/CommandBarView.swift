@@ -4,7 +4,7 @@ import GitCore
 import Services
 import SwiftUI
 
-/// The repository action bar's commands (0.0.3, replacing the P3.0 glass capsules): Pull, Push, Fetch, Branch,
+/// The repository action bar's commands (0.0.3, replacing the P3.0 glass capsules): Fetch, Branch, Pull, Push,
 /// Stash, Pop and Terminal as plain icon-over-title items inside one glass bar. Nothing here is a bordered
 /// button; the bar is the only glass. It holds no Git state of its own and observes `RepositorySession`.
 struct CommandBarActions: View {
@@ -13,6 +13,10 @@ struct CommandBarActions: View {
 
     var body: some View {
         HStack(spacing: Space.s2) {
+            // Fetch leads; Pull and Push sit in the middle of the row, after Branch (0.0.5).
+            if layout.visible.contains(.sync), let operations = controller.operations {
+                FetchAction(operations: operations)
+            }
             ForEach(layout.visible, id: \.self) { group in
                 switch group {
                 case .sync: if let operations = controller.operations { SyncActions(operations: operations) }
@@ -134,8 +138,8 @@ struct BarAction: View {
     }
 }
 
-/// Pull · Push · Fetch. The click runs the main action; the other ways to pull or fetch are in the item's
-/// context menu and in the Repository menu.
+/// Pull · Push. The click runs the main action; the other ways to pull are in the item's context menu and in
+/// the Repository menu.
 struct SyncActions: View {
     let operations: OperationsController
 
@@ -162,6 +166,28 @@ struct SyncActions: View {
             operations.push()
         }
         .disabled(branch?.isDetached ?? true)
+    }
+
+    private var pullTitle: String {
+        if let behind = branch?.behind, behind > 0 { return "Pull ↓\(behind)" }
+        return "Pull"
+    }
+
+    private var pushTitle: String {
+        guard let branch else { return "Push" }
+        if branch.upstream == nil, !branch.isDetached { return "Publish" }
+        if let ahead = branch.ahead, ahead > 0 { return "Push ↑\(ahead)" }
+        return "Push"
+    }
+}
+
+/// Fetch: the click fetches the upstream's remote; prune and all-remotes are in the context menu.
+struct FetchAction: View {
+    let operations: OperationsController
+
+    private var branch: BranchHeader? { operations.session.status?.branch }
+
+    var body: some View {
         BarAction(
             title: "Fetch", symbol: "arrow.triangle.2.circlepath",
             help: "Fetch \(defaultRemoteLabel) (never integrates) — right-click for more"
@@ -179,18 +205,6 @@ struct SyncActions: View {
 
     private var defaultRemoteLabel: String {
         branch?.upstream.flatMap { $0.split(separator: "/").first.map(String.init) } ?? "origin"
-    }
-
-    private var pullTitle: String {
-        if let behind = branch?.behind, behind > 0 { return "Pull ↓\(behind)" }
-        return "Pull"
-    }
-
-    private var pushTitle: String {
-        guard let branch else { return "Push" }
-        if branch.upstream == nil, !branch.isDetached { return "Publish" }
-        if let ahead = branch.ahead, ahead > 0 { return "Push ↑\(ahead)" }
-        return "Push"
     }
 }
 
