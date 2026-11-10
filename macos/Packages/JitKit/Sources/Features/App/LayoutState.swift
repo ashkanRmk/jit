@@ -29,7 +29,14 @@ public final class LayoutState {
     public convenience init(_ record: SessionState.Layout?) {
         self.init(
             sidebarWidth: record.map { CGFloat($0.sidebarWidth) } ?? PanelMetrics.sidebarDefault,
-            inspectorWidth: record.map { CGFloat($0.inspectorWidth) } ?? PanelMetrics.inspectorDefault)
+            inspectorWidth: record.map { Self.upgradedInspector(CGFloat($0.inspectorWidth)) }
+                ?? PanelMetrics.inspectorDefault)
+    }
+
+    /// The inspector's default grew from 360 to 420 pt in 0.0.3: a width still at the old default follows it
+    /// (a width the user chose stays).
+    static func upgradedInspector(_ width: CGFloat) -> CGFloat {
+        abs(width - 360) < 0.5 ? PanelMetrics.inspectorDefault : width
     }
 
     public var record: SessionState.Layout {

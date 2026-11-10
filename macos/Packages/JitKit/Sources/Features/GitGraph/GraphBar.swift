@@ -3,16 +3,15 @@ import GitCore
 import Services
 import SwiftUI
 
-/// The repository command bar (P3.0, replacing the Phase 2 graph bar): location, changes and tools on the
-/// leading side (`CommandBarLeading`), then the find group — scope menu, search, match navigation and
-/// transient chips. Chrome, so Liquid Glass in `GlassEffectContainer`s (`GlassControlGroup`) so the pieces
-/// morph instead of stacking. Rows scroll underneath; nothing in the bar is a row.
+/// The repository action bar (0.0.3): one glass bar under the tabs with the everyday commands on the leading
+/// side (`CommandBarActions`: Pull, Push, Fetch, Branch, Stash, Pop, Terminal) and changes, transient chips
+/// and search on the trailing side. Only the bar is glass; what sits in it is plain. Rows scroll underneath.
+/// The current branch and the profile moved to the sidebar; the branch scope menu is gone.
 struct GraphBar: View {
     let controller: GraphViewController
     @FocusState private var searchFocused: Bool
-    @State private var showsBranchPicker = false
-    /// The search field is a magnifier button until it is used (0.0.2): the bar stays short enough to fit
-    /// beside an open inspector.
+    /// The search field is a magnifier button until it is used: the bar stays short enough to fit beside an
+    /// open inspector.
     @State private var searchExpanded = false
     @State private var barWidth: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -20,12 +19,11 @@ struct GraphBar: View {
     private var model: GraphViewModel { controller.viewModel }
 
     var body: some View {
-        let location = commandLocation
         let changes = CommandBarChanges.count(controller.session.status?.summary)
-        let layout = commandLayout(location: location, changes: changes)
+        let layout = commandLayout(changes: changes)
         VStack(spacing: Space.s3) {
-            HStack(spacing: Space.s4) {
-                CommandBarLeading(controller: controller, layout: layout, location: location, changes: changes)
+            HStack(spacing: Space.s3) {
+                CommandBarActions(controller: controller, layout: layout)
                     .fixedSize()
                 Spacer(minLength: 0)
                 if controller.isSlow || isDeepRunning {
@@ -33,26 +31,31 @@ struct GraphBar: View {
                         .controlSize(.small)
                         .accessibilityLabel(isDeepRunning ? "Searching all history" : "Loading history")
                 }
-                GlassControlGroup(spacing: Space.s3) {
-                    ForEach(chips, id: \.id) { chip in
-                        ChipView(chip: chip)
-                            .transition(RevealTransition.transition(reduceMotion: reduceMotion))
+                ForEach(chips, id: \.id) { chip in
+                    ChipView(chip: chip)
+                        .transition(RevealTransition.transition(reduceMotion: reduceMotion))
+                }
+                if let changes { changesAction(changes, labels: layout.showsLabels) }
+                if showsSearchField {
+                    searchField
+                    if model.isSearching { matchControls }
+                } else {
+                    BarAction(title: "Search", symbol: "magnifyingglass", help: "Search Commits (⌘F)") {
+                        expandSearch()
                     }
-                    scopeMenu
-                    if showsSearchField {
-                        searchField
-                        if model.isSearching { matchControls }
-                    } else {
-                        searchButton
-                    }
+                    .environment(\.barShowsTitles, layout.showsLabels)
                 }
             }
+            .padding(.horizontal, Space.s3)
+            .padding(.vertical, Space.s2)
+            .frame(maxWidth: .infinity)
+            .jitGlass(in: ChromeShape.control, interactive: false)
             if let operations = controller.operations {
                 OperationBanner(controller: operations)
             }
         }
         .animation(reduceMotion ? nil : MotionToken.panel.animation, value: controller.session.operationState == .clean)
-        .padding(.horizontal, Space.s5)
+        .padding(.horizontal, Space.s4)
         .padding(.vertical, Space.s3)
         .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: chips.map(\.id))
         .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: showsSearchField)
@@ -71,98 +74,49 @@ struct GraphBar: View {
         }
     }
 
-    // MARK: Command bar layout
+    // MARK: Layout
 
-    private var commandLocation: CommandBarLocation {
-        let path = controller.session.info?.topLevel ?? controller.session.path
-        let repository = (path as NSString).lastPathComponent
-        return CommandBarLocation(repository: repository, branch: controller.session.status?.branch ?? BranchHeader())
+    /// Titles drop first, then groups move into `⋯` (`CommandBarLayout`). Widths are measured from the titles
+    /// with the bar's font; the trailing side keeps what it needs.
+    private func commandLayout(changes: Int?) -> CommandBarLayout {
+        let groups: [CommandBarGroup] = [.sync, .branch, .stash, .terminal]
+        func item(_ title: String) -> CommandBarLayout.GroupWidth {
+            .init(labelled: BarMetrics.itemWidth(title), iconOnly: BarMetrics.itemWidth(nil))
+        }
+        func sum(_ titles: [String]) -> CommandBarLayout.GroupWidth {
+            let widths = titles.map(item)
+            let gaps = Space.s1 * CGFloat(titles.count - 1)
+            return .init(
+                labelled: widths.reduce(gaps) { $0 + $1.labelled }, iconOnly: widths.reduce(gaps) { $0 + $1.iconOnly })
+        }
+        let widths: [CommandBarGroup: CommandBarLayout.GroupWidth] = [
+            .sync: sum(["Pull ↓99", "Publish", "Fetch"]), .branch: item("Branch"), .stash: sum(["Stash", "Pop"]),
+            .terminal: item("Terminal"),
+        ]
+        var trailing = showsSearchField ? 140 + 3 * Space.s5 + IconSize.md : BarMetrics.itemWidth("Search")
+        if model.isSearching { trailing += 150 }
+        if let changes { trailing += BarMetrics.itemWidth(CommandBarChanges.title(changes, labels: true)) + Space.s3 }
+        trailing += CGFloat(chips.count) * 160
+        let available = max(barWidth - 2 * Space.s4 - 2 * Space.s3 - Space.s3 - trailing, 0)
+        return CommandBarLayout.make(
+            available: available, groups: groups, widths: widths, spacing: Space.s1,
+            overflowButton: BarMetrics.itemWidth(nil), labelsAllowed: controller.model.preferences.commandBarShowsLabels
+        )
     }
 
-    /// Labels drop first, then groups overflow (P3.0 spec). Widths are measured from the label strings with
-    /// the bar's font; the find group keeps its minimum search width.
-    private func commandLayout(location: CommandBarLocation, changes: Int?) -> CommandBarLayout {
-        var groups: [CommandBarGroup] = [.location]
-        if changes != nil { groups.append(.changes) }
-        groups += [.sync, .branch, .stash, .terminal]
-        let font = TypeToken.callout.nsFont
-        func text(_ string: String) -> CGFloat { ceil((string as NSString).size(withAttributes: [.font: font]).width) }
-        let capsule = 2 * Space.s5  // horizontal padding of a glass capsule / button
-        let icon = IconSize.md + Space.s3
-        let tracking = location.tracking.map { text($0) + Space.s3 } ?? 0
-        let branch = min(text(location.branchTitle), 220) + tracking + icon + IconSize.sm + Space.s3
-        var widths: [CommandBarGroup: CommandBarLayout.GroupWidth] = [
-            .location: .init(
-                labelled: capsule + text(location.repository) + IconSize.sm + 2 * Space.s3 + branch,
-                iconOnly: capsule + branch),
-            .terminal: .init(labelled: capsule + icon + text("Terminal"), iconOnly: capsule + IconSize.md),
-            .sync: .init(
-                labelled: 3 * (capsule + icon) + text("Fetch") + text("Pull ↓99") + text("Publish") + 2 * IconSize.sm,
-                iconOnly: 3 * (capsule + icon) + 2 * IconSize.sm),
-            .branch: .init(labelled: capsule + icon + text("Branch"), iconOnly: capsule + IconSize.md),
-            .stash: .init(
-                labelled: 2 * (capsule + icon) + text("Stash") + text("Pop"), iconOnly: 2 * (capsule + IconSize.md)),
-        ]
-        if let changes {
-            widths[.changes] = .init(
-                labelled: capsule + icon + text(CommandBarChanges.title(changes, labels: true)),
-                iconOnly: capsule + icon + text(CommandBarChanges.title(changes, labels: false)))
+    private func changesAction(_ count: Int, labels: Bool) -> some View {
+        BarAction(
+            title: CommandBarChanges.title(count, labels: true), symbol: "circle.dashed",
+            help: "\(CommandBarChanges.title(count, labels: true)) in the working directory"
+        ) {
+            controller.selectWorkingDirectory()
         }
-        // The find group (scope menu + search at its minimum width + chips) sits on the trailing side.
-        let search = showsSearchField ? 140 + 2 * capsule + icon : capsule + IconSize.md
-        let find = capsule + icon + text(scopeTitle) + search + Space.s3 + CGFloat(chips.count) * 160
-        let available = max(barWidth - 2 * Space.s5 - Space.s4 - find, 0)
-        return CommandBarLayout.make(
-            available: available, groups: groups, widths: widths, spacing: Space.s4,
-            overflowButton: capsule + IconSize.md, labelsAllowed: controller.model.preferences.commandBarShowsLabels)
+        .environment(\.barShowsTitles, labels)
     }
 
     private var isDeepRunning: Bool {
         if case .running = model.deepSearch { return true }
         return false
-    }
-
-    // MARK: Scope
-
-    private var scopeMenu: some View {
-        Menu {
-            ForEach(GraphViewModel.ScopeChoice.allCases, id: \.self) { choice in
-                Button {
-                    if choice == .selected {
-                        showsBranchPicker = true
-                    } else {
-                        model.scope = choice
-                        controller.applyQuery()
-                    }
-                } label: {
-                    if model.scope == choice {
-                        Label(choice.title, systemImage: "checkmark")
-                    } else {
-                        Text(choice.title)
-                    }
-                }
-            }
-        } label: {
-            Label(scopeTitle, systemImage: "arrow.triangle.branch")
-                .labelStyle(.titleAndIcon)
-                .typeStyle(.callout)
-        }
-        .menuStyle(.button)
-        .secondaryGlassButton()
-        .fixedSize()
-        .help("Which branches the graph shows")
-        .popover(isPresented: $showsBranchPicker, arrowEdge: .bottom) {
-            BranchPicker(controller: controller, isPresented: $showsBranchPicker)
-        }
-    }
-
-    private var scopeTitle: String {
-        switch model.scope {
-        case .all: "All Branches"
-        case .current: "Current Branch"
-        case .local: "Local Branches"
-        case .selected: model.selectedRefs.count == 1 ? "1 Branch" : "\(model.selectedRefs.count) Branches"
-        }
     }
 
     // MARK: Search
@@ -173,15 +127,6 @@ struct GraphBar: View {
         searchExpanded = true
         // The field exists after this update; focus it then.
         Task { @MainActor in searchFocused = true }
-    }
-
-    private var searchButton: some View {
-        Button(action: expandSearch) {
-            Image(systemName: "magnifyingglass")
-        }
-        .secondaryGlassButton()
-        .help("Search Commits (⌘F)")
-        .accessibilityLabel("Search commits")
     }
 
     private var searchField: some View {
@@ -217,9 +162,9 @@ struct GraphBar: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(.horizontal, Space.s5)
+        .padding(.horizontal, Space.s4)
         .padding(.vertical, Space.s3)
-        .jitGlass(in: Capsule())
+        .background(ColorToken.stateHover.color, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
 
     private var matchControls: some View {
@@ -258,9 +203,7 @@ struct GraphBar: View {
             .help("Filter and search options")
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, Space.s5)
-        .padding(.vertical, Space.s3)
-        .jitGlass(in: Capsule())
+        .padding(.horizontal, Space.s3)
     }
 
     @ViewBuilder private var deepSearchItems: some View {
@@ -343,7 +286,7 @@ private struct ChipView: View {
                 .typeStyle(.callout)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(maxWidth: 260)
+                .frame(maxWidth: 200)
             Button(action: chip.remove) {
                 Image(systemName: "xmark")
                     .symbolSize(IconSize.sm, weight: .semibold)
@@ -351,56 +294,10 @@ private struct ChipView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Exit \(chip.title)")
         }
-        .padding(.horizontal, Space.s5)
+        .padding(.horizontal, Space.s4)
         .padding(.vertical, Space.s3)
-        .jitGlass(in: Capsule())
+        .background(ColorToken.stateHover.color, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
         .help(chip.tooltip ?? chip.title)
-    }
-}
-
-/// "Selected Branches…" checklist with a filter field.
-private struct BranchPicker: View {
-    let controller: GraphViewController
-    @Binding var isPresented: Bool
-    @State private var filter = ""
-    @State private var chosen: Set<String> = []
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Space.s4) {
-            TextField("Filter", text: $filter)
-                .textFieldStyle(.roundedBorder)
-            List(candidates, id: \.fullName) { ref in
-                Toggle(
-                    isOn: Binding(
-                        get: { chosen.contains(ref.fullName) },
-                        set: { on in
-                            if on { chosen.insert(ref.fullName) } else { chosen.remove(ref.fullName) }
-                        })
-                ) {
-                    Text(ref.shortName).lineLimit(1).truncationMode(.middle)
-                }
-            }
-            .frame(width: 300, height: 280)
-            HStack {
-                Button("Cancel") { isPresented = false }
-                Spacer()
-                Button("Show") {
-                    controller.viewModel.selectedRefs = chosen.sorted()
-                    controller.viewModel.scope = chosen.isEmpty ? .all : .selected
-                    controller.applyQuery()
-                    isPresented = false
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(Space.s6)
-        .onAppear { chosen = Set(controller.viewModel.selectedRefs) }
-    }
-
-    private var candidates: [GitRef] {
-        let refs = (controller.currentRefs?.refs ?? []).filter { $0.kind == .local || $0.kind == .remote }
-        guard !filter.isEmpty else { return refs }
-        return refs.filter { FuzzyMatch.matches(filter, $0.shortName) }
     }
 }
 
@@ -412,12 +309,12 @@ struct GraphStateOverlay: View {
         VStack(spacing: 0) {
             if let error = controller.viewModel.historyError {
                 ErrorBanner(error: error, retry: controller.retry)
-                    .padding(.top, 52)
+                    .padding(.top, 72)
                     .padding(.horizontal, Space.s6)
             }
             if controller.viewModel.paneState == .loading {
                 SkeletonRows()
-                    .padding(.top, 52)
+                    .padding(.top, 72)
                     .allowsHitTesting(false)
             } else if controller.viewModel.paneState == .empty {
                 Spacer()

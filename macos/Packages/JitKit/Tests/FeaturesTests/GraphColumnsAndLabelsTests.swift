@@ -9,10 +9,12 @@ import Testing
 
 /// 0.0.2: column order / visibility / widths, ref label glyphs and tooltips, file path layout.
 @Suite struct GraphColumnLayoutTests {
-    @Test func defaultsShowEveryColumnInOrder() {
+    @Test func defaultsShowEveryColumnButTheDateInOrder() {
         let layout = GraphColumnLayout()
         #expect(layout.order == [.refs, .graph, .subject, .author, .date, .sha])
-        #expect(layout.hidden.isEmpty)
+        // 0.0.3: rows carry a time tag instead of a date column.
+        #expect(layout.hidden == [.date])
+        #expect(layout.widths[.graph] == nil)
         #expect(layout.width(.author) == 150)
     }
 
@@ -43,13 +45,56 @@ import Testing
     @Test func theMessageColumnCannotBeHidden() {
         var layout = GraphColumnLayout()
         layout.setHidden(.subject, true)
-        #expect(layout.hidden.isEmpty)
+        #expect(!layout.hidden.contains(.subject))
         let restored = GraphColumnLayout(json: .object(["hidden": .array([.string("subject"), .string("date")])]))
         #expect(restored.hidden == [.date])
     }
 
+    @Test func layoutsSavedBefore003HideTheDateOnce() {
+        // No version: saved by 0.0.2, which showed the date column.
+        let old = GraphColumnLayout(json: .object(["hidden": .array([.string("sha")])]))
+        #expect(old.hidden == [.date, .sha])
+        // Saved by 0.0.3 with the date switched back on: it stays on.
+        var current = GraphColumnLayout()
+        current.setHidden(.date, false)
+        #expect(GraphColumnLayout(json: current.json).hidden.isEmpty)
+    }
+
+    @Test func aDraggedGraphWidthIsSaved() {
+        var layout = GraphColumnLayout()
+        layout.widths[.graph] = 132
+        #expect(GraphColumnLayout(json: layout.json).widths[.graph] == 132)
+    }
+
+    @Test func timeBucketsGroupByHourDayWeekThenMonth() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let month = DateFormatter()
+        month.locale = Locale(identifier: "en_US_POSIX")
+        month.dateFormat = "MMM yyyy"
+        func bucket(_ seconds: TimeInterval) -> String {
+            GraphRowCache.timeBucket(for: now.addingTimeInterval(-seconds), now: now, month: month)
+        }
+        #expect(bucket(120) == "in the last hour")
+        #expect(bucket(-30) == "in the last hour")
+        #expect(bucket(3_700) == "1 hour ago")
+        #expect(bucket(7 * 3_600 + 5) == "7 hours ago")
+        #expect(bucket(30 * 3_600) == "yesterday")
+        #expect(bucket(3 * 86_400 + 9) == "3 days ago")
+        #expect(bucket(8 * 86_400) == "1 week ago")
+        #expect(bucket(20 * 86_400) == "2 weeks ago")
+        #expect(bucket(200 * 86_400) == month.string(from: now.addingTimeInterval(-200 * 86_400)))
+    }
+
+    @MainActor @Test func aSavedScopeIsIgnored() {
+        let model = GraphViewModel()
+        model.scope = .current
+        model.restore(from: [GraphViewModel.scopeKey: .string("local")])
+        #expect(model.scope == .all)
+    }
+
     @Test func wideLayoutKeepsPreferredWidthsAndGivesTheRestToTheMessage() {
-        let layout = GraphColumnLayout()
+        var layout = GraphColumnLayout()
+        layout.setHidden(.date, false)
         let fitted = layout.fitted(available: 1200, fixed: [.graph: 80])
         #expect(fitted.autoHidden.isEmpty)
         #expect(fitted.widths[.author] == 150)
@@ -58,7 +103,8 @@ import Testing
     }
 
     @Test func narrowLayoutHidesTheShaThenNarrowsAuthorDateAndBranch() {
-        let layout = GraphColumnLayout()
+        var layout = GraphColumnLayout()
+        layout.setHidden(.date, false)
         let fitted = layout.fitted(available: 560, fixed: [.graph: 80])
         #expect(fitted.autoHidden == [.sha])
         #expect(fitted.widths[.sha] == nil)

@@ -33,6 +33,8 @@ final class WorkbenchController: NSSplitViewController {
     lazy var operations = OperationsController(session: session, model: model)
     private var needsWidthRestore = true
     private var isApplyingWidths = false
+    /// The sidebar was open when a diff took the centre: it closes for the diff and comes back with the graph.
+    private var sidebarClosedForDiff = false
 
     init(tab: TabModel, session: RepositorySession, model: AppModel, actions: WorkbenchActions) {
         self.tab = tab
@@ -59,6 +61,7 @@ final class WorkbenchController: NSSplitViewController {
         let navigator = NavigatorViewController(tab: tab, model: model)
         let graph = GraphViewController(session: session, tab: tab, model: model)
         connect(graph: graph, navigator: navigator)
+        navigator.graph = graph
         self.graph = graph
         self.navigator = navigator
 
@@ -89,6 +92,41 @@ final class WorkbenchController: NSSplitViewController {
         addSplitViewItem(inspector)
         sidebarItem = sidebar
         inspectorItem = inspector
+        observeDiffFocus()
+    }
+
+    /// A diff in the centre needs the room: the sidebar closes while it is open and returns when it closes
+    /// (0.0.3). The inspector — the file list — stays. The tab's saved sidebar state is not touched.
+    private func observeDiffFocus() {
+        withObservationTracking {
+            _ = diffModel.isFocused
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.applyDiffFocus()
+                self?.observeDiffFocus()
+            }
+        }
+    }
+
+    private func applyDiffFocus() {
+        guard let sidebarItem else { return }
+        if diffModel.isFocused {
+            guard !sidebarItem.isCollapsed, !sidebarClosedForDiff else { return }
+            sidebarClosedForDiff = true
+            setSidebarCollapsed(true)
+        } else if sidebarClosedForDiff {
+            sidebarClosedForDiff = false
+            if sidebarItem.isCollapsed { setSidebarCollapsed(false) }
+        }
+    }
+
+    private func setSidebarCollapsed(_ collapsed: Bool) {
+        guard let sidebarItem, sidebarItem.isCollapsed != collapsed else { return }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || view.window == nil {
+            sidebarItem.isCollapsed = collapsed
+        } else {
+            sidebarItem.animator().isCollapsed = collapsed
+        }
     }
 
     /// Graph ↔ navigator ↔ inspector (design §3.4–§3.5).
@@ -106,6 +144,12 @@ final class WorkbenchController: NSSplitViewController {
         inspector.avatars = model.avatars
         let diff = diffModel
         diff.onCloseRequest = { [weak inspector] in inspector?.closeDiff() }
+        // "Stage File" / "Unstage File" in the diff's own bar.
+        diff.onStageFile = { [weak workingDirectory, weak diff] path, stage in
+            workingDirectory?.setStaged(stage, path: path)
+            // The file moved to the other section: keep showing it there.
+            diff?.open(stage ? .staged(path: path, renamedFrom: nil) : .unstaged(path: path))
+        }
         let blame = blameModel
         blame.revealCommit = { [weak graph, weak blame] oid in
             blame?.close()
@@ -160,6 +204,12 @@ final class WorkbenchController: NSSplitViewController {
             operations?.refs = refs
         }
         graph.actions.escapeUnhandled = { [weak self] in self?.setInspectorCollapsed(true) }
+        // Esc with a diff open closes the diff only — the selection and the inspector stay (0.0.3).
+        graph.actions.interceptEscape = { [weak diff] in
+            guard let diff, diff.target != nil else { return false }
+            diff.requestClose()
+            return true
+        }
         graph.actions.showInNavigator = { [weak self, weak navigator] fullName in
             if let sidebar = self?.sidebarItem, sidebar.isCollapsed { sidebar.isCollapsed = false }
             navigator?.reveal(fullName: fullName)
@@ -241,7 +291,7 @@ final class WorkbenchController: NSSplitViewController {
         super.splitViewDidResizeSubviews(notification)
         onSidebarGeometryChange?()
         // Collapse/expand also resizes the subviews; record per-tab flags here (no KVO needed).
-        if let sidebarItem, sidebarItem.isCollapsed != tab.sidebarCollapsed {
+        if let sidebarItem, sidebarItem.isCollapsed != tab.sidebarCollapsed, !sidebarClosedForDiff {
             collapseChanged(sidebar: sidebarItem.isCollapsed)
         }
         if let inspectorItem, inspectorItem.isCollapsed != tab.inspectorCollapsed {
@@ -268,6 +318,7 @@ final class WorkbenchController: NSSplitViewController {
     /// The tab closed (or was suspended): detach hosted views that capture their controllers (P6.6).
     func tearDown() {
         graph?.tearDown()
+        navigator?.tearDown()
         diffController.tearDown()
     }
 
@@ -310,6 +361,8 @@ final class WorkbenchController: NSSplitViewController {
 
     /// System collapse animation; instant with Reduce Motion.
     override func toggleSidebar(_ sender: Any?) {
+        // The user took over: the sidebar no longer follows the diff.
+        sidebarClosedForDiff = false
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, let sidebarItem {
             sidebarItem.isCollapsed.toggle()
         } else {

@@ -180,6 +180,25 @@ Chrome text uses the system's fonts. Counts use `.monospacedDigit()`. SF Symbols
   section. File paths never cut the file name: the folders shorten in the middle, then disappear.
 - **Diff placement (0.0.2):** a chosen file's diff covers the graph area; Esc / close returns to the graph.
 - **Command bar search (0.0.2):** a magnifier button that opens into the field (click or ⌘F).
+- **0.0.3 round** ([P8.ux.2](phases/08-post-v1/specs/P8.ux.2-action-bar-sidebar-and-diff.md)) — where this
+  document says otherwise above, this list wins:
+  - **Radii:** `xs` 3, `sm` 5, `md` 7, `lg` 10. Jit's own glass controls and the tabs are rounded rectangles
+    (`ChromeShape.control`, `TabMetrics.shape`), not capsules; system glass buttons keep the system shape.
+  - **Toolbar:** sidebar toggle (icon only, beside the window controls) and the tab strip; the activity item
+    while there is activity. No profile item, inspector toggle or all-tabs menu.
+  - **Action bar:** one glass bar under the tabs; its commands are plain icon-over-title items (`BarAction`)
+    with a hover wash — no border or glass per item. The scope menu and the breadcrumb are gone.
+  - **Sidebar:** current-branch button at the top, profile and Settings at the bottom, a glyph per section
+    title, 26 pt rows, section containers as a light wash (`state.hover` × 45 %) over the system glass.
+  - **Inspector:** default width 420 pt (340–640); a commit's panel does not scroll as a whole — the message
+    has a fixed height and the files container scrolls. Uncommitted work lists Unstaged before Staged; stage
+    actions are `status.success`, unstage and discard `status.danger`.
+  - **Diff:** opening one closes the sidebar until it closes; word wrap; layout, whitespace and wrap buttons in
+    its bar; Stage File / Unstage File.
+  - **Graph:** time tags at the row's trailing end where the time changes (Date column hidden by default); a
+    dimmed branch label for the hovered / selected commit's line; the graph column's width does not follow
+    the scroll position.
+  - **Logotype:** `JitLogotype` (paths, `text.primary` + `accent.base`), on the new-tab page.
 - Density: compact 22 pt rows, comfortable 26 pt (default).
 
 ## Motion (`MotionToken`)

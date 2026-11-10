@@ -1,9 +1,12 @@
 import Foundation
 import GitCore
 
-/// The working-directory panel's sections (design §3.1), in display order.
+/// The working-directory panel's sections (design §3.1).
 enum WDSection: String, CaseIterable, Sendable, Hashable {
     case conflicts, staged, unstaged
+
+    /// The order the panel shows them in (0.0.3): what is not staged yet comes before what is.
+    static let displayOrder: [WDSection] = [.conflicts, .unstaged, .staged]
 
     var title: String {
         switch self {

@@ -272,18 +272,20 @@ final class Harness {
     @Test func testWidthsClampToMinMax() {
         let layout = LayoutState(sidebarWidth: 10, inspectorWidth: 10_000)
         #expect(layout.sidebarWidth == 200)
-        #expect(layout.inspectorWidth == 560)
+        #expect(layout.inspectorWidth == 640)
         layout.sidebarWidth = 9_999
         #expect(layout.sidebarWidth == 380)
         layout.inspectorWidth = .nan
-        #expect(layout.inspectorWidth == 360)
+        #expect(layout.inspectorWidth == 420)
     }
 
     @Test func testPersistence() throws {
         let layout = LayoutState(sidebarWidth: 290, inspectorWidth: 410)
         let restored = LayoutState(layout.record)
         #expect(restored.sidebarWidth == 290 && restored.inspectorWidth == 410)
-        #expect(LayoutState(nil).sidebarWidth == 248)
+        #expect(LayoutState(nil).sidebarWidth == 260)
+        // A saved inspector width still at the 0.0.2 default (360) follows the new default; a chosen one stays.
+        #expect(LayoutState(.init(sidebarWidth: 290, inspectorWidth: 360)).inspectorWidth == 420)
     }
 }
 

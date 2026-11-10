@@ -22,6 +22,11 @@ extension EnvironmentValues {
     @Entry public var jitOpaqueChrome = false
 }
 
+/// The outline of Jit's own glass controls (bars, fields, chips): a rounded rectangle, not a capsule (0.0.3).
+public enum ChromeShape {
+    public static var control: RoundedRectangle { RoundedRectangle(cornerRadius: Radius.md, style: .continuous) }
+}
+
 /// Applies Liquid Glass to a custom chrome control, or an opaque chrome surface when Reduce
 /// Transparency is on.
 public struct GlassSurface<S: Shape>: ViewModifier {

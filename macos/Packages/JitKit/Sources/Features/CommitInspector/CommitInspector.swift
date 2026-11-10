@@ -26,6 +26,12 @@ final class InspectorModel {
         didSet { if oldValue != compareMode { reload() } }
     }
     var showsTree = false
+    /// Folders opened in the tree view (all closed at first); forgotten when another commit is shown.
+    private(set) var expandedFolders: Set<String> = []
+
+    func toggleFolder(_ path: String) {
+        if expandedFolders.contains(path) { expandedFolders.remove(path) } else { expandedFolders.insert(path) }
+    }
     var format: ObjectFormat = .sha1
     var refs: RefSnapshot?
 
@@ -81,6 +87,7 @@ final class InspectorModel {
         guard next != mode else { return }
         mode = next
         openedFilePath = nil
+        expandedFolders = []
         diff?.close()
         reload()
     }
@@ -89,6 +96,7 @@ final class InspectorModel {
         guard case .compare(let a, let b) = mode else { return }
         mode = .compare(b, a)
         openedFilePath = nil
+        expandedFolders = []
         diff?.close()
         reload()
     }
@@ -175,56 +183,54 @@ struct CommitInspectorView: View {
             case .nothing:
                 Placeholder(text: "Select a commit")
             case .commit(let oid):
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Space.s5) {
-                        if let details = model.details {
-                            CommitHeader(details: details, model: model)
-                        } else if let error = model.error {
-                            InlineError(text: error).panelSection()
-                        } else {
-                            Text(oid.hex(model.format, length: 7))
-                                .typeStyle(.monoBody)
-                                .foregroundStyle(.token(.textTertiary))
-                                .panelSection()
+                // The panel does not scroll (0.0.3): the message keeps its height, the file list takes the rest
+                // and scrolls inside its own container.
+                VStack(alignment: .leading, spacing: Space.s5) {
+                    if let details = model.details {
+                        CommitHeader(details: details, model: model)
+                        FilesSection(model: model, isMerge: details.parents.count > 1).panelSection()
+                    } else {
+                        Group {
+                            if let error = model.error {
+                                InlineError(text: error)
+                            } else {
+                                Text(oid.hex(model.format, length: 7))
+                                    .typeStyle(.monoBody)
+                                    .foregroundStyle(.token(.textTertiary))
+                            }
                         }
-                        if model.details != nil {
-                            FilesSection(model: model, isMerge: (model.details?.parents.count ?? 0) > 1)
-                                .panelSection()
-                        }
+                        .panelSection()
+                        Spacer(minLength: 0)
                     }
-                    .padding(Space.s5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .padding(Space.s5)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             case .workingDirectory:
                 if let workingDirectory = model.workingDirectory {
                     WorkingDirectoryView(model: workingDirectory)
                 }
             case .compare(let a, let b):
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Space.s5) {
-                        CompareHeader(model: model, from: a, to: b).panelSection()
-                        FilesSection(model: model, isMerge: false).panelSection()
-                    }
-                    .padding(Space.s5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: Space.s5) {
+                    CompareHeader(model: model, from: a, to: b).panelSection()
+                    FilesSection(model: model, isMerge: false).panelSection()
                 }
+                .padding(Space.s5)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             case .compareWithWorkingDirectory(let oid):
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Space.s5) {
-                        VStack(alignment: .leading, spacing: Space.s3) {
-                            Text("Comparing \(oid.hex(model.format, length: 7)) → working directory")
-                                .typeStyle(.headline)
-                                .foregroundStyle(.token(.textPrimary))
-                            Text("Tracked files only — untracked files are not included.")
-                                .typeStyle(.callout)
-                                .foregroundStyle(.token(.textTertiary))
-                        }
-                        .panelSection()
-                        FilesSection(model: model, isMerge: false).panelSection()
+                VStack(alignment: .leading, spacing: Space.s5) {
+                    VStack(alignment: .leading, spacing: Space.s3) {
+                        Text("Comparing \(oid.hex(model.format, length: 7)) → working directory")
+                            .typeStyle(.headline)
+                            .foregroundStyle(.token(.textPrimary))
+                        Text("Tracked files only — untracked files are not included.")
+                            .typeStyle(.callout)
+                            .foregroundStyle(.token(.textTertiary))
                     }
-                    .padding(Space.s5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .panelSection()
+                    FilesSection(model: model, isMerge: false).panelSection()
                 }
+                .padding(Space.s5)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -266,13 +272,19 @@ private struct CommitHeader: View {
                     .typeStyle(.title)
                     .foregroundStyle(.token(.textPrimary))
                     .textSelection(.enabled)
+                    .lineLimit(InspectorMetrics.subjectLines)
                     .fixedSize(horizontal: false, vertical: true)
+                    .help(DisplayText.sanitize(details.subject))
                 if !details.body.isEmpty {
-                    Text(DisplayText.sanitize(MessageReflow.reflow(details.body), keepNewlines: true))
-                        .typeStyle(.body)
-                        .foregroundStyle(.token(.textSecondary))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // A static height: a long description scrolls here instead of pushing the files away.
+                    ScrollView {
+                        Text(DisplayText.sanitize(MessageReflow.reflow(details.body), keepNewlines: true))
+                            .typeStyle(.body)
+                            .foregroundStyle(.token(.textSecondary))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: InspectorMetrics.messageBodyHeight)
                 }
             }
             .panelSection()
@@ -528,23 +540,30 @@ private struct FilesSection: View {
                     .typeStyle(.callout)
                     .foregroundStyle(.token(.textTertiary))
             } else {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if model.showsTree {
-                        ForEach(groups, id: \.directory) { group in
-                            Text(group.directory.isEmpty ? "/" : group.directory + "/")
-                                .typeStyle(.monoCaption)
-                                .foregroundStyle(.token(.textTertiary))
-                                .padding(.top, Space.s4)
-                            ForEach(group.files, id: \.self) { file in
-                                FileRow(file: file, model: model, nameOnly: true)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if model.showsTree {
+                            ForEach(tree) { row in
+                                if let index = row.fileIndex, model.files.indices.contains(index) {
+                                    FileRow(file: model.files[index], model: model, nameOnly: true)
+                                        .padding(.leading, CGFloat(row.depth) * Space.s6)
+                                } else if let path = row.folderPath {
+                                    FolderRow(row: row) { model.toggleFolder(path) }
+                                        .padding(.leading, CGFloat(row.depth) * Space.s6)
+                                }
+                            }
+                        } else {
+                            ForEach(model.files, id: \.self) { file in
+                                FileRow(file: file, model: model, nameOnly: false)
                             }
                         }
-                    } else {
-                        ForEach(model.files, id: \.self) { file in FileRow(file: file, model: model, nameOnly: false) }
                     }
                 }
             }
         }
+        // The container fills what the panel has left; the rows scroll inside it.
+        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(minHeight: InspectorMetrics.filesMinHeight, alignment: .top)
     }
 
     private var header: String {
@@ -554,9 +573,126 @@ private struct FilesSection: View {
         return "\(count) \(count == 1 ? "file" : "files")  +\(additions) −\(deletions)"
     }
 
-    private var groups: [(directory: String, files: [ChangedFile])] {
-        let grouped = Dictionary(grouping: model.files) { ($0.path as NSString).deletingLastPathComponent }
-        return grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
+    private var tree: [FileTree.Row] {
+        FileTree.rows(paths: model.files.map(\.path), expanded: model.expandedFolders)
+    }
+}
+
+/// Fixed sizes of the commit inspector's containers.
+enum InspectorMetrics {
+    static let subjectLines = 3
+    /// The description's own scroll area.
+    static let messageBodyHeight: CGFloat = 96
+    static let filesMinHeight: CGFloat = 120
+}
+
+/// The changed files as a folder tree (the inspector's Tree view): folders first, closed until opened,
+/// chains of folders that hold nothing but one folder merged into one row (`src/app/views`).
+enum FileTree {
+    struct Row: Equatable, Identifiable {
+        let id: String
+        let depth: Int
+        let name: String
+        /// Set for a folder row: the folder's full path (the key in the expanded set).
+        var folderPath: String?
+        /// Set for a file row: the file's index in the input.
+        var fileIndex: Int?
+        /// Files anywhere under a folder.
+        var fileCount = 0
+        var isExpanded = false
+    }
+
+    private final class Node {
+        var folders: [String: Node] = [:]
+        var files: [(name: String, index: Int)] = []
+        var count = 0
+    }
+
+    /// The visible rows for `paths` (in their given order) with the folders in `expanded` open.
+    static func rows(paths: [String], expanded: Set<String>) -> [Row] {
+        let root = Node()
+        for (index, path) in paths.enumerated() {
+            var parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            guard let name = parts.popLast() else { continue }
+            var node = root
+            node.count += 1
+            for part in parts {
+                let next = node.folders[part] ?? Node()
+                node.folders[part] = next
+                next.count += 1
+                node = next
+            }
+            node.files.append((name, index))
+        }
+        var result: [Row] = []
+        func emit(_ node: Node, prefix: String, depth: Int) {
+            for key in node.folders.keys.sorted() {
+                guard var folder = node.folders[key] else { continue }
+                var name = key
+                // `a/` holding only `b/` shows as one row `a/b`.
+                while folder.files.isEmpty, folder.folders.count == 1, let only = folder.folders.first {
+                    name += "/" + only.key
+                    folder = only.value
+                }
+                let path = prefix + name
+                let isExpanded = expanded.contains(path)
+                result.append(
+                    Row(
+                        id: "d:" + path, depth: depth, name: name, folderPath: path, fileCount: folder.count,
+                        isExpanded: isExpanded))
+                if isExpanded { emit(folder, prefix: path + "/", depth: depth + 1) }
+            }
+            for file in node.files {
+                result.append(Row(id: "f:\(file.index)", depth: depth, name: file.name, fileIndex: file.index))
+            }
+        }
+        emit(root, prefix: "", depth: 0)
+        return result
+    }
+}
+
+/// A folder of the tree view: a plus button (minus when open), the folder's name and how many files it holds.
+private struct FolderRow: View {
+    let row: FileTree.Row
+    let toggle: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: Space.s3) {
+            Button(action: toggle) {
+                Image(systemName: row.isExpanded ? "minus.square" : "plus.square")
+                    .symbolSize(IconSize.sm)
+                    .foregroundStyle(.token(.textSecondary))
+                    .frame(width: IconSize.md, height: IconSize.md)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(row.isExpanded ? "Collapse" : "Expand")
+            Image(systemName: "folder")
+                .symbolSize(IconSize.sm)
+                .foregroundStyle(.token(.textSecondary))
+                .accessibilityHidden(true)
+            Text(DisplayText.sanitize(row.name))
+                .typeStyle(.monoBody)
+                .foregroundStyle(.token(.textPrimary))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: Space.s3)
+            Text("\(row.fileCount)")
+                .typeStyle(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.token(.textTertiary))
+        }
+        .padding(.vertical, Space.s3)
+        .padding(.horizontal, Space.s3)
+        .background(RowBackground(isHovered ? .hover : .rest))
+        .contentShape(Rectangle())
+        .onTapGesture { toggle() }
+        .onHover { isHovered = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Folder \(row.name), \(row.fileCount) \(row.fileCount == 1 ? "file" : "files")")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { toggle() }
     }
 }
 
@@ -571,7 +707,7 @@ private struct FileRow: View {
     var body: some View {
         HStack(spacing: Space.s4) {
             Text(file.status.letter)
-                .typeStyle(.monoCaption)
+                .typeStyle(.monoBody)
                 .foregroundStyle(statusColor)
                 .frame(width: 12)
                 .accessibilityLabel(statusName)
@@ -580,12 +716,12 @@ private struct FileRow: View {
                 directory: nameOnly ? "" : (DisplayText.sanitize(file.path) as NSString).deletingLastPathComponent,
                 name: (DisplayText.sanitize(file.path) as NSString).lastPathComponent
             )
-            .font(TypeToken.monoCaption.font)
+            .font(TypeToken.monoBody.font)
             .frame(maxWidth: .infinity, alignment: .leading)
             .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
             StatBar(additions: file.additions, deletions: file.deletions)
         }
-        .padding(.vertical, Space.s2)
+        .padding(.vertical, Space.s3)
         .padding(.horizontal, Space.s3)
         .background(RowBackground(model.openedFilePath == file.path ? .selected : isHovered ? .hover : .rest))
         .contentShape(Rectangle())
@@ -691,7 +827,8 @@ struct FilePathLayout: Layout {
     }
 }
 
-/// 8-segment +/- bar with numbers; "binary" for binary files.
+/// Added and removed line counts; "binary" for binary files. (The 8-segment bar went in 0.0.3: the room goes
+/// to the file name.)
 private struct StatBar: View {
     let additions: Int?
     let deletions: Int?
@@ -701,33 +838,16 @@ private struct StatBar: View {
             HStack(spacing: Space.s3) {
                 Text("+\(additions)").foregroundStyle(.token(.diffAddMark))
                 Text("−\(deletions)").foregroundStyle(.token(.diffDeleteMark))
-                HStack(spacing: 1) {
-                    ForEach(0..<8, id: \.self) { index in
-                        Rectangle()
-                            .fill(color(index))
-                            .frame(width: 3, height: 8)
-                    }
-                }
-                .accessibilityHidden(true)
             }
             .typeStyle(.monoCaption)
             .monospacedDigit()
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(additions) additions, \(deletions) deletions")
         } else {
             Text("binary")
                 .typeStyle(.caption)
                 .foregroundStyle(.token(.textTertiary))
         }
-    }
-
-    private func color(_ index: Int) -> Color {
-        let total = (additions ?? 0) + (deletions ?? 0)
-        guard total > 0 else { return ColorToken.borderSubtle.color }
-        let filled = min(8, max(1, Int((Double(total) / 10).rounded(.up))))
-        let green = Int((Double(additions ?? 0) / Double(total) * Double(filled)).rounded())
-        if index < green { return ColorToken.diffAddMark.color }
-        if index < filled { return ColorToken.diffDeleteMark.color }
-        return ColorToken.borderSubtle.color
     }
 }
 

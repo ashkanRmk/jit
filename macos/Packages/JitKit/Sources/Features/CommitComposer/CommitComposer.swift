@@ -113,6 +113,20 @@ final class CommitComposerModel {
         return nil
     }
 
+    /// A summary longer than `CommitMessageCheck.lineLimit` is often cut off in logs. Never blocks the commit.
+    var summaryWarning: String? {
+        summary.count > CommitMessageCheck.lineLimit
+            ? "Summaries longer than \(CommitMessageCheck.lineLimit) characters are often cut off." : nil
+    }
+
+    /// Long description lines do not wrap in `git log`. Never blocks the commit.
+    var detailsWarning: String? {
+        let long = CommitMessageCheck.longLines(in: details)
+        guard long > 0 else { return nil }
+        let lines = long == 1 ? "1 line is" : "\(long) lines are"
+        return "\(lines) longer than \(CommitMessageCheck.lineLimit) characters and will not wrap in git log."
+    }
+
     var commitTitle: String {
         if amend { return "Amend Commit" }
         return stagedCount == 1 ? "Commit 1 File" : "Commit \(stagedCount) Files"
@@ -171,13 +185,21 @@ struct CommitComposerView: View {
     @Bindable var model: CommitComposerModel
     @State private var showsOutput = false
     @State private var confirmsNoVerify = false
-    @FocusState private var summaryFocused: Bool
+    @FocusState private var focus: Field?
+
+    private enum Field { case summary, details }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             fields
                 .padding(Space.s5)
                 .background(ColorToken.surfacePanel.color)
+                // ⌘↩ commits from either field too (a focused text field takes the key before the button).
+                .onKeyPress(.return, phases: .down) { press in
+                    guard press.modifiers.contains(.command), model.disabledReason == nil else { return .ignored }
+                    model.commit()
+                    return .handled
+                }
             actionBar
         }
         .onAppear { model.activate() }
@@ -193,24 +215,30 @@ struct CommitComposerView: View {
 
     private var fields: some View {
         VStack(alignment: .leading, spacing: Space.s4) {
-            HStack(alignment: .firstTextBaseline) {
+            ComposerField(isFocused: focus == .summary, warning: model.summaryWarning) {
                 TextField("Summary", text: $model.summary)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($summaryFocused)
+                    .textFieldStyle(.plain)
+                    .font(TypeToken.headline.font)
+                    .focused($focus, equals: .summary)
                     .accessibilityLabel("Commit summary")
-                if model.summary.count > 50 {
-                    Text("\(model.summary.count)")
-                        .typeStyle(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.token(model.summary.count > 72 ? .statusWarning : .textTertiary))
-                        .help(model.summary.count > 72 ? "Summaries longer than 72 characters are often cut off" : "")
-                        .accessibilityLabel("\(model.summary.count) characters")
-                }
+            } footer: {
+                CharacterCount(
+                    text: "\(model.summary.count)/\(CommitMessageCheck.lineLimit)",
+                    isOver: model.summary.count > CommitMessageCheck.lineLimit,
+                    spoken: "\(model.summary.count) of \(CommitMessageCheck.lineLimit) characters")
             }
-            TextField("Description", text: $model.details, axis: .vertical)
-                .lineLimit(2...8)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("Commit description")
+            ComposerField(isFocused: focus == .details, warning: model.detailsWarning) {
+                TextField("Description", text: $model.details, axis: .vertical)
+                    .lineLimit(4...10)
+                    .textFieldStyle(.plain)
+                    .font(TypeToken.body.font)
+                    .focused($focus, equals: .details)
+                    .accessibilityLabel("Commit description")
+            } footer: {
+                CharacterCount(
+                    text: "\(model.details.count)", isOver: model.detailsWarning != nil,
+                    spoken: "\(model.details.count) characters")
+            }
             Toggle("Amend last commit", isOn: $model.amend)
                 .toggleStyle(.checkbox)
                 .disabled(model.context.headMessage == nil)
@@ -253,24 +281,8 @@ struct CommitComposerView: View {
 
     private var actionBar: some View {
         VStack(alignment: .leading, spacing: Space.s3) {
-            if let profile = model.profile {
-                HStack(spacing: Space.s3) {
-                    Circle()
-                        .fill(ProfileColor.at(profile.colorIndex).color)
-                        .frame(width: IconSize.md, height: IconSize.md)
-                        .overlay(Text(profile.initials).typeStyle(.micro).foregroundStyle(ProfileColor.initialsColor))
-                        .accessibilityHidden(true)
-                    Text(
-                        "Committing as \(Text(profile.author.name).bold()) <\(profile.author.email)> · \(profile.displayName)"
-                    )
-                    .typeStyle(.caption)
-                    .foregroundStyle(.token(.textSecondary))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { NSApp.sendAction(Selector(("showProfileSwitcher:")), to: nil, from: nil) }
-                .help("Change profile")
+            // With a profile the identity is already in the sidebar; only say something when it needs attention.
+            if model.profile != nil {
                 if let note = model.configNote {
                     Text(note)
                         .typeStyle(.caption)
@@ -284,18 +296,6 @@ struct CommitComposerView: View {
                 .buttonStyle(.link)
             }
             HStack(spacing: Space.s3) {
-                Spacer()
-                Menu {
-                    Button("Commit Without Running Hooks…") { confirmsNoVerify = true }
-                        .disabled(model.disabledReason != nil)
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .secondaryGlassButton()
-                .fixedSize()
-                .accessibilityLabel("More commit options")
                 Button {
                     model.commit()
                 } label: {
@@ -307,12 +307,25 @@ struct CommitComposerView: View {
                         }
                         Text(model.commitTitle)
                     }
+                    .frame(maxWidth: .infinity)
                 }
                 .primaryGlassButton()
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(model.disabledReason != nil)
                 .help(model.disabledReason ?? "\(model.commitTitle) (⌘↩)")
+                Menu {
+                    Button("Commit Without Running Hooks…") { confirmsNoVerify = true }
+                        .disabled(model.disabledReason != nil)
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .secondaryGlassButton()
+                .fixedSize()
+                .accessibilityLabel("More commit options")
             }
+            .controlSize(.extraLarge)
         }
         .padding(.horizontal, Space.s5)
         .padding(.vertical, Space.s4)
@@ -320,5 +333,62 @@ struct CommitComposerView: View {
         .background {
             Rectangle().fill(.clear).jitGlass(in: Rectangle(), interactive: false)
         }
+    }
+}
+
+/// Message conventions the composer checks (warnings only).
+enum CommitMessageCheck {
+    /// Git's own convention for the summary and for body lines.
+    static let lineLimit = 72
+
+    /// How many lines of `text` are longer than `lineLimit` characters.
+    static func longLines(in text: String) -> Int {
+        text.split(separator: "\n", omittingEmptySubsequences: true).count { $0.count > lineLimit }
+    }
+}
+
+/// One message field in its own container: the field, then a footer line with a warning and the count.
+private struct ComposerField<Field: View, Footer: View>: View {
+    let isFocused: Bool
+    let warning: String?
+    @ViewBuilder let field: Field
+    @ViewBuilder let footer: Footer
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        VStack(alignment: .leading, spacing: Space.s3) {
+            field
+            HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
+                if let warning {
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .typeStyle(.caption)
+                        .foregroundStyle(.token(.statusWarning))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                footer
+            }
+        }
+        .padding(.horizontal, Space.s5)
+        .padding(.vertical, Space.s4)
+        .background(ColorToken.surfaceRaised.color, in: shape)
+        .overlay(
+            shape.strokeBorder(
+                isFocused ? Selection.edge : ColorToken.borderSubtle.color,
+                lineWidth: isFocused ? Border.emphasis : Border.hairline))
+    }
+}
+
+private struct CharacterCount: View {
+    let text: String
+    let isOver: Bool
+    let spoken: String
+
+    var body: some View {
+        Text(text)
+            .typeStyle(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.token(isOver ? .statusWarning : .textTertiary))
+            .accessibilityLabel(spoken)
     }
 }

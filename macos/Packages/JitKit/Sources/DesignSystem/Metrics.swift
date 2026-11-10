@@ -20,12 +20,12 @@ public enum Space {
 }
 
 /// Continuous-corner radii, chosen to nest concentrically: an inner radius = outer radius − inset.
-/// Glass controls use capsules or the system's container shapes, not these values.
+/// 0.0.3 made every step a little squarer. Custom glass chrome uses `ChromeShape.control` (`md`).
 public enum Radius {
-    public static let xs: CGFloat = 4
-    public static let sm: CGFloat = 6
-    public static let md: CGFloat = 10
-    public static let lg: CGFloat = 14
+    public static let xs: CGFloat = 3
+    public static let sm: CGFloat = 5
+    public static let md: CGFloat = 7
+    public static let lg: CGFloat = 10
 
     public static let all: [(String, CGFloat)] = [
         ("radius.xs", xs), ("radius.sm", sm), ("radius.md", md), ("radius.lg", lg),
@@ -62,11 +62,11 @@ public enum PanelMetrics {
     public static let windowMinWidth: CGFloat = 960
     public static let windowMinHeight: CGFloat = 600
     public static let sidebarMin: CGFloat = 200
-    public static let sidebarDefault: CGFloat = 248
+    public static let sidebarDefault: CGFloat = 260
     public static let sidebarMax: CGFloat = 380
     public static let inspectorMin: CGFloat = 340
-    public static let inspectorDefault: CGFloat = 360
-    public static let inspectorMax: CGFloat = 560
+    public static let inspectorDefault: CGFloat = 420
+    public static let inspectorMax: CGFloat = 640
     public static let contentColumnMax: CGFloat = 520
 }
 

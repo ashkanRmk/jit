@@ -32,7 +32,7 @@ struct GraphColumnLayout: Equatable {
         var minWidth: CGFloat {
             switch self {
             case .refs: 96
-            case .graph: 24
+            case .graph: 40
             case .subject: 160
             case .author: 80
             case .date: 64
@@ -42,19 +42,26 @@ struct GraphColumnLayout: Equatable {
 
         /// The message column always shows: it takes the width the others leave.
         var canHide: Bool { self != .subject }
-        /// The graph column sizes itself to the lanes on screen.
-        var userResizable: Bool { self != .graph }
     }
 
+    /// Bumped when the defaults change: 2 (0.0.3) hides the date column, replaced by the rows' time tags.
+    static let version = 2
+
     var order: [Column] = Column.allCases
-    var hidden: Set<Column> = []
+    /// The date column is off by default: rows carry a time tag where the age changes.
+    var hidden: Set<Column> = [.date]
+    /// Preferred widths the user dragged. The graph column has none until it is dragged (automatic width).
     var widths: [Column: CGFloat] = [:]
 
     init() {}
 
-    /// Reads the saved value. Before 0.0.2 it was a plain `{column: width}` object.
+    /// Reads the saved value. Before 0.0.2 it was a plain `{column: width}` object; before 0.0.3 it had no
+    /// version and showed the date column.
     init(json: JSONValue?) {
         guard case .object(let values) = json else { return }
+        var saved = 1
+        if case .number(let number) = values["version"] { saved = Int(number) }
+        hidden = saved < Self.version ? [.date] : []
         var widthValues = values
         if case .object(let nested) = values["widths"] { widthValues = nested }
         for (key, value) in widthValues {
@@ -83,6 +90,7 @@ struct GraphColumnLayout: Equatable {
 
     var json: JSONValue {
         .object([
+            "version": .number(Double(Self.version)),
             "widths": .object(
                 Dictionary(uniqueKeysWithValues: widths.map { ($0.key.rawValue, JSONValue.number(Double($0.value))) })),
             "order": .array(order.map { .string($0.rawValue) }),

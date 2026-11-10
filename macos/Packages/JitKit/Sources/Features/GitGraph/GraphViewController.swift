@@ -23,6 +23,8 @@ final class GraphViewController: NSViewController {
         var refsChanged: (RefSnapshot) -> Void = { _ in }
         /// Esc with nothing left to clear in the graph (the workbench closes a manually opened inspector).
         var escapeUnhandled: () -> Void = {}
+        /// Esc is offered here first (an open diff closes without touching the selection); `true` = handled.
+        var interceptEscape: () -> Bool = { false }
     }
 
     let session: RepositorySession
@@ -48,6 +50,10 @@ final class GraphViewController: NSViewController {
     private var scannedRows = 0
     private var matchSet = Set<Int32>()
     private var hoveredRow: Int?
+    /// Rows whose branch cell shows the ghost label of their line (hovered and selected rows).
+    private var ghostRows = Set<Int>()
+    /// The widest graph the automatic column width shows, in lanes.
+    static let automaticLaneLimit = 10
     private let refsHover = RefsHoverView()
     private var columns = GraphColumnLayout()
     private let columnsMenu = NSMenu()
@@ -249,11 +255,12 @@ final class GraphViewController: NSViewController {
             column.title = kind.title
             column.width = columns.width(kind)
             column.minWidth = kind.minWidth
-            column.resizingMask = kind.userResizable ? .userResizingMask : []
+            column.resizingMask = .userResizingMask
             column.isHidden = columns.hidden.contains(kind)
             column.headerToolTip =
                 kind == .graph
-                ? "Sized to the branches on screen" : "Drag to reorder · right-click to show or hide columns"
+                ? "Drag the edge to set the graph's width · Reset Columns sizes it to the branches again"
+                : "Drag to reorder · right-click to show or hide columns"
             tableView.addTableColumn(column)
         }
     }
@@ -293,6 +300,7 @@ final class GraphViewController: NSViewController {
         tab.ui[Self.columnsKey] = columns.json
         model.preferences.graphColumns = try? JSONEncoder().encode(columns.json)
         model.scheduleSave()
+        updateGraphColumnWidth()
         fitSubjectColumn()
         redrawVisibleRows()
     }
@@ -409,28 +417,18 @@ final class GraphViewController: NSViewController {
         #endif
     }
 
-    /// The graph column fits the lanes of the rows on screen (+ overscan): it grows at once when a visible
-    /// row needs more, and shrinks only when a scroll ends — so it never jumps while the user scrolls.
+    /// The graph column's automatic width follows the widest row of every loaded commit (up to
+    /// `automaticLaneLimit` lanes): it can grow when more history loads, and never changes with the scroll
+    /// position. A width the user dragged replaces it.
     private func scanLanes(from start: Int) {
-        scannedRows = snapshot.count
-        fitLanesToVisibleRows(allowShrink: false)
-    }
-
-    private func fitLanesToVisibleRows(allowShrink: Bool) {
-        let visible = tableView.rows(in: tableView.visibleRect)
-        var widest = 1
-        let low = max(0, visible.location - 2)
-        let high = min(tableView.numberOfRows, visible.location + max(visible.length, 30) + 2)
-        if low < high {
-            for row in low..<high {
-                if case .commit(let index) = displayRow(row), index < snapshot.count {
-                    widest = max(widest, Int(snapshot.row(index).width))
-                }
-            }
+        var widest = maxLanes
+        let first = max(0, min(start, scannedRows))
+        if first < snapshot.count {
+            for index in first..<snapshot.count { widest = max(widest, Int(snapshot.row(index).width)) }
         }
-        let next = allowShrink ? widest : max(maxLanes, widest)
-        if next != maxLanes {
-            maxLanes = next
+        scannedRows = snapshot.count
+        if widest != maxLanes {
+            maxLanes = widest
             updateGraphColumnWidth()
         }
     }
@@ -438,11 +436,20 @@ final class GraphViewController: NSViewController {
     private func updateGraphColumnWidth() {
         guard let column = tableView.tableColumn(withIdentifier: Self.columnGraph) else { return }
         let flat = viewModel.filterMode == .onlyMatches && viewModel.isSearching
-        let needed = style.metrics.columnWidth(lanes: flat ? 1 : maxLanes)
-        let limit = max(40, tableView.bounds.width * style.metrics.maxGraphShare)
-        let width = min(needed, limit).rounded()
+        let width: CGFloat
+        if let chosen = columns.widths[.graph], !flat {
+            width = chosen.rounded()
+        } else {
+            let needed = style.metrics.columnWidth(lanes: flat ? 1 : min(maxLanes, Self.automaticLaneLimit))
+            let limit = max(
+                GraphColumnLayout.Column.graph.minWidth, tableView.bounds.width * style.metrics.maxGraphShare)
+            width = max(GraphColumnLayout.Column.graph.minWidth, min(needed, limit)).rounded()
+        }
         if abs(column.width - width) > 0.5 {
+            let wasFitting = isFittingColumns
+            isFittingColumns = true
             column.width = width
+            isFittingColumns = wasFitting
             fitSubjectColumn()
         }
     }
@@ -643,12 +650,53 @@ final class GraphViewController: NSViewController {
         let range = max(0, visible.location - 8)..<min(tableView.numberOfRows, visible.location + visible.length + 8)
         tableView.reloadData(forRowIndexes: IndexSet(range), columnIndexes: IndexSet(0..<tableView.numberOfColumns))
         for row in range {
-            (tableView.rowView(atRow: row, makeIfNecessary: false) as? GraphRowView)?.isSearchMatch = isMatch(row)
+            let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) as? GraphRowView
+            rowView?.isSearchMatch = isMatch(row)
+            rowView?.timeTag = timeTag(forRow: row)
         }
     }
 
+    /// The age tag of a row: set on the first row of each age group ("7 hours ago", "yesterday", …).
+    private func timeTag(forRow row: Int) -> String? {
+        guard case .commit(let index) = displayRow(row), let display = cache.display(index) else { return nil }
+        if row > 0, case .commit(let above) = displayRow(row - 1), let previous = cache.display(above),
+            previous.timeBucket == display.timeBucket
+        {
+            return nil
+        }
+        return display.timeBucket
+    }
+
+    // MARK: - Branch of the line (hovered and selected rows)
+
+    /// The dimmed label a row without labels of its own shows while hovered or selected: the branch whose
+    /// line the commit sits on.
+    private func ghostLabel(forRow row: Int) -> (label: RefLabel, strength: CGFloat)? {
+        let selected = tableView.selectedRowIndexes.contains(row)
+        guard selected || row == hoveredRow, !isFlat, case .commit(let index) = displayRow(row),
+            let display = cache.display(index), display.labels.isEmpty, let label = cache.lineLabel(above: index)
+        else { return nil }
+        return (label, selected ? RefsCellView.ghostSelected : RefsCellView.ghostHovered)
+    }
+
+    private func refreshGhosts() {
+        var wanted = Set(tableView.selectedRowIndexes)
+        if let hoveredRow { wanted.insert(hoveredRow) }
+        let column = tableView.column(withIdentifier: Self.columnRefs)
+        guard column >= 0 else { return }
+        for row in wanted.union(ghostRows) where row < tableView.numberOfRows {
+            guard let cell = tableView.view(atColumn: column, row: row, makeIfNecessary: false) as? RefsCellView
+            else { continue }
+            let ghost = ghostLabel(forRow: row)
+            if cell.content.ghost != ghost?.label || cell.content.ghostStrength != (ghost?.strength ?? 0) {
+                cell.content.ghost = ghost?.label
+                cell.content.ghostStrength = ghost?.strength ?? 0
+            }
+        }
+        ghostRows = wanted
+    }
+
     private func visibleRangeChanged() {
-        fitLanesToVisibleRows(allowShrink: false)
         let visible = tableView.rows(in: tableView.visibleRect)
         guard let history, visible.length > 0 else { return }
         var last = visible.location + visible.length
@@ -659,10 +707,10 @@ final class GraphViewController: NSViewController {
     private func liveScroll(started: Bool) {
         isLiveScrolling = started
         if started { refsHover.hide(animated: false) }
-        if !started { fitLanesToVisibleRows(allowShrink: true) }
         if started, let hoveredRow {
             (tableView.rowView(atRow: hoveredRow, makeIfNecessary: false) as? GraphRowView)?.resetHover()
             self.hoveredRow = nil
+            refreshGhosts()
         }
     }
 
@@ -793,6 +841,7 @@ final class GraphViewController: NSViewController {
         }
         hoveredRow = row
         if let row { (tableView.rowView(atRow: row, makeIfNecessary: false) as? GraphRowView)?.isHovered = true }
+        refreshGhosts()
     }
 
     // MARK: - Search
@@ -1083,6 +1132,7 @@ final class GraphViewController: NSViewController {
         tab.ui[Self.columnsKey] = columns.json
         model.preferences.graphColumns = try? JSONEncoder().encode(columns.json)
         model.scheduleSave()
+        updateGraphColumnWidth()
         fitSubjectColumn()
     }
 
@@ -1156,6 +1206,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
         view.identifier = GraphTableView.rowIdentifier
         view.resetHover()
         view.isSearchMatch = isMatch(row)
+        view.timeTag = timeTag(forRow: row)
         // VoiceOver reads the row as one element (design §3.8); the lane drawing is decorative.
         switch displayRow(row) {
         case .commit(let index): view.setAccessibilityLabel(cache.display(index)?.accessibilityLabel)
@@ -1231,6 +1282,10 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
                 content.labelColor = isFlat ? 0 : snapshot.row(index).nodeColor
             }
             content.connects = refsConnectToGraph
+            if let ghost = ghostLabel(forRow: row) {
+                content.ghost = ghost.label
+                content.ghostStrength = ghost.strength
+            }
             cell.content = content
             return cell
         case Self.columnAuthor:
@@ -1288,6 +1343,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         refsHover.hide(animated: false)
+        refreshGhosts()
         guard !isSyncingSelection else { return }
         var rows = tableView.selectedRowIndexes
         // Compare takes exactly two commits; a third replaces the oldest selection.
@@ -1318,7 +1374,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableViewColumnDidResize(_ notification: Notification) {
         guard let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
-            column.identifier != Self.columnGraph, !isFittingColumns
+            !isFittingColumns
         else { return }
         userResized(
             column, oldWidth: (notification.userInfo?["NSOldWidth"] as? NSNumber).map { CGFloat($0.doubleValue) })
@@ -1567,6 +1623,7 @@ final class GraphTableView: NSTableView, @MainActor NSAccessibilityCustomRotorIt
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch event.keyCode {
         case 53:  // Esc
+            if controller?.actions.interceptEscape() == true { return }
             controller?.clearModes()
         case 126 where modifiers.contains(.command):  // ⌘↑
             guard numberOfRows > 0 else { return }

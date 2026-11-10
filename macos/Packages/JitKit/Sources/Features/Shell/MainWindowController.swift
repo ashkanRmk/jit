@@ -5,11 +5,11 @@ import Observation
 import Services
 import SwiftUI
 
-/// The single main window (ADR-0007): unified glass toolbar with the tab strip, overflow menu,
-/// sidebar/inspector toggles and the profile capsule; opaque per-tab content below.
+/// The single main window (ADR-0007): unified glass toolbar with the sidebar toggle and the tab strip; opaque
+/// per-tab content below. The profile and Settings live at the bottom of the sidebar (0.0.3).
 @MainActor
 public final class MainWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate,
-    NSMenuItemValidation, NSMenuDelegate, CommandAvailability
+    NSMenuItemValidation, CommandAvailability
 {
     public let model: AppModel
     private let container = ContentContainerViewController()
@@ -21,29 +21,27 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     /// One controller per loaded tab, kept while the tab is open (instant switching); dropped when the
     /// tab closes or its session is suspended under memory pressure.
     private var controllers: [UUID: NSViewController] = [:]
-    private let chrome = ChromeState()
     private var profilePopover: NSPopover?
     private var activityPopover: NSPopover?
-    private weak var profileItem: NSToolbarItem?
     private weak var activityItem: NSToolbarItem?
     private weak var pendingSeparatorSplitView: NSSplitView?
     private weak var stripView: NSView?
-    private weak var profileHost: NSView?
     private static let trafficLightsWidth: CGFloat = 86
     private static let systemItemWidth: CGFloat = 50
-    private static let trailingInset: CGFloat = 40
+    /// Kept free at the toolbar's trailing end, so the strip never pushes an item out of place.
+    private static let trailingInset: CGFloat = 28
     private var stripWidth: NSLayoutConstraint?
     private var observers: [any NSObjectProtocol] = []
     private var palette: CommandPaletteController?
 
     static let stripIdentifier = NSToolbarItem.Identifier("jit.tabs")
-    static let overflowIdentifier = NSToolbarItem.Identifier("jit.tabs.overflow")
-    static let profileIdentifier = NSToolbarItem.Identifier("jit.profile")
     /// Operation activity (Phase 4): present only while the active tab has running or recent operations.
     static let activityIdentifier = NSToolbarItem.Identifier("jit.activity")
     /// Tracks the active workbench's sidebar divider, so the sidebar toggle sits beside the window controls
     /// over the sidebar and the tab strip starts at the sidebar's edge (macOS standard, as in Mail/Notes).
     static let sidebarSeparatorIdentifier = NSToolbarItem.Identifier("jit.sidebar.separator")
+    /// The sidebar toggle as the icon alone: the system item always draws a button platter around it.
+    static let sidebarToggleIdentifier = NSToolbarItem.Identifier("jit.sidebar.toggle")
 
     public init(model: AppModel) {
         self.model = model
@@ -161,7 +159,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             item.splitView = workbench.splitView
             item.dividerIndex = 0
         } else {
-            let after = toolbar.items.firstIndex { $0.itemIdentifier == .toggleSidebar }.map { $0 + 1 } ?? 0
+            let after =
+                toolbar.items.firstIndex { $0.itemIdentifier == Self.sidebarToggleIdentifier }.map { $0 + 1 } ?? 0
             pendingSeparatorSplitView = workbench.splitView
             toolbar.insertItem(withItemIdentifier: Self.sidebarSeparatorIdentifier, at: after)
             pendingSeparatorSplitView = nil
@@ -176,6 +175,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         }
         let host = NSHostingController(rootView: NewTabView(model: model, actions: newTabActions()))
         host.sizingOptions = []
+        // The page draws under the glass toolbar; its own layout keeps clear of it.
         return host
     }
 
@@ -210,6 +210,14 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
 
     public func updateForeground() {
         guard let window else { return }
+        #if DEBUG
+            // `-JitAssumeForeground YES` (screenshots from a background launch or a locked screen): the visible
+            // tab loads as if Jit were the active app.
+            if UserDefaults.standard.bool(forKey: "JitAssumeForeground") {
+                model.setForeground(true)
+                return
+            }
+        #endif
         let foreground =
             NSApp.isActive && window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
         model.setForeground(foreground)
@@ -221,6 +229,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         recordFrame()
         updateChromeWidth()
     }
+
+    public func windowDidEndLiveResize(_ notification: Notification) { updateChromeWidth() }
+    public func windowDidEnterFullScreen(_ notification: Notification) { updateChromeWidth() }
+    public func windowDidExitFullScreen(_ notification: Notification) { updateChromeWidth() }
 
     public func windowDidMove(_ notification: Notification) { recordFrame() }
 
@@ -237,16 +249,13 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.scheduleSave()
     }
 
-    /// The tab strip takes the toolbar space not used by the other items. With an expanded sidebar the
-    /// toolbar's leading items start at the sidebar's trailing edge; otherwise after the traffic lights.
+    /// The tab strip takes the toolbar space not used by the other items: the sidebar toggle (which stays
+    /// beside the window controls) and, while there is activity, the activity item. With an expanded sidebar
+    /// the strip starts at the sidebar's trailing edge; otherwise after the toggle. The width is always
+    /// derived from the window, so zooming or resizing cannot push an item out of its place.
     func updateChromeWidth() {
         guard let window else { return }
         let width = window.frame.width
-        chrome.showsProfileName = width >= ProfileMetrics.nameHiddenBelowWindowWidth
-        profileHost?.layoutSubtreeIfNeeded()
-        let profileWidth = max(ProfileMetrics.avatar + Space.s6, profileHost?.fittingSize.width ?? 160)
-        // The sidebar toggle sits right after the traffic lights; an expanded sidebar pushes the strip to
-        // the sidebar's trailing edge (the tracking separator).
         var leading = Self.trafficLightsWidth + Self.systemItemWidth
         if let workbench = container.current as? WorkbenchController, !workbench.isSidebarCollapsed {
             leading = max(leading, workbench.sidebarWidth)
@@ -255,7 +264,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             activityItem.map { _ in
                 max(Self.systemItemWidth, (activityItem?.view?.fittingSize.width ?? 0) + Space.s6)
             } ?? 0
-        let trailing = 2 * Self.systemItemWidth + profileWidth + Self.trailingInset + activityWidth
+        let trailing = Self.trailingInset + activityWidth
         let strip = max(TabMetrics.minWidth + TabMetrics.newTabButton, width - leading - trailing)
         if abs((stripWidth?.constant ?? 0) - strip) > 0.5 { stripWidth?.constant = strip }
     }
@@ -263,10 +272,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     // MARK: - Toolbar
 
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [
-            .toggleSidebar, Self.stripIdentifier, Self.overflowIdentifier, .toggleInspector,
-            Self.profileIdentifier,
-        ]
+        [Self.sidebarToggleIdentifier, Self.stripIdentifier]
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -278,6 +284,25 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch identifier {
+        case Self.sidebarToggleIdentifier:
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            let image =
+                NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: "Toggle Sidebar") ?? NSImage()
+            let button = NSButton(image: image, target: self, action: #selector(toggleSidebar(_:)))
+            button.isBordered = false
+            button.imageScaling = .scaleProportionallyDown
+            button.symbolConfiguration = .init(pointSize: IconSize.md, weight: .regular)
+            button.contentTintColor = .secondaryLabelColor
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(equalToConstant: IconSize.lg + Space.s4).isActive = true
+            button.heightAnchor.constraint(equalToConstant: TabMetrics.height).isActive = true
+            button.setAccessibilityLabel("Toggle Sidebar")
+            item.view = button
+            item.isBordered = false
+            item.label = "Sidebar"
+            item.toolTip = "Show or hide the sidebar (⌃⌘S)"
+            item.visibilityPriority = .high
+            return item
         case Self.sidebarSeparatorIdentifier:
             guard let splitView = pendingSeparatorSplitView else { return nil }
             return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: splitView, dividerIndex: 0)
@@ -299,16 +324,6 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             item.visibilityPriority = .high
             updateChromeWidth()
             return item
-        case Self.overflowIdentifier:
-            let item = NSMenuToolbarItem(itemIdentifier: identifier)
-            let menu = NSMenu(title: "All Tabs")
-            menu.delegate = self
-            item.menu = menu
-            item.showsIndicator = false
-            item.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "All Tabs")
-            item.label = "All Tabs"
-            item.toolTip = "Show all tabs"
-            return item
         case Self.activityIdentifier:
             // A standard toolbar item: macOS renders it inside the system Liquid Glass toolbar (no custom material).
             let item = NSToolbarItem(itemIdentifier: identifier)
@@ -318,19 +333,6 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             item.label = "Activity"
             item.toolTip = "Activity (⌥⌘A)"
             activityItem = item
-            return item
-        case Self.profileIdentifier:
-            let item = NSToolbarItem(itemIdentifier: identifier)
-            let host = NSHostingView(
-                rootView: ProfileCapsuleView(store: model.profiles, chrome: chrome) { [weak self] in
-                    self?.toggleProfilePopover()
-                })
-            item.view = host
-            profileHost = host
-            item.label = "Profile"
-            item.toolTip = "Git profile"
-            profileItem = item
-            applyProfileTint()
             return item
         default:
             return nil
@@ -358,9 +360,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         let hasActivity = !(model.activeTab?.session?.operations.records.isEmpty ?? true)
         let index = toolbar.items.firstIndex { $0.itemIdentifier == Self.activityIdentifier }
         if hasActivity, index == nil {
-            let profile =
-                toolbar.items.firstIndex { $0.itemIdentifier == Self.profileIdentifier } ?? toolbar.items.count
-            toolbar.insertItem(withItemIdentifier: Self.activityIdentifier, at: profile)
+            toolbar.insertItem(withItemIdentifier: Self.activityIdentifier, at: toolbar.items.count)
             updateChromeWidth()
         } else if !hasActivity, let index {
             activityPopover?.performClose(nil)
@@ -375,45 +375,22 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             return
         }
         guard let center = model.activeTab?.session?.operations else { return }
-        if activityItem == nil {
-            // ⌥⌘A with no activity yet: show the empty state anchored at the profile item.
-            guard let anchor = profileItem?.view else { return }
-            show(ActivityPopover(center: center), from: anchor)
-            return
-        }
-        guard let anchor = activityItem?.view else { return }
-        show(ActivityPopover(center: center), from: anchor)
-    }
-
-    private func show(_ content: ActivityPopover, from anchor: NSView) {
         let popover = NSPopover()
         popover.behavior = .transient
-        let host = NSHostingController(rootView: content)
+        let host = NSHostingController(rootView: ActivityPopover(center: center))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
-        activityPopover = popover
-    }
-
-    // MARK: - Overflow menu
-
-    public func menuNeedsUpdate(_ menu: NSMenu) {
-        guard menu.title == "All Tabs" else { return }
-        menu.removeAllItems()
-        for (index, tab) in model.tabs.enumerated() {
-            let item = NSMenuItem(title: tab.title, action: #selector(selectTabFromMenu(_:)), keyEquivalent: "")
-            item.target = self
-            item.tag = index
-            item.representedObject = tab.id
-            item.state = tab.id == model.activeTabID ? .on : .off
-            item.subtitle = tab.path.map { "\($0) — \(tab.statusDot.description)" }
-            item.image = StatusDotImage.image(for: tab.statusDot)
-            menu.addItem(item)
+        if let anchor = activityItem?.view, anchor.window != nil {
+            popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        } else if let stripView, stripView.window != nil {
+            // ⌥⌘A with no activity yet: the empty state, at the trailing end of the tab strip.
+            let rect = NSRect(
+                x: stripView.bounds.maxX - Space.s8, y: 0, width: Space.s8, height: stripView.bounds.height)
+            popover.show(relativeTo: rect, of: stripView, preferredEdge: .minY)
+        } else {
+            return
         }
-    }
-
-    @objc func selectTabFromMenu(_ sender: NSMenuItem) {
-        if let id = sender.representedObject as? UUID { model.select(id) }
+        activityPopover = popover
     }
 
     // MARK: - Profiles
@@ -425,8 +402,6 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             _ = model.profiles.switchCount
         } onChange: { [weak self] in
             Task { @MainActor in
-                self?.applyProfileTint()
-                self?.updateChromeWidth()
                 self?.announceSwitchIfNeeded()
                 self?.observeProfiles()
             }
@@ -441,7 +416,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         let count = model.profiles.switchCount
         guard count != announcedSwitch else { return }
         announcedSwitch = count
-        guard let profile = model.profiles.activeProfile, let anchor = profileItem?.view,
+        guard let profile = model.profiles.activeProfile, let anchor = profileAnchor(),
             profilePopover?.isShown != true, window?.isVisible == true
         else { return }
         let email = (profile.committer ?? profile.author).email
@@ -460,21 +435,22 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
                 .fixedSize())
         host.sizingOptions = .preferredContentSize
         toast.contentViewController = host
-        toast.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        toast.show(relativeTo: anchor.rect, of: anchor.view, preferredEdge: .maxY)
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak toast] in toast?.performClose(nil) }
     }
 
-    /// "No Profile" uses the system prominent toolbar style tinted `status.warning` — the one non-accent
-    /// tint in the chrome, because it's a state the user must act on (docs/design-system.md).
-    private func applyProfileTint() {
-        guard let profileItem else { return }
-        if model.profiles.activeProfile == nil {
-            profileItem.style = .prominent
-            profileItem.backgroundTintColor = ColorToken.statusWarning.nsColor
-        } else {
-            profileItem.style = .plain
-            profileItem.backgroundTintColor = nil
+    /// Where the profile switcher opens: the profile row at the bottom of the sidebar, or — when the sidebar is
+    /// closed or the tab has none — the same corner of the window's content.
+    private func profileAnchor() -> (view: NSView, rect: NSRect)? {
+        if let workbench = activeWorkbench, !workbench.isSidebarCollapsed,
+            let footer = workbench.navigator?.profileAnchor, footer.window != nil
+        {
+            return (footer, footer.bounds)
         }
+        guard let view = container.current?.view ?? window?.contentView, view.window != nil else { return nil }
+        let height = SidebarMetrics.footerHeight
+        let y = view.isFlipped ? view.bounds.maxY - height : view.bounds.minY
+        return (view, NSRect(x: view.bounds.minX + Space.s5, y: y, width: 200, height: height))
     }
 
     public func toggleProfilePopover() {
@@ -482,11 +458,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             profilePopover.performClose(nil)
             return
         }
-        // In a narrow window the profile item lives in the toolbar overflow menu and has no on-screen view;
-        // the switcher then opens as Settings ▸ Profiles instead of silently doing nothing (P7.11 finding).
-        guard let anchor = profileItem?.view, anchor.window != nil, !anchor.isHiddenOrHasHiddenAncestor,
-            anchor.visibleRect.width > 0
-        else {
+        // No window content to anchor to: Settings ▸ Profiles instead of silently doing nothing (P7.11 finding).
+        guard let anchor = profileAnchor() else {
             NSApp.sendAction(Selector(("showSettingsProfiles:")), to: nil, from: self)
             return
         }
@@ -510,7 +483,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
                 dismiss: { [weak self] in self?.profilePopover?.performClose(nil) }))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        popover.show(relativeTo: anchor.rect, of: anchor.view, preferredEdge: .maxY)
         profilePopover = popover
     }
 
@@ -809,17 +782,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     #endif
 
     public func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
-        if item.itemIdentifier == .toggleSidebar || item.itemIdentifier == .toggleInspector {
+        if item.itemIdentifier == Self.sidebarToggleIdentifier {
             return container.current is WorkbenchController
         }
         return true
     }
-}
-
-/// Small chrome state shared with hosted toolbar views.
-@MainActor @Observable
-final class ChromeState {
-    var showsProfileName = true
 }
 
 /// Hosts the active tab's controller and the window-wide folder drop target.

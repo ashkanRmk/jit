@@ -23,49 +23,6 @@ struct ProfileAvatar: View {
     }
 }
 
-/// Toolbar profile capsule content. The toolbar item supplies the glass (system platter); with no
-/// active profile the item is warning-tinted by the window controller.
-struct ProfileCapsuleView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let store: ProfileStore
-    let chrome: ChromeState
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: Space.s3) {
-                if let profile = store.activeProfile {
-                    ProfileAvatar(profile: profile)
-                    if chrome.showsProfileName {
-                        Text(profile.displayName)
-                            .lineLimit(1)
-                            .frame(maxWidth: 140, alignment: .leading)
-                    }
-                } else {
-                    Image(systemName: "person.crop.circle.badge.exclamationmark")
-                    Text("No Profile")
-                }
-            }
-            .padding(.horizontal, Space.s3)
-            .contentShape(Capsule())
-            .animation(reduceMotion ? nil : MotionToken.select.animation, value: store.activeProfileID)
-        }
-        .buttonStyle(.plain)
-        .help(helpText)
-        .accessibilityLabel(accessibilityText)
-    }
-
-    private var helpText: String {
-        guard let profile = store.activeProfile else { return "No Git profile — commits need an identity" }
-        return "\(profile.author.name) <\(profile.author.email)>"
-    }
-
-    private var accessibilityText: String {
-        guard let profile = store.activeProfile else { return "No profile. Choose a Git profile" }
-        return "Profile \(profile.displayName), \(profile.author.email). Switch profile"
-    }
-}
-
 /// The profile switcher popover (design §3.1): system popover glass, plain rows with system-style selection, the
 /// active profile's identity and sign-in summary, status dots, search above seven profiles, footer actions in
 /// one glass control group. Switching is one click and never changes any Git or SSH configuration.

@@ -418,7 +418,14 @@ final class RefsCellView: NSView {
         var dimmed = false
         /// The graph column is the next column: the connector runs to the trailing edge.
         var connects = true
+        /// A row without labels of its own, hovered or selected: the branch of the line it sits on, dimmed.
+        var ghost: RefLabel?
+        var ghostStrength: CGFloat = 0
     }
+
+    /// How strongly the ghost label shows on a hovered and on a selected row.
+    static let ghostHovered: CGFloat = 0.5
+    static let ghostSelected: CGFloat = 0.8
 
     var style: GraphStyle?
     var content = Content() {
@@ -440,8 +447,17 @@ final class RefsCellView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         pillFrames.removeAll(keepingCapacity: true)
-        guard let style, let context = NSGraphicsContext.current?.cgContext, let first = content.labels.first
-        else { return }
+        guard let style, let context = NSGraphicsContext.current?.cgContext else { return }
+        guard let first = content.labels.first else {
+            if let ghost = content.ghost {
+                context.setAlpha(content.ghostStrength)
+                let painter = PillPainter(style: style, slot: content.labelColor)
+                _ = painter.draw(
+                    ghost, at: Space.s2, mid: (bounds.height / 2).rounded(),
+                    maxWidth: max(style.metrics.pillHeight, bounds.width - Space.s2 - Space.s3), context: context)
+            }
+            return
+        }
         let metrics = style.metrics
         let colors = style.colors
         if content.dimmed { context.setAlpha(0.45) }
@@ -707,6 +723,7 @@ final class RefsHoverView: NSView {
         layerContentsRedrawPolicy = .onSetNeedsDisplay
         // Redraws are not needed while the width animates: the content keeps its place, the clip grows.
         layer?.contentsGravity = .topLeft
+        layer?.isOpaque = true
         setAccessibilityElement(false)
         isHidden = true
     }
@@ -737,8 +754,12 @@ final class RefsHoverView: NSView {
         let width = min(max(cellFrame.width, Self.naturalWidth(labels, style: style, slot: slot)), maxWidth)
         layoutPills(width: width, height: cellFrame.height)
         if superview !== table { table.addSubview(self) }
-        isHidden = false
+        // Nothing may show through: no fade is ever left running, and the layer has the canvas behind it.
+        layer?.removeAllAnimations()
+        layer?.backgroundColor = style.colors.canvas
+        layer?.opacity = 1
         alphaValue = 1
+        isHidden = false
         let target = NSRect(x: cellFrame.minX, y: cellFrame.minY, width: width, height: cellFrame.height)
         // Draw at the final size first, then reveal it from the cell's width.
         frame = target
@@ -753,25 +774,15 @@ final class RefsHoverView: NSView {
         }
     }
 
+    /// Hides at once. (It used to fade out; a fade interrupted by the next hover could leave the strip
+    /// half transparent over the cell's own pills.)
     func hide(animated: Bool = true) {
         guard !isHidden else { return }
         row = -1
         generation += 1
-        let current = generation
         removeAllToolTips()
-        guard animated, style?.reduceMotion == false else {
-            isHidden = true
-            return
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = MotionToken.feedbackOut.duration
-            self.animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.generation == current else { return }
-                self.isHidden = true
-            }
-        }
+        layer?.removeAllAnimations()
+        isHidden = true
     }
 
     private func layoutPills(width: CGFloat, height: CGFloat) {
@@ -937,13 +948,26 @@ final class GraphRowView: NSTableRowView {
     var isSearchMatch = false {
         didSet { if oldValue != isSearchMatch { needsDisplay = true } }
     }
+    /// The age of this row and the ones below it ("7 hours ago"), shown where it changes: a small tag at the
+    /// row's trailing end under a hairline across its top edge.
+    var timeTag: String? {
+        didSet {
+            guard oldValue != timeTag else { return }
+            tagView.text = timeTag
+        }
+    }
     private let hoverLayer = CALayer()
+    private let tagView = TimeTagView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.addSublayer(hoverLayer)
         hoverLayer.opacity = 0
+        // Its own layer, above the cells (which draw into the row's layer).
+        tagView.wantsLayer = true
+        tagView.layer?.zPosition = 1
+        addSubview(tagView)
         canDrawSubviewsIntoLayer = true
     }
 
@@ -956,6 +980,7 @@ final class GraphRowView: NSTableRowView {
         CATransaction.setDisableActions(true)
         hoverLayer.frame = bounds
         CATransaction.commit()
+        tagView.frame = bounds
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1004,4 +1029,60 @@ final class GraphRowView: NSTableRowView {
     }
 
     override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
+}
+
+/// A row's time tag: a hairline along the top edge and the age in a small opaque tag at the trailing end.
+/// Decorative (the row's accessibility label carries the date); lets every click through to the row.
+final class TimeTagView: NSView {
+    var text: String? {
+        didSet {
+            isHidden = text == nil
+            needsDisplay = true
+        }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        isHidden = true
+        setAccessibilityElement(false)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsDisplay = true }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let text else { return }
+        ColorToken.borderSubtle.nsColor.setFill()
+        NSRect(x: 0, y: 0, width: bounds.width, height: Border.emphasis).fill()
+        // Small and tight: the tag hangs from the row's top edge and must stay clear of the message's text.
+        let font = GraphTypography.timeTag
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: ColorToken.textSecondary.nsColor,
+        ]
+        let size = (text as NSString).size(withAttributes: attributes)
+        let height = ceil(font.ascender - font.descender)
+        let tag = NSRect(
+            x: bounds.width - ceil(size.width) - 2 * Space.s3 - Space.s2, y: 0, width: ceil(size.width) + 2 * Space.s3,
+            height: height)
+        let path = NSBezierPath(roundedRect: tag, xRadius: Radius.xs, yRadius: Radius.xs)
+        ColorToken.surfaceRaised.nsColor.setFill()
+        path.fill()
+        ColorToken.borderSubtle.nsColor.setStroke()
+        path.lineWidth = Border.hairline
+        path.stroke()
+        (text as NSString).draw(
+            at: NSPoint(x: tag.minX + Space.s3, y: tag.minY + (tag.height - ceil(size.height)) / 2),
+            withAttributes: attributes)
+    }
 }

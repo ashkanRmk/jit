@@ -106,6 +106,8 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
 
     private func sourceChanged() {
         codeView.showsWhitespace = model.showsWhitespace
+        codeView.wrapsLines = model.wrapsLines
+        scrollView.hasHorizontalScroller = !model.wrapsLines
         codeView.dataSource = model.source
         scrollView.isHidden = model.source == nil
         updateMessage()
@@ -129,7 +131,10 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
 
     /// First visible row (for change navigation).
     var firstVisibleRow: Int {
-        Int(max(0, scrollView.documentVisibleRect.minY) / codeView.rowHeight)
+        // The rows under the floating chrome do not count as visible.
+        var visible = scrollView.documentVisibleRect
+        visible.origin.y = max(0, visible.minY + scrollView.contentInsets.top)
+        return codeView.rows(in: visible).lowerBound
     }
 
     public func focusBody() { view.window?.makeFirstResponder(codeView) }
@@ -168,9 +173,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         let lines = source.selectedLines.sorted()
         if !lines.isEmpty { return lines.map { source.document.text(ofLine: $0) }.joined(separator: "\n") }
         // Without a selection: the visible rows.
-        let first = firstVisibleRow
-        let count = Int(scrollView.documentVisibleRect.height / codeView.rowHeight)
-        return (first..<min(source.rowCount, first + count)).map { source.cell(row: $0, column: 0).text }
+        return codeView.rows(in: scrollView.documentVisibleRect).map { source.cell(row: $0, column: 0).text }
             .joined(separator: "\n")
     }
 
@@ -294,7 +297,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
 /// Floating glass chrome over the diff body (ADR-0006): file title, layout switcher, change navigator,
 /// find, options and focus. Only the capsules are glass; the body stays opaque.
 struct DiffChromeView: View {
-    static let height: CGFloat = 52
+    static let height: CGFloat = 58
 
     @Bindable var model: DiffViewModel
     let controller: DiffViewController
@@ -348,19 +351,21 @@ struct DiffChromeView: View {
         }
     }
 
-    /// Full bar, or (narrow inspector) title + compact controls: layout and options in one menu.
+    /// Full bar, or (narrow pane) title + compact controls: layout and options in one menu.
     private func bar(compact: Bool) -> some View {
         GlassControlGroup(spacing: Space.s4) {
             titleCapsule
                 .frame(minWidth: compact ? 80 : 160, maxWidth: compact ? 220 : 360, alignment: .leading)
             Spacer(minLength: Space.s3)
+            stageButton
             if model.source != nil {
                 if compact {
                     compactNavigator
                     findGroup
                     compactMenu
                 } else {
-                    layoutPicker
+                    layoutButtons
+                    displayToggles
                     changeNavigator
                     findGroup
                     optionsMenu
@@ -371,18 +376,36 @@ struct DiffChromeView: View {
         .fixedSize(horizontal: !compact, vertical: true)
     }
 
+    /// Stage File (unstaged diff) or Unstage File (staged diff); nothing for commit diffs.
+    @ViewBuilder
+    private var stageButton: some View {
+        if let action = model.fileStageAction, model.onStageFile != nil {
+            Button {
+                model.stageFile()
+            } label: {
+                Label(action.stage ? "Stage File" : "Unstage File", systemImage: action.stage ? "plus" : "minus")
+                    .labelStyle(.titleAndIcon)
+                    .typeStyle(.callout)
+                    .foregroundStyle(.token(action.stage ? .statusSuccess : .statusDanger))
+            }
+            .secondaryGlassButton()
+            .fixedSize()
+            .help(action.stage ? "Stage every change in this file" : "Unstage every change in this file")
+        }
+    }
+
     private var compactNavigator: some View {
         HStack(spacing: Space.s2) {
             Button {
                 controller.diffPreviousChange(nil)
             } label: {
-                Image(systemName: "chevron.up")
+                Image(systemName: "chevron.up").symbolSize(IconSize.md - 2)
             }
             .accessibilityLabel("Previous change")
             Button {
                 controller.diffNextChange(nil)
             } label: {
-                Image(systemName: "chevron.down")
+                Image(systemName: "chevron.down").symbolSize(IconSize.md - 2)
             }
             .accessibilityLabel("Next change")
         }
@@ -390,7 +413,7 @@ struct DiffChromeView: View {
         .help("\(model.changeRows.count) changes (⌥↑ ⌥↓)")
         .padding(.horizontal, Space.s4)
         .padding(.vertical, Space.s3)
-        .jitGlass(in: Capsule())
+        .jitGlass(in: ChromeShape.control)
     }
 
     private var compactMenu: some View {
@@ -402,15 +425,16 @@ struct DiffChromeView: View {
             }
             .pickerStyle(.inline)
             Divider()
-            Toggle("Show Whitespace", isOn: $model.showsWhitespace)
+            Toggle("Wrap Lines", isOn: $model.wrapsLines)
             Toggle("Ignore Whitespace Changes", isOn: $model.ignoresWhitespace)
+            Toggle("Show Whitespace", isOn: $model.showsWhitespace)
             Toggle("Highlight Word Changes", isOn: $model.showsWordDiff)
             Toggle("Syntax Highlighting", isOn: $model.highlightsSyntax)
             Divider()
             Button("Go to Line…") { controller.diffGoToLine(nil) }
             Button("Blame File") { model.blame() }
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "ellipsis").symbolSize(IconSize.md)
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
@@ -434,23 +458,50 @@ struct DiffChromeView: View {
         }
         .padding(.horizontal, Space.s5)
         .padding(.vertical, Space.s2)
-        .jitGlass(in: Capsule(), interactive: false)
+        .jitGlass(in: ChromeShape.control, interactive: false)
         .accessibilityElement(children: .combine)
     }
 
-    private var layoutPicker: some View {
-        Picker("Layout", selection: $model.layout) {
-            Image(systemName: "rectangle").tag(DiffLayout.unified).help("Unified").accessibilityLabel("Unified")
-            Image(systemName: "rectangle.split.2x1").tag(DiffLayout.split).help("Side by Side")
-                .accessibilityLabel("Side by side")
-            Image(systemName: "doc.plaintext").tag(DiffLayout.fullFile).help("Full File").accessibilityLabel(
-                "Full file")
+    /// One page (unified), side by side, or the whole file: one click each.
+    private var layoutButtons: some View {
+        HStack(spacing: Space.s1) {
+            ChromeToggle(symbol: "rectangle", title: "Unified (one page)", isOn: model.layout == .unified) {
+                model.layout = .unified
+            }
+            ChromeToggle(symbol: "rectangle.split.2x1", title: "Side by Side", isOn: model.layout == .split) {
+                model.layout = .split
+            }
+            ChromeToggle(symbol: "doc.plaintext", title: "Full File", isOn: model.layout == .fullFile) {
+                model.layout = .fullFile
+            }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-        .controlSize(.small)
-        .help("Layout")
+        .padding(Space.s2)
+        .jitGlass(in: ChromeShape.control, interactive: false)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Layout")
+    }
+
+    /// Ignore whitespace changes and wrap long lines, as switches.
+    private var displayToggles: some View {
+        HStack(spacing: Space.s1) {
+            ChromeToggle(
+                symbol: "space",
+                title: model.ignoresWhitespace
+                    ? "Ignoring leading and trailing whitespace changes"
+                    : "Ignore leading and trailing whitespace changes",
+                isOn: model.ignoresWhitespace
+            ) {
+                model.ignoresWhitespace.toggle()
+            }
+            ChromeToggle(
+                symbol: "arrow.turn.down.left", title: model.wrapsLines ? "Wrapping long lines" : "Wrap long lines",
+                isOn: model.wrapsLines
+            ) {
+                model.wrapsLines.toggle()
+            }
+        }
+        .padding(Space.s2)
+        .jitGlass(in: ChromeShape.control, interactive: false)
     }
 
     private var changeNavigator: some View {
@@ -458,7 +509,7 @@ struct DiffChromeView: View {
             Button {
                 controller.diffPreviousChange(nil)
             } label: {
-                Image(systemName: "chevron.up")
+                Image(systemName: "chevron.up").symbolSize(IconSize.md - 2)
             }
             .help("Previous Change (⌥↑)")
             .accessibilityLabel("Previous change")
@@ -469,15 +520,15 @@ struct DiffChromeView: View {
             Button {
                 controller.diffNextChange(nil)
             } label: {
-                Image(systemName: "chevron.down")
+                Image(systemName: "chevron.down").symbolSize(IconSize.md - 2)
             }
             .help("Next Change (⌥↓)")
             .accessibilityLabel("Next change")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, Space.s4)
-        .padding(.vertical, Space.s2)
-        .jitGlass(in: Capsule())
+        .padding(.vertical, Space.s3)
+        .jitGlass(in: ChromeShape.control)
     }
 
     @ViewBuilder
@@ -504,26 +555,26 @@ struct DiffChromeView: View {
                 Button {
                     model.nextMatch(forward: false)
                 } label: {
-                    Image(systemName: "chevron.left")
+                    Image(systemName: "chevron.left").symbolSize(IconSize.md - 2)
                 }
                 .accessibilityLabel("Previous match")
                 Button {
                     model.nextMatch(forward: true)
                 } label: {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: "chevron.right").symbolSize(IconSize.md - 2)
                 }
                 .accessibilityLabel("Next match")
             }
             .buttonStyle(.borderless)
             .padding(.horizontal, Space.s4)
             .padding(.vertical, Space.s2)
-            .jitGlass(in: Capsule())
+            .jitGlass(in: ChromeShape.control)
         } else {
             Button {
                 showsFind = true
                 findFocused = true
             } label: {
-                Image(systemName: "magnifyingglass")
+                Image(systemName: "magnifyingglass").symbolSize(IconSize.md)
             }
             .secondaryGlassButton()
             .help("Find in Diff (⌘F)")
@@ -534,14 +585,13 @@ struct DiffChromeView: View {
     private var optionsMenu: some View {
         Menu {
             Toggle("Show Whitespace", isOn: $model.showsWhitespace)
-            Toggle("Ignore Whitespace Changes", isOn: $model.ignoresWhitespace)
             Toggle("Highlight Word Changes", isOn: $model.showsWordDiff)
             Toggle("Syntax Highlighting", isOn: $model.highlightsSyntax)
             Divider()
             Button("Go to Line…") { controller.diffGoToLine(nil) }
             Button("Blame File") { model.blame() }
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: "ellipsis").symbolSize(IconSize.md)
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
@@ -555,11 +605,39 @@ struct DiffChromeView: View {
         Button {
             model.requestClose()
         } label: {
-            Image(systemName: "xmark")
+            Image(systemName: "xmark").symbolSize(IconSize.md)
         }
         .secondaryGlassButton()
         .help("Close Diff (Esc)")
         .accessibilityLabel("Close diff")
+    }
+}
+
+/// An icon switch in the diff chrome: accent fill while on, plain while off.
+private struct ChromeToggle: View {
+    let symbol: String
+    let title: String
+    let isOn: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .symbolSize(IconSize.md, weight: isOn ? .semibold : .regular)
+                .foregroundStyle(isOn ? .token(.accentBase) : .token(.textSecondary))
+                .frame(width: IconSize.lg + Space.s4, height: IconSize.lg + Space.s2)
+                .background(
+                    isOn ? ColorToken.accentMuted.color : isHovered ? ColorToken.stateHover.color : .clear,
+                    in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isOn ? [.isButton, .isSelected] : .isButton)
     }
 }
 
@@ -666,7 +744,7 @@ struct SelectionCapsule: View {
             .padding(.leading, Space.s5)
             .padding(.trailing, Space.s3)
             .padding(.vertical, Space.s3)
-            .jitGlass(in: Capsule(), interactive: false)
+            .jitGlass(in: ChromeShape.control, interactive: false)
         }
         .controlSize(.small)
         .accessibilityElement(children: .contain)

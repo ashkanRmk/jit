@@ -10,6 +10,8 @@ public enum TabMetrics {
     public static let closeButton: CGFloat = 16
     public static let newTabButton: CGFloat = 28
     public static let horizontalPadding: CGFloat = Space.s4
+    /// A tab's outline: a rounded rectangle (0.0.3; tabs were capsules before).
+    public static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Radius.md, style: .continuous) }
 }
 
 /// Profile capsule metrics (design §3.1).
@@ -115,20 +117,21 @@ public struct GlassTab<ID: Hashable & Sendable>: ViewModifier {
         if reduceTransparency || GlassPolicy.opaqueChrome || forcedOpaque {
             content
                 .background(
-                    isSelected ? ColorToken.accentMuted.color : ColorToken.surfaceChromeOpaque.color, in: Capsule()
+                    isSelected ? ColorToken.accentMuted.color : ColorToken.surfaceChromeOpaque.color,
+                    in: TabMetrics.shape
                 )
                 .overlay(
-                    Capsule().strokeBorder(
+                    TabMetrics.shape.strokeBorder(
                         isSelected ? Selection.edge : ColorToken.borderStrong.color,
                         lineWidth: isSelected ? Border.emphasis : Border.hairline))
         } else {
             content
-                .glassEffect(glass, in: Capsule())
+                .glassEffect(glass, in: TabMetrics.shape)
                 .glassEffectID(id, in: namespace)
                 .overlay {
                     // Increase Contrast: an explicit edge on the selected capsule.
                     if contrast == .increased, isSelected {
-                        Capsule().strokeBorder(Selection.edge, lineWidth: Border.emphasis)
+                        TabMetrics.shape.strokeBorder(Selection.edge, lineWidth: Border.emphasis)
                     }
                 }
         }

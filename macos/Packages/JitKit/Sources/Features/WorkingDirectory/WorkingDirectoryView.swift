@@ -133,7 +133,7 @@ struct WorkingDirectoryView: View {
     private var fileList: some View {
         // Each section is one container (0.0.2): its header row, its files, then a gap before the next.
         List(selection: $model.selection) {
-            ForEach(WDSection.allCases, id: \.self) { section in
+            ForEach(WDSection.displayOrder, id: \.self) { section in
                 if section != .conflicts || !model.list.conflicts.isEmpty {
                     let items = model.items(section)
                     let targeted = model.dropTarget == section
@@ -271,13 +271,33 @@ private struct SectionHeader: View {
             Spacer()
             switch section {
             case .staged:
-                Button("Unstage All") { model.unstageAll() }
-                    .disabled(count == 0)
-                    .help("Unstage every staged file")
+                Button {
+                    model.unstageAll()
+                } label: {
+                    Text("Unstage All").foregroundStyle(.token(.statusDanger))
+                }
+                .disabled(count == 0)
+                .opacity(count == 0 ? StageControl.disabledOpacity : 1)
+                .help("Unstage every staged file")
             case .unstaged:
-                Button("Stage All") { model.stageAll() }
-                    .disabled(count == 0)
-                    .help("Stage every unstaged file")
+                let discardable = WorkingDirectoryModel.discardable(model.list.unstaged).count
+                Button {
+                    model.requestDiscardAll()
+                } label: {
+                    Image(systemName: "trash").foregroundStyle(.token(.statusDanger))
+                }
+                .disabled(discardable == 0)
+                .opacity(discardable == 0 ? StageControl.disabledOpacity : 1)
+                .help("Discard all unstaged changes…")
+                .accessibilityLabel("Discard all unstaged changes")
+                Button {
+                    model.stageAll()
+                } label: {
+                    Text("Stage All").foregroundStyle(.token(.statusSuccess))
+                }
+                .disabled(count == 0)
+                .opacity(count == 0 ? StageControl.disabledOpacity : 1)
+                .help("Stage every unstaged file")
             case .conflicts:
                 EmptyView()
             }
@@ -325,47 +345,38 @@ private struct FileRow: View {
                 .foregroundStyle(.token(.textSecondary))
                 .frame(width: IconSize.md)
                 .accessibilityHidden(true)
-            // The file name is never cut: the folder after it gives way first (shortened in its middle).
-            HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
-                HStack(spacing: 0) {
-                    if let original = file.originalPath {
-                        Text(DisplayText.sanitize((original as NSString).lastPathComponent) + " → ")
-                            .foregroundStyle(.token(.textTertiary))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Text(DisplayText.sanitize(file.name))
-                        .foregroundStyle(.token(.textPrimary))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .layoutPriority(1)
-                }
-                .font(TypeToken.body.font)
-                .layoutPriority(1)
-                if depth == 0, !file.directory.isEmpty, !model.showsTree {
-                    Text(DisplayText.sanitize(file.directory))
-                        .font(TypeToken.caption.font)
-                        .foregroundStyle(.token(.textTertiary))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-            .layoutPriority(1)
+            // Same look as a committed file: the whole path, folders shortened in their middle, the name whole.
+            FilePathText(
+                prefix: file.originalPath.map { DisplayText.sanitize(($0 as NSString).lastPathComponent) + " → " },
+                directory: depth == 0 && !model.showsTree ? DisplayText.sanitize(file.directory) : "",
+                name: DisplayText.sanitize(file.name)
+            )
+            .font(TypeToken.body.font)
+            .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(file.badges, id: \.self) { Badge(badge: $0) }
-            Spacer(minLength: Space.s3)
-            if let stats = model.stats[file.id] {
-                StatsText(stats: stats)
-            }
-            if file.canStageOrUnstage {
-                Button(file.section == .staged ? "Unstage" : "Stage") {
-                    file.section == .staged ? model.unstage([file]) : model.stage([file])
+            // One trailing slot: the line counts at rest, the action while hovered or selected. Both are laid
+            // out all the time, so the row never shifts and the button never leaves the container.
+            let showsAction = file.canStageOrUnstage && (isHovered || model.selection.contains(file.id))
+            ZStack(alignment: .trailing) {
+                if let stats = model.stats[file.id] {
+                    StatsText(stats: stats).opacity(showsAction ? 0 : 1)
                 }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .opacity(isHovered ? 1 : 0)
-                .animation(reduceMotion ? nil : MotionToken.hover.animation, value: isHovered)
-                .accessibilityHidden(!isHovered)
+                if file.canStageOrUnstage {
+                    Button {
+                        file.section == .staged ? model.unstage([file]) : model.stage([file])
+                    } label: {
+                        Text(file.section == .staged ? "Unstage" : "Stage")
+                            .foregroundStyle(.token(file.section == .staged ? .statusDanger : .statusSuccess))
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .opacity(showsAction ? 1 : 0)
+                    .allowsHitTesting(showsAction)
+                    .accessibilityHidden(!showsAction)
+                }
             }
+            .fixedSize()
+            .animation(reduceMotion ? nil : MotionToken.hover.animation, value: showsAction)
         }
         .padding(.leading, CGFloat(depth) * Space.s6)
         .contentShape(Rectangle())
@@ -412,6 +423,11 @@ private struct FileRow: View {
         }
         return parts.joined(separator: ", ")
     }
+}
+
+/// Shared values of the stage / unstage / discard controls.
+private enum StageControl {
+    static let disabledOpacity: Double = 0.4
 }
 
 /// Status letter, coloured by kind; a half-filled circle marks a partially staged file.

@@ -30,6 +30,8 @@ struct GraphRowDisplay {
     let avatarSlot: Int
     let date: String
     let dateTooltip: String
+    /// Coarse age ("7 hours ago", "yesterday", "Nov 2026"): the row's time tag shows where it changes.
+    let timeBucket: String
     let shortSHA: String
     let labels: [RefLabel]
     let accessibilityLabel: String
@@ -59,8 +61,61 @@ struct GraphRowDisplay {
         return formatter
     }()
 
+    private let month: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMM yyyy")
+        return formatter
+    }()
+
     init() {
         relative.unitsStyle = .abbreviated
+    }
+
+    /// The age group of a commit: hours within a day, days within a week, weeks within five, then the month.
+    nonisolated static func timeBucket(for date: Date, now: Date, month: DateFormatter) -> String {
+        let seconds = now.timeIntervalSince(date)
+        if seconds < 3_600 { return "in the last hour" }
+        if seconds < 86_400 {
+            let hours = Int(seconds / 3_600)
+            return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
+        }
+        let days = Int(seconds / 86_400)
+        if days == 1 { return "yesterday" }
+        if days < 7 { return "\(days) days ago" }
+        if days < 35 {
+            let weeks = days / 7
+            return weeks == 1 ? "1 week ago" : "\(weeks) weeks ago"
+        }
+        return month.string(from: date)
+    }
+
+    /// The branch label of the line a commit sits on: the nearest row above it on the same lane and colour
+    /// that carries a branch label, as long as the line runs unbroken up to it. Reads lane columns only.
+    func lineLabel(above index: Int, limit: Int = 2_000) -> RefLabel? {
+        guard index > 0, index < snapshot.count else { return nil }
+        let origin = snapshot.row(index)
+        let lane = origin.nodeLane
+        let color = origin.nodeColor
+        var current = index - 1
+        let stop = max(0, index - limit)
+        while current >= stop {
+            let row = snapshot.row(current)
+            if row.nodeLane == lane, row.nodeColor == color {
+                let branch = (labelsByCommit[row.oid] ?? []).first {
+                    switch $0.kind {
+                    case .tag, .detachedHead: false
+                    default: true
+                    }
+                }
+                if let branch { return branch }
+            } else if !row.segments.contains(where: {
+                $0.color == color && ($0.fromLane == lane || $0.toLane == lane)
+            }) {
+                return nil
+            }
+            current -= 1
+        }
+        return nil
     }
 
     /// Rows already materialized keep their strings when only more rows were appended.
@@ -118,7 +173,8 @@ struct GraphRowDisplay {
         return GraphRowDisplay(
             subject: subject, authorName: author.name, authorEmail: author.email,
             initials: AvatarStyle.initials(for: author.name), avatarSlot: AvatarStyle.colorSlot(forHash: hash.value),
-            date: dateText, dateTooltip: full.string(from: date), shortSHA: shortSHA, labels: labels,
+            date: dateText, dateTooltip: full.string(from: date),
+            timeBucket: Self.timeBucket(for: date, now: now, month: month), shortSHA: shortSHA, labels: labels,
             accessibilityLabel: spoken)
     }
 

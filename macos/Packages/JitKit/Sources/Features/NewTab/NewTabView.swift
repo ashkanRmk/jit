@@ -21,10 +21,8 @@ struct NewTabView: View {
         ScrollView {
             VStack(spacing: Space.s9) {
                 VStack(spacing: Space.s5) {
-                    Text("Jit")
-                        .typeStyle(.title)
-                        .foregroundStyle(.token(.textTertiary))
-                        .accessibilityHidden(true)
+                    JitLogotype(height: 64)
+                        .padding(.bottom, Space.s5)
                     HStack(spacing: Space.s5) {
                         Button("Open Repository…", action: actions.open)
                             .primaryGlassButton()
@@ -54,6 +52,11 @@ struct NewTabView: View {
         }
         .scrollEdgeEffectStyle(.soft, for: .top)
         .background(ColorToken.surfaceCanvas.color.ignoresSafeArea())
+        // The profile and Settings sit where the sidebar has them in a repository tab.
+        .overlay(alignment: .bottomLeading) {
+            SidebarFooter(store: model.profiles)
+                .frame(width: PanelMetrics.sidebarDefault)
+        }
         .task { await model.recents.refreshMissing() }
     }
 }

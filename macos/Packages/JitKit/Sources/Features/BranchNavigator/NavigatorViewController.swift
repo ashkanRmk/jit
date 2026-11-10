@@ -2,6 +2,7 @@ import AppKit
 import DesignSystem
 import GitCore
 import Services
+import SwiftUI
 
 /// Left sidebar (design §3.5): Local / Remote / Tags in a view-based `NSOutlineView` (row reuse, so 10k
 /// branches stay responsive) on the system's glass sidebar material. Double-click checks out; the context
@@ -21,6 +22,10 @@ final class NavigatorViewController: NSViewController {
     var repository: RepositoryHandle?
     /// Phase 4 write actions (checkout, branch operations, stashes).
     var operations: OperationsController?
+    /// The tab's graph: the branch header at the top shows and switches its current branch.
+    weak var graph: GraphViewController?
+    /// The profile row at the bottom (the profile switcher popover opens from it).
+    private(set) weak var profileAnchor: NSView?
 
     private let outline = NavigatorOutlineView()
     private let filterField = NSSearchField()
@@ -64,7 +69,8 @@ final class NavigatorViewController: NSViewController {
 
         outline.style = .sourceList
         outline.headerView = nil
-        outline.rowSizeStyle = .default
+        outline.rowSizeStyle = .custom
+        outline.rowHeight = SidebarMetrics.rowHeight
         outline.floatsGroupRows = false
         outline.indentationPerLevel = Space.s6
         outline.autoresizesOutlineColumn = false
@@ -90,16 +96,48 @@ final class NavigatorViewController: NSViewController {
         scroll.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(filterField)
         root.addSubview(scroll)
+        let footer = NSHostingView(rootView: SidebarFooter(store: model.profiles))
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        footer.sizingOptions = []
+        footer.safeAreaRegions = []
+        root.addSubview(footer)
+        profileAnchor = footer
+        var filterTop = filterField.topAnchor.constraint(
+            equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Space.s4)
+        if let graph {
+            let header = NSHostingView(rootView: SidebarBranchHeader(source: .init(graph)))
+            header.translatesAutoresizingMaskIntoConstraints = false
+            header.sizingOptions = [.intrinsicContentSize]
+            header.safeAreaRegions = []
+            root.addSubview(header)
+            NSLayoutConstraint.activate([
+                header.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Space.s3),
+                header.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                header.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            ])
+            filterTop = filterField.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Space.s4)
+        }
         NSLayoutConstraint.activate([
-            filterField.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Space.s4),
+            filterTop,
+            footer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            footer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            footer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            footer.heightAnchor.constraint(equalToConstant: SidebarMetrics.footerHeight),
             filterField.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Space.s5),
             filterField.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Space.s5),
             scroll.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: Space.s4),
             scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            scroll.bottomAnchor.constraint(equalTo: footer.topAnchor),
         ])
         view = root
+    }
+
+    /// The tab closed: drop the hosted SwiftUI rows (P6.6).
+    func tearDown() {
+        for subview in view.subviews where subview is NSHostingView<SidebarBranchHeader> {
+            subview.removeFromSuperview()
+        }
     }
 
     /// New stash list from the session (P4.16).
@@ -452,7 +490,9 @@ final class NavigatorOutlineView: NSOutlineView {
     /// the rows under it. Drawn here, behind the rows, so row reuse and selection are untouched.
     override func drawBackground(inClipRect clipRect: NSRect) {
         super.drawBackground(inClipRect: clipRect)
-        let fill = ColorToken.stateHover.nsColor
+        // A light wash: the sidebar's glass shows through the containers.
+        let fill = ColorToken.stateHover.nsColor.withAlphaComponent(
+            ColorToken.stateHover.nsColor.alphaComponent * SidebarMetrics.cardOpacity)
         let stroke = ColorToken.borderSubtle.nsColor
         var row = 0
         while row < numberOfRows {
@@ -526,7 +566,7 @@ final class NavigatorCellView: NSTableCellView {
         dot.layer?.cornerRadius = 3
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Space.s1),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.centerYAnchor.constraint(equalTo: title.centerYAnchor),
             sectionOffset,
             icon.widthAnchor.constraint(equalToConstant: IconSize.md),
             title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: Space.s3),
@@ -562,8 +602,9 @@ final class NavigatorCellView: NSTableCellView {
         switch node.kind {
         case .section(let section):
             title.stringValue = section.rawValue
+            title.font = GraphTypography.sidebarSection
             badge.stringValue = node.refCount > 0 ? "\(node.refCount)" : ""
-            icon.isHidden = true
+            icon.image = NSImage(systemSymbolName: section.symbolName, accessibilityDescription: nil)
             setAccessibilityLabel("\(section.rawValue), \(node.refCount) items")
         case .remote(let name):
             title.stringValue = DisplayText.sanitize(name)
@@ -624,5 +665,17 @@ final class NavigatorCellView: NSTableCellView {
             setAccessibilityLabel(spoken)
         }
         icon.contentTintColor = .secondaryLabelColor
+    }
+}
+
+extension NavigatorNode.Section {
+    /// The glyph before a section title: where its refs live.
+    var symbolName: String {
+        switch self {
+        case .local: "laptopcomputer"
+        case .remote: "cloud"
+        case .tags: "tag"
+        case .stashes: "tray.full"
+        }
     }
 }

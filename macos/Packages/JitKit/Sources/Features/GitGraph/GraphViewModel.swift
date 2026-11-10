@@ -97,7 +97,8 @@ final class GraphViewModel {
     static let pinnedKey = "graph.pinned"
 
     func restore(from ui: [String: JSONValue]) {
-        if case .string(let raw) = ui[Self.scopeKey], let choice = ScopeChoice(rawValue: raw) { scope = choice }
+        // The scope menu is gone (0.0.3): a scope saved by an older version would be a filter with no control.
+        scope = .all
         if case .array(let values) = ui[Self.selectedKey] {
             selectedRefs = values.compactMap { if case .string(let s) = $0 { s } else { nil } }
         }

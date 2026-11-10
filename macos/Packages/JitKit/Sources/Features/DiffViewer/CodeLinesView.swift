@@ -124,7 +124,17 @@ public final class CodeLinesView: NSView {
         }
     }
 
-    private var cache: [CacheKey: CTLine] = [:]
+    /// Soft wrap (0.0.3): a line longer than the pane continues on the next visual line instead of scrolling
+    /// sideways. Rows then have different heights (`rowOffsets`); lines break by character count (monospaced).
+    public var wrapsLines = false {
+        didSet { if wrapsLines != oldValue { reloadData() } }
+    }
+    /// Top of every row plus the total height; `nil` while every row is one line high.
+    private var rowOffsets: [CGFloat]?
+    /// Characters per visual line while wrapping.
+    public private(set) var wrapCapacity = Int.max
+
+    private var cache: [CacheKey: [CTLine]] = [:]
     private var cacheOrder: [CacheKey] = []
     private static let cacheLimit = CacheLimits.codeLines
     private var accessibilityRows: [Int: CodeRowElement] = [:]
@@ -192,9 +202,12 @@ public final class CodeLinesView: NSView {
     /// of such a line is summarized as "+N characters not shown". Copy and line actions use the document.
     public static let maxRenderedCharacters = CacheLimits.renderedLineCharacters
 
+    private var visibleWidth: CGFloat { enclosingScrollView?.contentSize.width ?? bounds.width }
+
     public var columnWidth: CGFloat {
         let columns = CGFloat(dataSource?.columnCount ?? 1)
-        let visible = (enclosingScrollView?.contentSize.width ?? bounds.width) / columns
+        let visible = visibleWidth / columns
+        if wrapsLines { return visible }
         // Room for the longest rendered prefix plus its "not shown" note.
         let characters = min(dataSource?.maxColumnCharacters ?? 0, Self.maxRenderedCharacters + 40)
         let content = gutterWidth + CGFloat(characters) * characterWidth + Space.s8
@@ -205,11 +218,95 @@ public final class CodeLinesView: NSView {
         clearCache()
         let rows = CGFloat(dataSource?.rowCount ?? 0)
         let columns = CGFloat(dataSource?.columnCount ?? 1)
-        let width = columns == 1 ? columnWidth : (enclosingScrollView?.contentSize.width ?? bounds.width)
-        let height = max(rows * rowHeight, enclosingScrollView?.contentSize.height ?? 0)
+        let width = columns == 1 ? columnWidth : visibleWidth
+        rebuildRowOffsets()
+        let content = rowOffsets?.last ?? rows * rowHeight
+        let height = max(content, enclosingScrollView?.contentSize.height ?? 0)
         setFrameSize(NSSize(width: width, height: height))
         accessibilityRows = [:]
         needsDisplay = true
+    }
+
+    // MARK: Wrapping
+
+    /// Visual lines a text of `length` display characters takes at `capacity` characters per line.
+    static func lineCount(length: Int, capacity: Int) -> Int {
+        capacity <= 0 ? 1 : max(1, (length + capacity - 1) / capacity)
+    }
+
+    /// The part of a line that is laid out (see `maxRenderedCharacters`).
+    private func renderedText(_ text: String) -> String {
+        let string = text as NSString
+        guard string.length > Self.maxRenderedCharacters else { return text }
+        return string.substring(to: string.rangeOfComposedCharacterSequence(at: Self.maxRenderedCharacters).location)
+    }
+
+    /// UTF-16 length of `displayText(text)` without building it.
+    func displayLength(_ text: String) -> Int {
+        var column = 0
+        var length = 0
+        for scalar in text.unicodeScalars {
+            if scalar == "\t" {
+                let spaces = tabWidth - column % tabWidth
+                column += spaces
+                length += spaces
+            } else {
+                column += 1
+                length += scalar.value > 0xFFFF ? 2 : 1
+            }
+        }
+        return length
+    }
+
+    /// Row tops for the current width. Asked only when wrapping is on and some line is longer than the pane:
+    /// every row's text is measured once here (a character count, no layout).
+    private func rebuildRowOffsets() {
+        rowOffsets = nil
+        wrapCapacity = Int.max
+        guard wrapsLines, let source = dataSource, source.rowCount > 0 else { return }
+        let columns = CGFloat(source.columnCount)
+        let textWidth = visibleWidth / columns - gutterWidth - Space.s5
+        let capacity = max(20, Int(textWidth / max(1, characterWidth)))
+        wrapCapacity = capacity
+        guard source.maxColumnCharacters > capacity else { return }
+        var offsets = [CGFloat](repeating: 0, count: source.rowCount + 1)
+        var y: CGFloat = 0
+        for row in 0..<source.rowCount {
+            offsets[row] = y
+            var lines = 1
+            for column in 0..<source.columnCount {
+                let cell = source.cell(row: row, column: column)
+                if cell.isFullWidth { break }
+                if cell.kind == .filler { continue }
+                lines = max(
+                    lines, Self.lineCount(length: displayLength(renderedText(cell.text)), capacity: capacity))
+            }
+            y += CGFloat(lines) * rowHeight
+        }
+        offsets[source.rowCount] = y
+        rowOffsets = offsets
+    }
+
+    /// The row whose band contains `y`, clamped to the first and last row.
+    private func rowIndex(atY y: CGFloat) -> Int {
+        let count = dataSource?.rowCount ?? 0
+        guard count > 0 else { return 0 }
+        guard let offsets = rowOffsets else { return min(count - 1, max(0, Int(y / rowHeight))) }
+        var low = 0
+        var high = count - 1
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if offsets[mid] <= y { low = mid } else { high = mid - 1 }
+        }
+        return low
+    }
+
+    /// Rows that intersect `rect` (document coordinates).
+    public func rows(in rect: NSRect) -> Range<Int> {
+        guard let count = dataSource?.rowCount, count > 0, rect.maxY > 0 else { return 0..<0 }
+        let first = rowIndex(atY: max(0, rect.minY))
+        let last = rowIndex(atY: max(0, rect.maxY - 0.01))
+        return first..<(last + 1)
     }
 
     /// Redraws rows whose selection/highlight changed (text cache kept).
@@ -227,13 +324,16 @@ public final class CodeLinesView: NSView {
     }
 
     public func rowRect(_ row: Int) -> NSRect {
-        NSRect(x: 0, y: CGFloat(row) * rowHeight, width: bounds.width, height: rowHeight)
+        guard let offsets = rowOffsets, row >= 0, row + 1 < offsets.count else {
+            return NSRect(x: 0, y: CGFloat(row) * rowHeight, width: bounds.width, height: rowHeight)
+        }
+        return NSRect(x: 0, y: offsets[row], width: bounds.width, height: offsets[row + 1] - offsets[row])
     }
 
     public func row(at point: NSPoint) -> Int? {
         guard let count = dataSource?.rowCount, count > 0 else { return nil }
-        let row = Int(point.y / rowHeight)
-        return (0..<count).contains(row) ? row : nil
+        guard point.y >= 0, point.y < (rowOffsets?.last ?? CGFloat(count) * rowHeight) else { return nil }
+        return rowIndex(atY: point.y)
     }
 
     public func column(at point: NSPoint) -> Int {
@@ -259,13 +359,14 @@ public final class CodeLinesView: NSView {
         guard let source = dataSource, source.rowCount > 0, let context = NSGraphicsContext.current?.cgContext else {
             return
         }
-        let first = max(0, Int(dirtyRect.minY / rowHeight))
-        let last = min(source.rowCount - 1, Int(dirtyRect.maxY / rowHeight))
-        guard first <= last else { return }
+        let visible = rows(in: dirtyRect)
+        guard !visible.isEmpty else { return }
         let columns = source.columnCount
         let columnWidth = bounds.width / CGFloat(columns)
-        for row in first...last {
-            let y = CGFloat(row) * rowHeight
+        for row in visible {
+            let band = rowRect(row)
+            let y = band.minY
+            let rowHeight = band.height
             for column in 0..<columns {
                 let cell = source.cell(row: row, column: column)
                 if cell.isFullWidth, column > 0 { continue }
@@ -353,12 +454,12 @@ public final class CodeLinesView: NSView {
         // Text.
         let textX = cell.isFullWidth ? rect.minX + Space.s5 : rect.minX + gutter
         let key = CacheKey(row: row, column: column, generation: generation)
-        let line: CTLine
+        let lines: [CTLine]
         if let cached = cache[key] {
-            line = cached
+            lines = cached
         } else {
-            line = makeTextLine(cell, row: row, column: column, source: source)
-            cache[key] = line
+            lines = makeTextLines(cell, row: row, column: column, source: source)
+            cache[key] = lines
             cacheOrder.append(key)
             if cacheOrder.count > Self.cacheLimit {
                 let drop = cacheOrder.prefix(Self.cacheLimit / 4)
@@ -366,18 +467,30 @@ public final class CodeLinesView: NSView {
                 cacheOrder.removeFirst(drop.count)
             }
         }
-        // Search highlights under the text.
+        // Search highlights under the text, on the visual line that holds them.
         let (ranges, current) = source.highlights(row: row, column: column)
-        for range in ranges {
-            let start = CTLineGetOffsetForStringIndex(line, range.location, nil)
-            let end = CTLineGetOffsetForStringIndex(line, range.location + range.length, nil)
-            (range == current ? NSColor.findHighlightColor : NSColor.findHighlightColor.withAlphaComponent(0.35))
-                .setFill()
-            NSRect(x: textX + start, y: rect.minY + 1, width: max(2, end - start), height: rect.height - 2).fill()
+        if !ranges.isEmpty {
+            for (index, line) in lines.enumerated() {
+                let span = CTLineGetStringRange(line)
+                let lineRange = NSRange(location: span.location, length: span.length)
+                let top = rect.minY + CGFloat(index) * rowHeight
+                for range in ranges {
+                    let part = lines.count == 1 ? range : NSIntersectionRange(range, lineRange)
+                    guard part.length > 0 else { continue }
+                    let start = CTLineGetOffsetForStringIndex(line, part.location, nil)
+                    let end = CTLineGetOffsetForStringIndex(line, part.location + part.length, nil)
+                    (range == current
+                        ? NSColor.findHighlightColor : NSColor.findHighlightColor.withAlphaComponent(0.35))
+                        .setFill()
+                    NSRect(x: textX + start, y: top + 1, width: max(2, end - start), height: rowHeight - 2).fill()
+                }
+            }
         }
         context.saveGState()
         context.clip(to: rect)
-        drawLine(line, at: NSPoint(x: textX, y: baseline), context: context)
+        for (index, line) in lines.enumerated() {
+            drawLine(line, at: NSPoint(x: textX, y: baseline + CGFloat(index) * rowHeight), context: context)
+        }
         context.restoreGState()
     }
 
@@ -438,13 +551,9 @@ public final class CodeLinesView: NSView {
         return NSRange(location: start, length: end - start)
     }
 
-    private func makeTextLine(_ cell: CodeCell, row: Int, column: Int, source: any CodeLinesDataSource) -> CTLine {
+    private func makeTextLines(_ cell: CodeCell, row: Int, column: Int, source: any CodeLinesDataSource) -> [CTLine] {
         let fullLength = (cell.text as NSString).length
-        var text = cell.text
-        if fullLength > Self.maxRenderedCharacters {
-            let cut = (cell.text as NSString).rangeOfComposedCharacterSequence(at: Self.maxRenderedCharacters).location
-            text = (cell.text as NSString).substring(to: cut)
-        }
+        let text = renderedText(cell.text)
         let display = displayText(text)
         let attributed = NSMutableAttributedString(
             string: display,
@@ -486,7 +595,26 @@ public final class CodeLinesView: NSView {
                     string: "  " + note,
                     attributes: [.font: TypeToken.caption.nsFont, .foregroundColor: ColorToken.textTertiary.nsColor]))
         }
-        return CTLineCreateWithAttributedString(attributed)
+        // Wrapped: break the display text every `wrapCapacity` characters (never inside a composed character);
+        // notes stay on the last visual line. The count matches `rebuildRowOffsets`.
+        let capacity = wrapCapacity
+        guard rowOffsets != nil, !cell.isFullWidth, length > capacity else {
+            return [CTLineCreateWithAttributedString(attributed)]
+        }
+        let typesetter = CTTypesetterCreateWithAttributedString(attributed)
+        let count = Self.lineCount(length: length, capacity: capacity)
+        var lines: [CTLine] = []
+        var start = 0
+        for index in 0..<count {
+            var end = attributed.length
+            if index < count - 1 {
+                end = (display as NSString).rangeOfComposedCharacterSequence(at: (index + 1) * capacity).location
+                end = max(end, start + 1)
+            }
+            lines.append(CTTypesetterCreateLine(typesetter, CFRange(location: start, length: end - start)))
+            start = end
+        }
+        return lines
     }
 
     // MARK: Input
@@ -540,12 +668,11 @@ public final class CodeLinesView: NSView {
         else {
             return []
         }
-        let first = max(0, Int(visible.minY / rowHeight))
-        let last = min(source.rowCount - 1, Int(visible.maxY / rowHeight))
-        guard first <= last else { return [] }
-        let result = (first...last).map { accessibilityElement(forRow: $0) }
+        let range = rows(in: visible)
+        guard !range.isEmpty else { return [] }
+        let result = range.map { accessibilityElement(forRow: $0) }
         if accessibilityRows.count > 400 {
-            accessibilityRows = accessibilityRows.filter { (first...last).contains($0.key) }
+            accessibilityRows = accessibilityRows.filter { range.contains($0.key) }
         }
         return result
     }

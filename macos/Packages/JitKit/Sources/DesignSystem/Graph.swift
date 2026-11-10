@@ -129,8 +129,11 @@ public enum GraphTypography {
         .systemFont(ofSize: (diameter * 0.4).rounded(), weight: .semibold)
     }
     public static var secondary: NSFont { TypeToken.callout.nsFont }
+    /// The time tag at the end of a row where the time changes.
+    public static var timeTag: NSFont { .systemFont(ofSize: TypeToken.micro.size, weight: .medium) }
     public static var mono: NSFont { TypeToken.monoCaption.nsFont }
-    /// Navigator rows use the system sidebar size; the current branch is semibold.
-    public static var sidebar: NSFont { .systemFont(ofSize: NSFont.systemFontSize) }
-    public static var sidebarEmphasized: NSFont { .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold) }
+    /// Navigator rows are one point larger than the system text size; the current branch is semibold.
+    public static var sidebar: NSFont { .systemFont(ofSize: NSFont.systemFontSize + 1) }
+    public static var sidebarEmphasized: NSFont { .systemFont(ofSize: NSFont.systemFontSize + 1, weight: .semibold) }
+    public static var sidebarSection: NSFont { .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold) }
 }

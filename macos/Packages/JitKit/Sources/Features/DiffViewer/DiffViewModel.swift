@@ -33,6 +33,30 @@ public final class DiffViewModel {
         }
     }
     public var showsWhitespace = false { didSet { onSourceChange?() } }
+    /// Long lines continue on the next visual line instead of scrolling sideways (0.0.3; remembered).
+    public var wrapsLines = UserDefaults.standard.bool(forKey: "diffWrapsLines") {
+        didSet {
+            guard wrapsLines != oldValue else { return }
+            UserDefaults.standard.set(wrapsLines, forKey: "diffWrapsLines")
+            onSourceChange?()
+        }
+    }
+    /// Stages (`true`) or unstages the whole file the diff shows; set by the workbench.
+    @ObservationIgnored public var onStageFile: ((_ path: String, _ stage: Bool) -> Void)?
+
+    /// The whole-file action for a working-directory diff: stage an unstaged file, unstage a staged one.
+    public var fileStageAction: (path: String, stage: Bool)? {
+        switch target {
+        case .unstaged(let path): (path, true)
+        case .staged(let path, _): (path, false)
+        default: nil
+        }
+    }
+
+    public func stageFile() {
+        guard let action = fileStageAction else { return }
+        onStageFile?(action.path, action.stage)
+    }
     /// Word-level emphasis inside paired lines (ADR-0029).
     public var showsWordDiff = true { didSet { if showsWordDiff != oldValue { attachProviders(); onTextChange?() } } }
     /// Syntax colours (ADR-0012); applied when the off-main pass finishes.

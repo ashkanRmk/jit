@@ -3,7 +3,7 @@ import DesignSystem
 import Services
 import SwiftUI
 
-/// The tab strip (design §3.1): glass capsule tabs inside one glass container, hosted in an unbordered
+/// The tab strip (design §3.1): glass rounded-rectangle tabs inside one glass container, hosted in an unbordered
 /// toolbar item. Observes the tab list and selection only; each `TabItemView` observes its own tab.
 struct TabStripView: View {
     let model: AppModel
@@ -154,7 +154,7 @@ struct TabItemView: View {
         .padding(.leading, TabMetrics.horizontalPadding + Space.s1)
         .padding(.trailing, Space.s3)
         .frame(width: width, height: TabMetrics.height)
-        .contentShape(Capsule())
+        .contentShape(TabMetrics.shape)
         // Glass identity is the tab's position, not its UUID: SwiftUI keeps per-ID glass state for every ID it
         // has seen, so UUIDs would grow it with every tab ever opened. Positions are bounded by the tab count
         // and selection still morphs between positions.
@@ -206,7 +206,7 @@ private struct NewTabButton: View {
                 .symbolSize(IconSize.sm, weight: .medium)
                 .foregroundStyle(.secondary)
                 .frame(width: TabMetrics.newTabButton, height: TabMetrics.height)
-                .contentShape(Capsule())
+                .contentShape(TabMetrics.shape)
         }
         .buttonStyle(.plain)
         .glassTab(isSelected: false, isHovered: isHovered, id: "new-tab", in: namespace)

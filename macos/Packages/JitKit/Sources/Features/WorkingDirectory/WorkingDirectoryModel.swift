@@ -285,6 +285,18 @@ final class WorkingDirectoryModel {
         run("unstage") { session throws(GitCoreError) in try await session.unstage(paths) }
     }
 
+    /// Stages (or unstages) the file at `path` — the diff viewer's Stage File / Unstage File button.
+    func setStaged(_ staged: Bool, path: String) {
+        if staged {
+            stage(list.unstaged.filter { $0.path == path })
+        } else {
+            unstage(list.staged.filter { $0.path == path })
+        }
+    }
+
+    /// Asks to discard every unstaged change (the Unstaged header's trash button); confirmed in `DiscardSheet`.
+    func requestDiscardAll() { requestDiscard(list.unstaged) }
+
     func stageAll() { stage(list.unstaged) }
     func unstageAll() { unstage(list.staged) }
 
