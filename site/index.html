@@ -19,13 +19,13 @@
 <a class="skip" href="#download">Skip to download</a>
 
 <header class="top">
-  <a class="brand" href="#top" aria-label="Jit">
+  <a class="brand" href="#top" aria-label="Jit, back to top">
     <img src="assets/icon.svg" width="30" height="30" alt="">
-    <span>Jit</span>
   </a>
   <nav aria-label="Page">
     <a href="#light">Footprint</a>
     <a href="#features">Features</a>
+    <a href="#privacy">Privacy</a>
     <a href="https://github.com/ashkanRmk/jit">Source</a>
     <a class="nav-download" href="https://github.com/ashkanRmk/jit/releases" data-download>Download</a>
   </nav>
@@ -35,6 +35,17 @@
   <svg class="lanes" aria-hidden="true" focusable="false"></svg>
 
   <section class="commit hero is-reached" data-lane="0" data-kind="head">
+    <svg class="logotype play" viewBox="0 0 108 64" role="img" aria-label="Jit">
+      <path class="lg-lane" pathLength="1" d="M20 12H80"/>
+      <g class="lg-ink">
+        <path class="lg-t" pathLength="1" d="M80 12V41Q80 50 90 50"/>
+        <path class="lg-bar" pathLength="1" d="M70 28H92"/>
+        <path class="lg-j" pathLength="1" d="M20 28V48Q20 58 9 58"/>
+        <path class="lg-i" pathLength="1" d="M50 28V50"/>
+      </g>
+      <circle class="lg-c1" cx="20" cy="12" r="6"/>
+      <circle class="lg-c2" cx="50" cy="12" r="4.5"/>
+    </svg>
     <h1 data-node>The Git client that behaves like the rest of your Mac.</h1>
     <p class="lede">Jit is free, open source and written entirely in Swift. No Electron, no web views, no background process. It opens in a quarter of a second and then gets out of the way.</p>
     <div class="actions">
@@ -47,7 +58,7 @@
 
     <figure class="compare" style="--split: 100%">
       <div class="compare-stage">
-        <img class="shot-dark" src="assets/shots/graph-dark.webp" width="2000" height="1288" alt="Jit in dark appearance: a commit graph with several feature branches merging into main, and the selected commit's details on the right.">
+        <img class="shot-dark" src="assets/shots/graph-dark.webp" width="2000" height="1288" alt="Jit in dark appearance: a commit graph of the tidepool repository with feature branches merging into main, and the selected commit's details on the right.">
         <img class="shot-light" src="assets/shots/graph-light.webp" width="2000" height="1288" alt="" aria-hidden="true">
         <span class="compare-handle" aria-hidden="true"></span>
         <input class="compare-range" type="range" min="0" max="100" value="56" step="0.1" aria-label="How much of the window is shown in dark appearance">
@@ -64,7 +75,7 @@
       <div><dt>259 ms</dt><dd>From launch to a window you can use.</dd></div>
       <div><dt>32 MB</dt><dd>Memory with no repository open. 72 MB with a 10,000-commit repository.</dd></div>
       <div><dt>0.00 %</dt><dd>CPU while idle, with one tab open or five.</dd></div>
-      <div><dt>0 bytes</dt><dd>Network traffic while idle. No telemetry, no update checks.</dd></div>
+      <div><dt>0 bytes</dt><dd>Network traffic while idle. Nothing phones home.</dd></div>
     </dl>
     <p class="fine">Medians from the project’s own benchmark scripts. <a href="https://github.com/ashkanRmk/jit/blob/main/docs/performance.md">Methods and full results</a></p>
   </section>
@@ -107,6 +118,17 @@
       <div><dt>Careful by default</dt><dd>Push uses force-with-lease, never plain force. Anything destructive asks first and says exactly what it will do.</dd></div>
       <div><dt>Command palette</dt><dd>Press ⌘K and type what you want.</dd></div>
       <div><dt>Git included</dt><dd>Git 2.56 ships inside the app. No Xcode, Command Line Tools or Homebrew needed.</dd></div>
+    </dl>
+  </section>
+
+  <section class="commit" id="privacy" data-lane="0">
+    <h2 data-node>Your code stays on your Mac</h2>
+    <p class="intro">Jit has no server of its own, so there is nowhere for your data to go. No account, no telemetry, no crash reports, no update checks. Your repositories are read by Git, on your disk, and nothing about them is collected.</p>
+    <dl class="rest">
+      <div><dt>It talks to your Git host, when you ask</dt><dd>Fetch, pull, push and clone go straight from your Mac to GitHub, GitLab or your own server. Nothing passes through anyone in between.</dd></div>
+      <div><dt>Secrets live in the Keychain</dt><dd>Tokens and passphrases are stored only in the macOS Keychain. They never appear in logs, preferences or command arguments.</dd></div>
+      <div><dt>One optional request</dt><dd>Author pictures come from gravatar.com, using a hash of the email address and never the address itself. Turn it off in Settings and Jit makes no requests you didn’t start.</dd></div>
+      <div><dt>Check it yourself</dt><dd>The source is public, so every claim on this page can be read in the code.</dd></div>
     </dl>
   </section>
 

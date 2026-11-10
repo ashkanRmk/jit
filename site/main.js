@@ -227,6 +227,18 @@ function initCopy() {
   }
 }
 
+// Replay the logotype when it is pointed at or clicked.
+for (const logo of document.querySelectorAll('.logotype')) {
+  const replay = () => {
+    if (reduceMotion) return;
+    logo.classList.remove('play');
+    void logo.getBoundingClientRect();
+    logo.classList.add('play');
+  };
+  logo.addEventListener('pointerenter', replay);
+  logo.addEventListener('click', replay);
+}
+
 initCompare();
 initCopy();
 initGraph();

@@ -90,7 +90,6 @@ code { font: .92em var(--mono); }
 .brand {
   display: inline-flex; align-items: center; gap: .55rem;
   color: var(--ink); text-decoration: none;
-  font: 700 1.35rem/1 var(--display); letter-spacing: -.01em;
 }
 .brand img { display: block; }
 .top nav { display: flex; align-items: center; gap: clamp(.9rem, 2.5vw, 1.8rem); font-size: .95rem; }
@@ -177,9 +176,30 @@ p { margin: 0; }
 .button.quiet { background: none; color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule); }
 .button.quiet:hover { background: none; box-shadow: inset 0 0 0 1px var(--ink-2); }
 
+/* ---------- Logotype: "jit" with its dots drawn as commits on a lane ---------- */
+
+.logotype { display: block; height: clamp(4.5rem, 9vw, 7rem); width: auto; margin: 0 0 clamp(1.8rem, 4vw, 2.8rem) -0.4rem; overflow: visible; }
+.logotype path { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1 1; }
+.lg-lane { stroke: var(--accent); stroke-width: 2.5; }
+.lg-ink path { stroke: var(--ink); stroke-width: 7; }
+.lg-c1 { fill: var(--accent); }
+.lg-c2 { fill: var(--canvas); stroke: var(--accent); stroke-width: 3; }
+.logotype circle { transform-box: fill-box; transform-origin: center; }
+
+/* The first commit lands, the lane runs through the second into the t, then the letters hang from it. */
+.logotype.play .lg-c1 { animation: lg-pop .5s var(--ease) .15s backwards; }
+.logotype.play .lg-lane { animation: lg-draw .7s cubic-bezier(.5, 0, .2, 1) .4s backwards; }
+.logotype.play .lg-c2 { animation: lg-pop .45s var(--ease) .68s backwards; }
+.logotype.play .lg-j { animation: lg-draw .55s var(--ease) .55s backwards; }
+.logotype.play .lg-i { animation: lg-draw .45s var(--ease) .9s backwards; }
+.logotype.play .lg-t { animation: lg-draw .6s var(--ease) 1.05s backwards; }
+.logotype.play .lg-bar { animation: lg-draw .4s var(--ease) 1.4s backwards; }
+@keyframes lg-draw { from { stroke-dashoffset: 1; opacity: 0; } 1% { opacity: 1; } }
+@keyframes lg-pop { from { transform: scale(0); } 60% { transform: scale(1.18); } }
+
 /* ---------- Hero ---------- */
 
-.hero { padding-top: clamp(3rem, 8vw, 6.5rem); }
+.hero { padding-top: clamp(2.5rem, 6vw, 4.5rem); }
 
 .compare { margin: clamp(3rem, 6vw, 4.5rem) 0 0; }
 .compare-stage {
