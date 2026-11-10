@@ -91,6 +91,9 @@ enum SidebarMetrics {
     static let cardOpacity: Double = 0.45
     static let rowHeight: CGFloat = 26
     static let footerHeight: CGFloat = 44
+    static let logotypeHeight: CGFloat = 22
+    /// Centres the logotype on the window controls.
+    static let logotypeTop: CGFloat = 15
 }
 
 /// The sidebar's bottom row (0.0.3; the profile used to be a toolbar item): the active Git profile, which

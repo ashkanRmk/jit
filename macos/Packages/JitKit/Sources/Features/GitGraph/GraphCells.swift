@@ -424,8 +424,8 @@ final class RefsCellView: NSView {
     }
 
     /// How strongly the ghost label shows on a hovered and on a selected row.
-    static let ghostHovered: CGFloat = 0.5
-    static let ghostSelected: CGFloat = 0.8
+    static let ghostHovered: CGFloat = 0.4
+    static let ghostSelected: CGFloat = 0.55
 
     var style: GraphStyle?
     var content = Content() {

@@ -12,7 +12,7 @@ struct CommandBarActions: View {
     let layout: CommandBarLayout
 
     var body: some View {
-        HStack(spacing: Space.s1) {
+        HStack(spacing: Space.s2) {
             ForEach(layout.visible, id: \.self) { group in
                 switch group {
                 case .sync: if let operations = controller.operations { SyncActions(operations: operations) }
@@ -74,9 +74,9 @@ struct CommandBarActions: View {
 
 /// Sizes of the action bar's items (also used to decide what fits).
 enum BarMetrics {
-    static let iconBox: CGFloat = IconSize.lg
-    static let itemPadding: CGFloat = Space.s4
-    static let itemMinWidth: CGFloat = 44
+    static let iconBox: CGFloat = IconSize.md + Space.s1
+    static let itemPadding: CGFloat = Space.s3
+    static let itemMinWidth: CGFloat = 40
 
     /// Width of one item with its title, or with the icon alone.
     @MainActor static func itemWidth(_ title: String?) -> CGFloat {
@@ -106,7 +106,7 @@ struct BarAction: View {
         Button(action: action) {
             VStack(spacing: Space.s1) {
                 Image(systemName: symbol)
-                    .symbolSize(IconSize.md, weight: .medium)
+                    .symbolSize(IconSize.md - 2, weight: .medium)
                     .frame(width: BarMetrics.iconBox, height: BarMetrics.iconBox)
                     .accessibilityHidden(true)
                 if showsTitles {
@@ -119,7 +119,7 @@ struct BarAction: View {
             }
             .foregroundStyle(.token(isEnabled ? .textPrimary : .textDisabled))
             .padding(.horizontal, BarMetrics.itemPadding)
-            .padding(.vertical, Space.s2)
+            .padding(.vertical, Space.s1)
             .frame(minWidth: showsTitles ? BarMetrics.itemMinWidth : nil)
             .background(
                 isHovered && isEnabled ? ColorToken.stateHover.color : .clear,

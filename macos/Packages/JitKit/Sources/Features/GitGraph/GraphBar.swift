@@ -3,9 +3,9 @@ import GitCore
 import Services
 import SwiftUI
 
-/// The repository action bar (0.0.3): one glass bar under the tabs with the everyday commands on the leading
-/// side (`CommandBarActions`: Pull, Push, Fetch, Branch, Stash, Pop, Terminal) and changes, transient chips
-/// and search on the trailing side. Only the bar is glass; what sits in it is plain. Rows scroll underneath.
+/// The repository action bar: the everyday commands in the middle (`CommandBarActions`: Pull, Push, Fetch,
+/// Branch, Stash, Pop, Terminal) and changes, transient chips and search at the trailing end. Since 0.0.4 it
+/// has no glass and no container: plain tools with their names on an opaque strip. Rows scroll underneath.
 /// The current branch and the profile moved to the sidebar; the branch scope menu is gone.
 struct GraphBar: View {
     let controller: GraphViewController
@@ -22,41 +22,52 @@ struct GraphBar: View {
         let changes = CommandBarChanges.count(controller.session.status?.summary)
         let layout = commandLayout(changes: changes)
         VStack(spacing: Space.s3) {
-            HStack(spacing: Space.s3) {
-                CommandBarActions(controller: controller, layout: layout)
-                    .fixedSize()
-                Spacer(minLength: 0)
-                if controller.isSlow || isDeepRunning {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel(isDeepRunning ? "Searching all history" : "Loading history")
-                }
-                ForEach(chips, id: \.id) { chip in
-                    ChipView(chip: chip)
-                        .transition(RevealTransition.transition(reduceMotion: reduceMotion))
-                }
-                if let changes { changesAction(changes, labels: layout.showsLabels) }
-                if showsSearchField {
-                    searchField
-                    if model.isSearching { matchControls }
-                } else {
-                    BarAction(title: "Search", symbol: "magnifyingglass", help: "Search Commits (⌘F)") {
-                        expandSearch()
+            // The tools sit in the middle; changes, chips and search keep the trailing end.
+            ZStack {
+                // One centred row: the commands, then changes and Search.
+                HStack(spacing: Space.s2) {
+                    CommandBarActions(controller: controller, layout: layout)
+                    if let changes { changesAction(changes, labels: layout.showsLabels) }
+                    if !showsSearchField {
+                        BarAction(title: "Search", symbol: "magnifyingglass", help: "Search Commits (⌘F)") {
+                            expandSearch()
+                        }
+                        .environment(\.barShowsTitles, layout.showsLabels)
                     }
-                    .environment(\.barShowsTitles, layout.showsLabels)
+                }
+                .fixedSize()
+                // Transient things keep the trailing end: progress, chips, the open search field.
+                HStack(spacing: Space.s2) {
+                    Spacer(minLength: 0)
+                    if controller.isSlow || isDeepRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel(isDeepRunning ? "Searching all history" : "Loading history")
+                    }
+                    ForEach(chips, id: \.id) { chip in
+                        ChipView(chip: chip)
+                            .transition(RevealTransition.transition(reduceMotion: reduceMotion))
+                    }
+                    if showsSearchField {
+                        searchField
+                        if model.isSearching { matchControls }
+                    }
                 }
             }
-            .padding(.horizontal, Space.s3)
-            .padding(.vertical, Space.s2)
+            .padding(.horizontal, Space.s4)
             .frame(maxWidth: .infinity)
-            .jitGlass(in: ChromeShape.control, interactive: false)
             if let operations = controller.operations {
                 OperationBanner(controller: operations)
             }
         }
         .animation(reduceMotion ? nil : MotionToken.panel.animation, value: controller.session.operationState == .clean)
-        .padding(.horizontal, Space.s4)
-        .padding(.vertical, Space.s3)
+        .padding(.vertical, Space.s2)
+        // No glass and no container (0.0.4): an opaque strip of the canvas, so rows scrolling underneath do not
+        // show through the tools.
+        .background(ColorToken.surfaceCanvas.color)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(ColorToken.borderSubtle.color).frame(height: Border.hairline)
+        }
         .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: chips.map(\.id))
         .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: showsSearchField)
         .onChange(of: model.focusSearchToken) { expandSearch() }
@@ -93,11 +104,14 @@ struct GraphBar: View {
             .sync: sum(["Pull ↓99", "Publish", "Fetch"]), .branch: item("Branch"), .stash: sum(["Stash", "Pop"]),
             .terminal: item("Terminal"),
         ]
-        var trailing = showsSearchField ? 140 + 3 * Space.s5 + IconSize.md : BarMetrics.itemWidth("Search")
+        // In the centred row with the commands: changes and the Search item.
+        var extras = showsSearchField ? 0 : BarMetrics.itemWidth("Search") + Space.s2
+        if let changes { extras += BarMetrics.itemWidth(CommandBarChanges.title(changes, labels: true)) + Space.s2 }
+        // At the trailing end; the centred row must stay clear of it, so it counts on both sides.
+        var trailing: CGFloat = showsSearchField ? 140 + 3 * Space.s5 + IconSize.md : 0
         if model.isSearching { trailing += 150 }
-        if let changes { trailing += BarMetrics.itemWidth(CommandBarChanges.title(changes, labels: true)) + Space.s3 }
         trailing += CGFloat(chips.count) * 160
-        let available = max(barWidth - 2 * Space.s4 - 2 * Space.s3 - Space.s3 - trailing, 0)
+        let available = max(barWidth - 2 * Space.s4 - extras - 2 * trailing, 0)
         return CommandBarLayout.make(
             available: available, groups: groups, widths: widths, spacing: Space.s1,
             overflowButton: BarMetrics.itemWidth(nil), labelsAllowed: controller.model.preferences.commandBarShowsLabels
@@ -309,12 +323,12 @@ struct GraphStateOverlay: View {
         VStack(spacing: 0) {
             if let error = controller.viewModel.historyError {
                 ErrorBanner(error: error, retry: controller.retry)
-                    .padding(.top, 72)
+                    .padding(.top, 56)
                     .padding(.horizontal, Space.s6)
             }
             if controller.viewModel.paneState == .loading {
                 SkeletonRows()
-                    .padding(.top, 72)
+                    .padding(.top, 56)
                     .allowsHitTesting(false)
             } else if controller.viewModel.paneState == .empty {
                 Spacer()

@@ -120,13 +120,11 @@ final class WorkbenchController: NSSplitViewController {
         }
     }
 
+    /// Not animated: the diff that takes the room appears with its own fade.
     private func setSidebarCollapsed(_ collapsed: Bool) {
         guard let sidebarItem, sidebarItem.isCollapsed != collapsed else { return }
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || view.window == nil {
-            sidebarItem.isCollapsed = collapsed
-        } else {
-            sidebarItem.animator().isCollapsed = collapsed
-        }
+        sidebarItem.isCollapsed = collapsed
+        if !collapsed { applyWidths() }
     }
 
     /// Graph ↔ navigator ↔ inspector (design §3.4–§3.5).
@@ -247,6 +245,7 @@ final class WorkbenchController: NSSplitViewController {
     /// Called when the tab is shown again (its view stays in the hierarchy while hidden); widths are shared
     /// with other tabs and may have changed.
     func willBecomeVisible() {
+        guard !needsWidthRestore else { return }
         let sidebarStale =
             sidebarItem.map {
                 !$0.isCollapsed && abs($0.viewController.view.frame.width - model.layout.sidebarWidth) > 0.5
@@ -261,10 +260,18 @@ final class WorkbenchController: NSSplitViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        if needsWidthRestore, view.bounds.width > 0 {
+        if needsWidthRestore, view.bounds.width > 0, view.window != nil {
             needsWidthRestore = false
             applyWidths()
         }
+    }
+
+    /// A new repository tab takes the widths the user last chose in any tab (0.0.4: the first layout pass can
+    /// run before the split view has its final size, which left a new tab at the default widths).
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        needsWidthRestore = false
+        applyWidths()
     }
 
     /// Applies the shared widths (another tab may have changed them).

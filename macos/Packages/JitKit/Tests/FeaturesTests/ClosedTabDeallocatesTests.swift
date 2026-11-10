@@ -81,7 +81,10 @@ import Testing
             ]
             model.closeTab(tab.id)
         }
+        // Release can trail the close by more than a fixed pause when the suites run in parallel (a view
+        // animation or a short task still holds the tab): wait for it, up to 5 s, instead of a fixed 500 ms.
         await Self.spin(500)
+        _ = await Self.waitUntil { probes.allSatisfy { $0.object == nil } }
         let survivors = probes.filter { $0.object != nil }.map(\.name)
         #expect(survivors.isEmpty, "still alive after close: \(survivors)")
         controller?.close()

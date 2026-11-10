@@ -294,23 +294,29 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
     }
 }
 
-/// Floating glass chrome over the diff body (ADR-0006): file title, layout switcher, change navigator,
-/// find, options and focus. Only the capsules are glass; the body stays opaque.
+/// The diff's header (0.0.4; it was floating glass capsules): an opaque two-row bar over the body. Row one
+/// names the file and carries Stage File and Close; row two has the side on the left, File View / Diff View in
+/// the middle and the tools on the right — blame, change navigation, layout, whitespace, wrap, find, options.
 struct DiffChromeView: View {
-    static let height: CGFloat = 58
+    static let height: CGFloat = 76
 
     @Bindable var model: DiffViewModel
     let controller: DiffViewController
     var findRequest = 0
     @State private var showsFind = false
+    /// The layout "Diff View" returns to after "File View".
+    @State private var diffLayout = DiffLayout.unified
     @FocusState private var findFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s3) {
-            ViewThatFits(in: .horizontal) {
-                bar(compact: false)
-                bar(compact: true)
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            titleRow
+                .padding(.horizontal, Space.s5)
+                .frame(height: 34)
+            toolsRow
+                .padding(.horizontal, Space.s5)
+                .frame(height: 40)
+            Rectangle().fill(ColorToken.borderSubtle.color).frame(height: Border.hairline)
             if let banner = model.banner {
                 HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
                     Image(systemName: "info.circle")
@@ -330,16 +336,11 @@ struct DiffChromeView: View {
                     .accessibilityLabel("Dismiss")
                 }
                 .padding(Space.s4)
-                .background(ColorToken.surfaceRaised.color, in: RoundedRectangle(cornerRadius: Radius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.md).stroke(
-                        ColorToken.borderSubtle.color, lineWidth: Border.hairline))
+                .background(ColorToken.surfaceRaised.color)
             }
         }
-        .padding(.horizontal, Space.s5)
-        .padding(.top, Space.s4)
-        .padding(.bottom, Space.s2)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ColorToken.surfacePanel.color)
         .ignoresSafeArea()
         .sheet(item: Binding(get: { model.pendingDiscard }, set: { if $0 == nil { model.cancelDiscard() } })) {
             request in
@@ -349,71 +350,160 @@ struct DiffChromeView: View {
             showsFind = true
             findFocused = true
         }
+        .onChange(of: model.layout, initial: true) { _, layout in
+            if layout != .fullFile { diffLayout = layout }
+        }
     }
 
-    /// Full bar, or (narrow pane) title + compact controls: layout and options in one menu.
-    private func bar(compact: Bool) -> some View {
-        GlassControlGroup(spacing: Space.s4) {
-            titleCapsule
-                .frame(minWidth: compact ? 80 : 160, maxWidth: compact ? 220 : 360, alignment: .leading)
-            Spacer(minLength: Space.s3)
-            stageButton
+    // MARK: Row one — the file
+
+    private var titleRow: some View {
+        let path = DisplayText.sanitize(model.title)
+        return HStack(spacing: Space.s4) {
+            Image(systemName: "doc.text")
+                .symbolSize(IconSize.sm)
+                .foregroundStyle(.token(.textSecondary))
+                .accessibilityHidden(true)
+            FilePathText(
+                directory: (path as NSString).deletingLastPathComponent, name: (path as NSString).lastPathComponent
+            )
+            .font(TypeToken.body.font)
+            .help(path)
+            Spacer(minLength: Space.s4)
+            if let action = model.fileStageAction, model.onStageFile != nil {
+                Button(action.stage ? "Stage File" : "Unstage File") { model.stageFile() }
+                    .outlineButton(action.stage ? .success : .danger)
+                    .help(action.stage ? "Stage every change in this file" : "Unstage every change in this file")
+            }
+            Button {
+                model.requestClose()
+            } label: {
+                Image(systemName: "xmark")
+                    .symbolSize(IconSize.md - 2, weight: .medium)
+                    .foregroundStyle(.token(.textSecondary))
+                    .frame(width: IconSize.lg + Space.s2, height: IconSize.lg + Space.s2)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close Diff (Esc)")
+            .accessibilityLabel("Close diff")
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    // MARK: Row two — side, view, tools
+
+    private var toolsRow: some View {
+        ViewThatFits(in: .horizontal) {
+            tools(compact: false)
+            tools(compact: true)
+        }
+    }
+
+    private func tools(compact: Bool) -> some View {
+        HStack(spacing: Space.s4) {
+            Text(model.subtitle)
+                .typeStyle(.caption)
+                .foregroundStyle(.token(.textSecondary))
+                .lineLimit(1)
+                .padding(.horizontal, Space.s3)
+                .padding(.vertical, Space.s1)
+                .background(
+                    ColorToken.stateHover.color, in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+                )
+                .fixedSize()
+            Spacer(minLength: Space.s2)
             if model.source != nil {
+                viewPicker
+                Spacer(minLength: Space.s2)
                 if compact {
-                    compactNavigator
+                    navigator(showsCount: false)
                     findGroup
                     compactMenu
                 } else {
+                    Button("Blame") { model.blame() }
+                        .outlineButton(.neutral)
+                        .help("Blame this file")
+                    navigator(showsCount: true)
                     layoutButtons
                     displayToggles
-                    changeNavigator
                     findGroup
                     optionsMenu
                 }
             }
-            focusButton
         }
-        .fixedSize(horizontal: !compact, vertical: true)
+        .frame(maxWidth: .infinity)
     }
 
-    /// Stage File (unstaged diff) or Unstage File (staged diff); nothing for commit diffs.
-    @ViewBuilder
-    private var stageButton: some View {
-        if let action = model.fileStageAction, model.onStageFile != nil {
-            Button {
-                model.stageFile()
-            } label: {
-                Label(action.stage ? "Stage File" : "Unstage File", systemImage: action.stage ? "plus" : "minus")
-                    .labelStyle(.titleAndIcon)
-                    .typeStyle(.callout)
-                    .foregroundStyle(.token(action.stage ? .statusSuccess : .statusDanger))
-            }
-            .secondaryGlassButton()
-            .fixedSize()
-            .help(action.stage ? "Stage every change in this file" : "Unstage every change in this file")
+    /// The whole file, or only what changed.
+    private var viewPicker: some View {
+        Picker(
+            "View",
+            selection: Binding(
+                get: { model.layout == .fullFile },
+                set: { model.layout = $0 ? .fullFile : diffLayout })
+        ) {
+            Text("File View").tag(true)
+            Text("Diff View").tag(false)
         }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
+        .fixedSize()
+        .help("Show the whole file, or only the changes")
     }
 
-    private var compactNavigator: some View {
-        HStack(spacing: Space.s2) {
-            Button {
+    private func navigator(showsCount: Bool) -> some View {
+        HStack(spacing: Space.s1) {
+            ChromeToggle(symbol: "arrow.up", title: "Previous Change (⌥↑)", isOn: false) {
                 controller.diffPreviousChange(nil)
-            } label: {
-                Image(systemName: "chevron.up").symbolSize(IconSize.md - 2)
             }
-            .accessibilityLabel("Previous change")
-            Button {
+            ChromeToggle(symbol: "arrow.down", title: "Next Change (⌥↓)", isOn: false) {
                 controller.diffNextChange(nil)
-            } label: {
-                Image(systemName: "chevron.down").symbolSize(IconSize.md - 2)
             }
-            .accessibilityLabel("Next change")
+            if showsCount {
+                Text("\(model.changeRows.count)")
+                    .typeStyle(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.token(.textTertiary))
+                    .help("\(model.changeRows.count) \(model.changeRows.count == 1 ? "change" : "changes")")
+            }
         }
-        .buttonStyle(.borderless)
-        .help("\(model.changeRows.count) changes (⌥↑ ⌥↓)")
-        .padding(.horizontal, Space.s4)
-        .padding(.vertical, Space.s3)
-        .jitGlass(in: ChromeShape.control)
+    }
+
+    /// One page (unified) or side by side: one click each.
+    private var layoutButtons: some View {
+        HStack(spacing: Space.s1) {
+            ChromeToggle(symbol: "rectangle", title: "Unified (one page)", isOn: model.layout == .unified) {
+                model.layout = .unified
+            }
+            ChromeToggle(symbol: "rectangle.split.2x1", title: "Side by Side", isOn: model.layout == .split) {
+                model.layout = .split
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Layout")
+    }
+
+    /// Ignore whitespace changes and wrap long lines, as switches.
+    private var displayToggles: some View {
+        HStack(spacing: Space.s1) {
+            ChromeToggle(
+                symbol: "paragraphsign",
+                title: model.ignoresWhitespace
+                    ? "Ignoring leading and trailing whitespace changes"
+                    : "Ignore leading and trailing whitespace changes",
+                isOn: model.ignoresWhitespace
+            ) {
+                model.ignoresWhitespace.toggle()
+            }
+            ChromeToggle(
+                symbol: "text.alignleft", title: model.wrapsLines ? "Wrapping long lines" : "Wrap long lines",
+                isOn: model.wrapsLines
+            ) {
+                model.wrapsLines.toggle()
+            }
+        }
     }
 
     private var compactMenu: some View {
@@ -437,98 +527,11 @@ struct DiffChromeView: View {
             Image(systemName: "ellipsis").symbolSize(IconSize.md)
         }
         .menuStyle(.button)
+        .buttonStyle(.borderless)
         .menuIndicator(.hidden)
-        .secondaryGlassButton()
         .fixedSize()
         .help("Layout and Options")
         .accessibilityLabel("Layout and options")
-    }
-
-    private var titleCapsule: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(DisplayText.sanitize(model.title))
-                .typeStyle(.callout)
-                .foregroundStyle(.token(.textPrimary))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Text(model.subtitle)
-                .typeStyle(.caption)
-                .foregroundStyle(.token(.textSecondary))
-                .lineLimit(1)
-        }
-        .padding(.horizontal, Space.s5)
-        .padding(.vertical, Space.s2)
-        .jitGlass(in: ChromeShape.control, interactive: false)
-        .accessibilityElement(children: .combine)
-    }
-
-    /// One page (unified), side by side, or the whole file: one click each.
-    private var layoutButtons: some View {
-        HStack(spacing: Space.s1) {
-            ChromeToggle(symbol: "rectangle", title: "Unified (one page)", isOn: model.layout == .unified) {
-                model.layout = .unified
-            }
-            ChromeToggle(symbol: "rectangle.split.2x1", title: "Side by Side", isOn: model.layout == .split) {
-                model.layout = .split
-            }
-            ChromeToggle(symbol: "doc.plaintext", title: "Full File", isOn: model.layout == .fullFile) {
-                model.layout = .fullFile
-            }
-        }
-        .padding(Space.s2)
-        .jitGlass(in: ChromeShape.control, interactive: false)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Layout")
-    }
-
-    /// Ignore whitespace changes and wrap long lines, as switches.
-    private var displayToggles: some View {
-        HStack(spacing: Space.s1) {
-            ChromeToggle(
-                symbol: "space",
-                title: model.ignoresWhitespace
-                    ? "Ignoring leading and trailing whitespace changes"
-                    : "Ignore leading and trailing whitespace changes",
-                isOn: model.ignoresWhitespace
-            ) {
-                model.ignoresWhitespace.toggle()
-            }
-            ChromeToggle(
-                symbol: "arrow.turn.down.left", title: model.wrapsLines ? "Wrapping long lines" : "Wrap long lines",
-                isOn: model.wrapsLines
-            ) {
-                model.wrapsLines.toggle()
-            }
-        }
-        .padding(Space.s2)
-        .jitGlass(in: ChromeShape.control, interactive: false)
-    }
-
-    private var changeNavigator: some View {
-        HStack(spacing: Space.s2) {
-            Button {
-                controller.diffPreviousChange(nil)
-            } label: {
-                Image(systemName: "chevron.up").symbolSize(IconSize.md - 2)
-            }
-            .help("Previous Change (⌥↑)")
-            .accessibilityLabel("Previous change")
-            Text("\(model.changeRows.count) \(model.changeRows.count == 1 ? "change" : "changes")")
-                .typeStyle(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.token(.textSecondary))
-            Button {
-                controller.diffNextChange(nil)
-            } label: {
-                Image(systemName: "chevron.down").symbolSize(IconSize.md - 2)
-            }
-            .help("Next Change (⌥↓)")
-            .accessibilityLabel("Next change")
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, Space.s4)
-        .padding(.vertical, Space.s3)
-        .jitGlass(in: ChromeShape.control)
     }
 
     @ViewBuilder
@@ -540,7 +543,7 @@ struct DiffChromeView: View {
                     .accessibilityHidden(true)
                 TextField("Find", text: $model.query)
                     .textFieldStyle(.plain)
-                    .frame(width: 140)
+                    .frame(width: 120)
                     .focused($findFocused)
                     .onSubmit { model.nextMatch(forward: true) }
                     .onExitCommand {
@@ -555,30 +558,25 @@ struct DiffChromeView: View {
                 Button {
                     model.nextMatch(forward: false)
                 } label: {
-                    Image(systemName: "chevron.left").symbolSize(IconSize.md - 2)
+                    Image(systemName: "chevron.left").symbolSize(IconSize.sm)
                 }
                 .accessibilityLabel("Previous match")
                 Button {
                     model.nextMatch(forward: true)
                 } label: {
-                    Image(systemName: "chevron.right").symbolSize(IconSize.md - 2)
+                    Image(systemName: "chevron.right").symbolSize(IconSize.sm)
                 }
                 .accessibilityLabel("Next match")
             }
             .buttonStyle(.borderless)
-            .padding(.horizontal, Space.s4)
+            .padding(.horizontal, Space.s3)
             .padding(.vertical, Space.s2)
-            .jitGlass(in: ChromeShape.control)
+            .background(ColorToken.stateHover.color, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
         } else {
-            Button {
+            ChromeToggle(symbol: "magnifyingglass", title: "Find in Diff (⌘F)", isOn: false) {
                 showsFind = true
                 findFocused = true
-            } label: {
-                Image(systemName: "magnifyingglass").symbolSize(IconSize.md)
             }
-            .secondaryGlassButton()
-            .help("Find in Diff (⌘F)")
-            .accessibilityLabel("Find in diff")
         }
     }
 
@@ -589,27 +587,15 @@ struct DiffChromeView: View {
             Toggle("Syntax Highlighting", isOn: $model.highlightsSyntax)
             Divider()
             Button("Go to Line…") { controller.diffGoToLine(nil) }
-            Button("Blame File") { model.blame() }
         } label: {
             Image(systemName: "ellipsis").symbolSize(IconSize.md)
         }
         .menuStyle(.button)
+        .buttonStyle(.borderless)
         .menuIndicator(.hidden)
-        .secondaryGlassButton()
         .fixedSize()
         .help("Diff Options")
         .accessibilityLabel("Diff options")
-    }
-
-    private var focusButton: some View {
-        Button {
-            model.requestClose()
-        } label: {
-            Image(systemName: "xmark").symbolSize(IconSize.md)
-        }
-        .secondaryGlassButton()
-        .help("Close Diff (Esc)")
-        .accessibilityLabel("Close diff")
     }
 }
 
@@ -624,9 +610,9 @@ private struct ChromeToggle: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .symbolSize(IconSize.md, weight: isOn ? .semibold : .regular)
+                .symbolSize(IconSize.md - 2, weight: isOn ? .semibold : .regular)
                 .foregroundStyle(isOn ? .token(.accentBase) : .token(.textSecondary))
-                .frame(width: IconSize.lg + Space.s4, height: IconSize.lg + Space.s2)
+                .frame(width: IconSize.lg + Space.s3, height: IconSize.lg + Space.s2)
                 .background(
                     isOn ? ColorToken.accentMuted.color : isHovered ? ColorToken.stateHover.color : .clear,
                     in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)

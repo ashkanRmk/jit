@@ -262,11 +262,29 @@ private struct InlineError: View {
 private struct CommitHeader: View {
     let details: CommitDetails
     let model: InspectorModel
-    @State private var hoversSHA = false
 
     var body: some View {
-        // One container per section: the message, the people, the commit's facts.
-        VStack(alignment: .leading, spacing: Space.s5) {
+        // Top to bottom (0.0.4): the commit's id, its message in a box, who and when with the parent beside.
+        VStack(alignment: .leading, spacing: Space.s4) {
+            HStack(spacing: Space.s3) {
+                Spacer(minLength: 0)
+                Text("commit:")
+                    .typeStyle(.callout)
+                    .foregroundStyle(.token(.textTertiary))
+                Text(details.oid.hex(model.format, length: 7))
+                    .typeStyle(.monoBody)
+                    .foregroundStyle(.token(.textPrimary))
+                    .textSelection(.enabled)
+                Button {
+                    Pasteboard.copy(details.oid.hex(model.format))
+                } label: {
+                    Image(systemName: "doc.on.doc").symbolSize(IconSize.sm)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy the full SHA (\(details.oid.hex(model.format)))")
+                .accessibilityLabel("Copy SHA")
+                Spacer(minLength: 0)
+            }
             VStack(alignment: .leading, spacing: Space.s4) {
                 Text(DisplayText.sanitize(details.subject))
                     .typeStyle(.title)
@@ -287,51 +305,40 @@ private struct CommitHeader: View {
                     .frame(height: InspectorMetrics.messageBodyHeight)
                 }
             }
-            .panelSection()
-            VStack(alignment: .leading, spacing: Space.s5) {
-                PersonLine(
-                    role: hasCommitter ? "Author" : nil, name: details.authorName, email: details.authorEmail,
-                    date: Self.date(details.authorTime),
-                    dateHelp: Self.iso(details.authorTime) + " (" + details.authorTimeZone + ")", avatars: model.avatars
-                )
-                if hasCommitter {
+            .padding(Space.s5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                ColorToken.surfaceSunken.color, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                    .strokeBorder(ColorToken.borderSubtle.color, lineWidth: Border.hairline))
+            HStack(alignment: .top, spacing: Space.s4) {
+                VStack(alignment: .leading, spacing: Space.s4) {
                     PersonLine(
-                        role: "Committer", name: details.committerName, email: details.committerEmail,
-                        date: details.committerTime != details.authorTime ? Self.date(details.committerTime) : nil,
-                        dateHelp: Self.iso(details.committerTime), avatars: model.avatars)
-                } else if details.committerTime != details.authorTime {
-                    Text("Committed \(Self.date(details.committerTime))")
-                        .typeStyle(.caption)
-                        .foregroundStyle(.token(.textTertiary))
-                }
-            }
-            .panelSection()
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.s5, verticalSpacing: Space.s4) {
-                GridRow {
-                    MetaLabel("SHA")
-                    HStack(spacing: Space.s3) {
-                        Text(details.oid.hex(model.format))
-                            .typeStyle(.monoCaption)
-                            .foregroundStyle(.token(.textSecondary))
-                            .textSelection(.enabled)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Button {
-                            Pasteboard.copy(details.oid.hex(model.format))
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .buttonStyle(.borderless)
-                        .opacity(hoversSHA ? 1 : 0)
-                        .accessibilityLabel("Copy SHA")
-                        .help("Copy SHA")
+                        role: hasCommitter ? "Author" : nil, name: details.authorName, email: details.authorEmail,
+                        date: "authored " + Self.date(details.authorTime),
+                        dateHelp: Self.iso(details.authorTime) + " (" + details.authorTimeZone + ")",
+                        avatars: model.avatars
+                    )
+                    if hasCommitter {
+                        PersonLine(
+                            role: "Committer", name: details.committerName, email: details.committerEmail,
+                            date: "committed " + Self.date(details.committerTime),
+                            dateHelp: Self.iso(details.committerTime), avatars: model.avatars)
+                    } else if details.committerTime != details.authorTime {
+                        Text("committed \(Self.date(details.committerTime))")
+                            .typeStyle(.caption)
+                            .foregroundStyle(.token(.textTertiary))
                     }
-                    .onHover { hoversSHA = $0 }
                 }
+                Spacer(minLength: Space.s2)
                 if !details.parents.isEmpty {
-                    GridRow {
-                        MetaLabel(details.parents.count == 1 ? "Parent" : "Parents")
-                        HStack(spacing: Space.s4) {
+                    HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
+                        Text(details.parents.count == 1 ? "parent:" : "parents:")
+                            .typeStyle(.caption)
+                            .foregroundStyle(.token(.textTertiary))
+                        VStack(alignment: .trailing, spacing: Space.s1) {
                             ForEach(details.parents, id: \.self) { parent in
                                 Button(parent.hex(model.format, length: 7)) { model.selectCommit(parent) }
                                     .buttonStyle(.link)
@@ -340,19 +347,18 @@ private struct CommitHeader: View {
                             }
                         }
                     }
-                }
-                let labels = refsHere
-                if !labels.isEmpty {
-                    GridRow {
-                        MetaLabel("Refs")
-                        Text(labels.joined(separator: ", "))
-                            .typeStyle(.callout)
-                            .foregroundStyle(.token(.textSecondary))
-                            .textSelection(.enabled)
-                    }
+                    .fixedSize()
                 }
             }
-            .panelSection()
+            let labels = refsHere
+            if !labels.isEmpty {
+                Text(labels.joined(separator: ", "))
+                    .typeStyle(.caption)
+                    .foregroundStyle(.token(.textSecondary))
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                    .help("Branches and tags on this commit")
+            }
         }
     }
 
@@ -507,21 +513,32 @@ private struct FilesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s4) {
-            HStack(spacing: Space.s4) {
-                Text(header)
-                    .typeStyle(.headline)
-                    .foregroundStyle(.token(.textPrimary))
-                    .monospacedDigit()
-                if model.showsSpinner { ProgressView().controlSize(.small) }
-                Spacer()
-                Picker("", selection: Bindable(model).showsTree) {
-                    Image(systemName: "list.bullet").tag(false).accessibilityLabel("Flat list")
-                    Image(systemName: "list.bullet.indent").tag(true).accessibilityLabel("Tree")
+            HStack(spacing: Space.s5) {
+                ForEach(summary, id: \.glyph) { item in
+                    HStack(spacing: Space.s2) {
+                        FileChangeIcon(item.glyph)
+                        Text("\(item.count) \(item.title)")
+                            .typeStyle(.callout)
+                            .monospacedDigit()
+                            .foregroundStyle(.token(.textSecondary))
+                    }
+                    .accessibilityElement(children: .combine)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
+                if model.showsSpinner { ProgressView().controlSize(.small) }
+                Spacer(minLength: 0)
+                Text(totals)
+                    .typeStyle(.monoCaption)
+                    .monospacedDigit()
+                    .foregroundStyle(.token(.textTertiary))
             }
+            Picker("", selection: Bindable(model).showsTree) {
+                Label("Path", systemImage: "list.bullet").labelStyle(.titleAndIcon).tag(false)
+                Label("Tree", systemImage: "list.bullet.indent").labelStyle(.titleAndIcon).tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .frame(maxWidth: .infinity)
             if isMerge {
                 Picker("", selection: .constant(0)) {
                     Text("First parent").tag(0)
@@ -566,11 +583,22 @@ private struct FilesSection: View {
         .frame(minHeight: InspectorMetrics.filesMinHeight, alignment: .top)
     }
 
-    private var header: String {
+    private var totals: String {
         let additions = model.files.reduce(0) { $0 + ($1.additions ?? 0) }
         let deletions = model.files.reduce(0) { $0 + ($1.deletions ?? 0) }
-        let count = model.files.count
-        return "\(count) \(count == 1 ? "file" : "files")  +\(additions) −\(deletions)"
+        return "+\(additions) −\(deletions)"
+    }
+
+    /// "4 modified, 1 added": how many files of each kind.
+    private var summary: [(glyph: FileChangeGlyph, count: Int, title: String)] {
+        let kinds: [(FileChangeGlyph, String)] = [
+            (.modified, "modified"), (.added, "added"), (.deleted, "deleted"), (.renamed, "renamed"),
+            (.conflicted, "unmerged"),
+        ]
+        return kinds.compactMap { glyph, title in
+            let count = model.files.filter { $0.status.glyph == glyph }.count
+            return count > 0 ? (glyph, count, title) : nil
+        }
     }
 
     private var tree: [FileTree.Row] {
@@ -706,11 +734,8 @@ private struct FileRow: View {
 
     var body: some View {
         HStack(spacing: Space.s4) {
-            Text(file.status.letter)
-                .typeStyle(.monoBody)
-                .foregroundStyle(statusColor)
-                .frame(width: 12)
-                .accessibilityLabel(statusName)
+            FileChangeIcon(file.status.glyph)
+                .help(statusName)
             FilePathText(
                 prefix: file.oldPath.map { DisplayText.sanitize($0) + " → " },
                 directory: nameOnly ? "" : (DisplayText.sanitize(file.path) as NSString).deletingLastPathComponent,
@@ -741,16 +766,6 @@ private struct FileRow: View {
             }
         }
         .accessibilityElement(children: .combine)
-    }
-
-    private var statusColor: Color {
-        switch file.status {
-        case .added: .token(.diffAddMark)
-        case .deleted: .token(.diffDeleteMark)
-        case .renamed, .copied: .token(.statusInfo)
-        case .unmerged: .token(.statusWarning)
-        default: .token(.textSecondary)
-        }
     }
 
     private var statusName: String {
@@ -894,5 +909,18 @@ enum MessageReflow {
             return true
         }
         return false
+    }
+}
+
+extension ChangedFile.Status {
+    /// The glyph for a committed file's change.
+    var glyph: FileChangeGlyph {
+        switch self {
+        case .added: .added
+        case .deleted: .deleted
+        case .renamed, .copied: .renamed
+        case .unmerged: .conflicted
+        default: .modified
+        }
     }
 }

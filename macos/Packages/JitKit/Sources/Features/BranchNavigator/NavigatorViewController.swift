@@ -102,6 +102,16 @@ final class NavigatorViewController: NSViewController {
         footer.safeAreaRegions = []
         root.addSubview(footer)
         profileAnchor = footer
+        // The logotype sits in the toolbar's height at the sidebar's top right (0.0.4).
+        let logotype = NSHostingView(rootView: JitLogotype(height: SidebarMetrics.logotypeHeight))
+        logotype.translatesAutoresizingMaskIntoConstraints = false
+        logotype.sizingOptions = [.intrinsicContentSize]
+        logotype.safeAreaRegions = []
+        root.addSubview(logotype)
+        NSLayoutConstraint.activate([
+            logotype.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Space.s6),
+            logotype.topAnchor.constraint(equalTo: root.topAnchor, constant: SidebarMetrics.logotypeTop),
+        ])
         var filterTop = filterField.topAnchor.constraint(
             equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Space.s4)
         if let graph {
@@ -545,6 +555,8 @@ final class NavigatorCellView: NSTableCellView {
     private let pin = NSImageView()
     /// Section titles sit in their container, below the gap at the top of a section row.
     private lazy var sectionOffset = title.centerYAnchor.constraint(equalTo: centerYAnchor)
+    /// Section rows keep clear of the system's show / hide chevron at their trailing edge.
+    private lazy var badgeTrailing = badge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Space.s4)
 
     init() {
         super.init(frame: .zero)
@@ -577,7 +589,7 @@ final class NavigatorCellView: NSTableCellView {
             pin.leadingAnchor.constraint(greaterThanOrEqualTo: dot.trailingAnchor, constant: Space.s3),
             pin.centerYAnchor.constraint(equalTo: centerYAnchor),
             badge.leadingAnchor.constraint(equalTo: pin.trailingAnchor, constant: Space.s2),
-            badge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Space.s4),
+            badgeTrailing,
             badge.centerYAnchor.constraint(equalTo: title.centerYAnchor),
         ])
     }
@@ -595,8 +607,10 @@ final class NavigatorCellView: NSTableCellView {
         icon.isHidden = false
         toolTip = nil
         if case .section = node.kind {
+            badgeTrailing.constant = -(Space.s4 + IconSize.md)
             sectionOffset.constant = NavigatorOutlineView.sectionGap / 2
         } else {
+            badgeTrailing.constant = -Space.s4
             sectionOffset.constant = 0
         }
         switch node.kind {

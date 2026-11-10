@@ -199,6 +199,20 @@ Chrome text uses the system's fonts. Counts use `.monospacedDigit()`. SF Symbols
     dimmed branch label for the hovered / selected commit's line; the graph column's width does not follow
     the scroll position.
   - **Logotype:** `JitLogotype` (paths, `text.primary` + `accent.base`), on the new-tab page.
+- **0.0.4 round** ([P8.ux.3](phases/08-post-v1/specs/P8.ux.3-flat-bars-and-panel-restyle.md)) — wins over the
+  0.0.3 list where they differ:
+  - **Toolbar:** sidebar toggle and tab strip, laid out by the system after an open sidebar (no tracking
+    separator). The logotype sits in the toolbar's height at the sidebar's top right.
+  - **Action bar:** no glass and no container — a centred row of `BarAction`s (commands, changes, Search) on
+    an opaque `surface.canvas` strip with a hairline under it.
+  - **Diff header:** opaque, two rows on `surface.panel`: the file path, Stage File and Close; then the side
+    (left), File View / Diff View (middle) and the tools (right). No glass over the diff.
+  - **Outlined buttons:** `outlineButton(.success | .danger | .neutral)` for stage / unstage / discard and
+    Blame: hairline border and a light wash in the tone's colour, on content only.
+  - **File change glyphs:** `FileChangeIcon` — plus (added), pencil (modified), minus (deleted), arrow
+    (renamed), warning triangle (conflict) — replaces the status letter in both panels.
+  - **Commit panel:** `commit: <sha>`, the message in a `surface.sunken` box, author with "authored <date>"
+    and the parent beside, then the files with a per-kind summary and a labelled Path / Tree switch.
 - Density: compact 22 pt rows, comfortable 26 pt (default).
 
 ## Motion (`MotionToken`)

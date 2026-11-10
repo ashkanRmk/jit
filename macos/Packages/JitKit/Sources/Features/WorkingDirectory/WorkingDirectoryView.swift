@@ -36,46 +36,45 @@ struct WorkingDirectoryView: View {
 
     // MARK: Header
 
+    /// "N file changes on <branch>" with Discard All on its left; then sort, Path / Tree and the filter.
     private var header: some View {
-        VStack(alignment: .leading, spacing: Space.s4) {
+        let count = model.session.status?.summary?.changedFiles ?? model.list.unstaged.count + model.list.staged.count
+        let discardable = WorkingDirectoryModel.discardable(model.list.unstaged).count
+        return VStack(alignment: .leading, spacing: Space.s4) {
             HStack(spacing: Space.s3) {
-                Image(systemName: "arrow.triangle.branch")
-                    .symbolSize(IconSize.sm)
-                    .foregroundStyle(.token(.textSecondary))
-                    .accessibilityHidden(true)
+                Button {
+                    model.requestDiscardAll()
+                } label: {
+                    Image(systemName: "trash").symbolSize(IconSize.sm, weight: .medium)
+                }
+                .outlineButton(.danger)
+                .disabled(discardable == 0)
+                .help("Discard all unstaged changes…")
+                .accessibilityLabel("Discard all unstaged changes")
+                Spacer(minLength: Space.s2)
+                Text("\(count) file \(count == 1 ? "change" : "changes") on")
+                    .typeStyle(.body)
+                    .monospacedDigit()
+                    .foregroundStyle(.token(.textPrimary))
+                    .lineLimit(1)
                 Text(branchTitle)
-                    .typeStyle(.headline)
+                    .typeStyle(.callout)
                     .foregroundStyle(.token(.textPrimary))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer(minLength: Space.s4)
+                    .padding(.horizontal, Space.s3)
+                    .padding(.vertical, Space.s1)
+                    .background(
+                        ColorToken.accentMuted.color, in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous))
+                Spacer(minLength: Space.s2)
                 if model.session.isBusy {
                     ProgressView().controlSize(.small).help("Working…")
+                } else {
+                    // Balances the trash button so the title stays centred.
+                    Color.clear.frame(width: IconSize.lg + Space.s3, height: 1)
                 }
             }
-            Text(WDCounts.line(model.session.status?.summary))
-                .typeStyle(.callout)
-                .monospacedDigit()
-                .foregroundStyle(.token(.textSecondary))
             HStack(spacing: Space.s4) {
-                TextField("Filter", text: $model.filter, prompt: Text("Filter files"))
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-                    .focused($filterFocused)
-                    .help("Filter files (⌥⌘F)")
-                    .onExitCommand {
-                        model.filter = ""
-                        filterFocused = false
-                    }
-                Picker("View", selection: $model.showsTree) {
-                    Image(systemName: "list.bullet").tag(false).accessibilityLabel("List")
-                    Image(systemName: "list.bullet.indent").tag(true).accessibilityLabel("Tree")
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
-                .help("List or tree")
                 Menu {
                     Picker("Sort By", selection: $model.sort) {
                         ForEach(WDSort.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -87,16 +86,32 @@ struct WorkingDirectoryView: View {
                 .menuStyle(.button)
                 .menuIndicator(.hidden)
                 .buttonStyle(.borderless)
-                .controlSize(.small)
                 .fixedSize()
                 .help("Sort by \(model.sort.title)")
                 .accessibilityLabel("Sort by \(model.sort.title)")
+                Picker("View", selection: $model.showsTree) {
+                    Label("Path", systemImage: "list.bullet").labelStyle(.titleAndIcon).tag(false)
+                    Label("Tree", systemImage: "list.bullet.indent").labelStyle(.titleAndIcon).tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Paths in one list, or a folder tree")
+                TextField("Filter", text: $model.filter, prompt: Text("Filter files"))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .focused($filterFocused)
+                    .help("Filter files (⌥⌘F)")
+                    .onExitCommand {
+                        model.filter = ""
+                        filterFocused = false
+                    }
             }
             if let banner = model.banner {
                 ErrorBanner(text: banner, canRetry: model.canRetry, retry: model.retry, dismiss: model.dismissBanner)
             }
         }
-        .padding(.horizontal, Space.s6)
+        .padding(.horizontal, Space.s5)
         .padding(.top, Space.s5)
         .padding(.bottom, Space.s4)
         .overlay(alignment: .bottom) {
@@ -261,49 +276,26 @@ private struct SectionHeader: View {
                     .foregroundStyle(.token(.statusDanger))
                     .accessibilityHidden(true)
             }
-            Text(section.title)
+            Text("\(section.title)\(section == .conflicts ? "" : " Files") (\(count))")
                 .typeStyle(.headline)
-                .foregroundStyle(.token(.textPrimary))
-            Text("\(count)")
-                .typeStyle(.callout)
                 .monospacedDigit()
-                .foregroundStyle(.token(.textSecondary))
+                .foregroundStyle(.token(.textPrimary))
             Spacer()
             switch section {
             case .staged:
-                Button {
-                    model.unstageAll()
-                } label: {
-                    Text("Unstage All").foregroundStyle(.token(.statusDanger))
-                }
-                .disabled(count == 0)
-                .opacity(count == 0 ? StageControl.disabledOpacity : 1)
-                .help("Unstage every staged file")
+                Button("Unstage All Changes") { model.unstageAll() }
+                    .outlineButton(.danger)
+                    .disabled(count == 0)
+                    .help("Unstage every staged file")
             case .unstaged:
-                let discardable = WorkingDirectoryModel.discardable(model.list.unstaged).count
-                Button {
-                    model.requestDiscardAll()
-                } label: {
-                    Image(systemName: "trash").foregroundStyle(.token(.statusDanger))
-                }
-                .disabled(discardable == 0)
-                .opacity(discardable == 0 ? StageControl.disabledOpacity : 1)
-                .help("Discard all unstaged changes…")
-                .accessibilityLabel("Discard all unstaged changes")
-                Button {
-                    model.stageAll()
-                } label: {
-                    Text("Stage All").foregroundStyle(.token(.statusSuccess))
-                }
-                .disabled(count == 0)
-                .opacity(count == 0 ? StageControl.disabledOpacity : 1)
-                .help("Stage every unstaged file")
+                Button("Stage All Changes") { model.stageAll() }
+                    .outlineButton(.success)
+                    .disabled(count == 0)
+                    .help("Stage every unstaged file")
             case .conflicts:
                 EmptyView()
             }
         }
-        .buttonStyle(.borderless)
-        .controlSize(.small)
         .padding(.vertical, Space.s2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(section.title), \(count) \(count == 1 ? "file" : "files")")
@@ -340,11 +332,6 @@ private struct FileRow: View {
     var body: some View {
         HStack(spacing: Space.s3) {
             StatusGlyph(file: file)
-            Image(systemName: FileIcon.symbol(for: file))
-                .symbolSize(IconSize.sm)
-                .foregroundStyle(.token(.textSecondary))
-                .frame(width: IconSize.md)
-                .accessibilityHidden(true)
             // Same look as a committed file: the whole path, folders shortened in their middle, the name whole.
             FilePathText(
                 prefix: file.originalPath.map { DisplayText.sanitize(($0 as NSString).lastPathComponent) + " → " },
@@ -362,14 +349,10 @@ private struct FileRow: View {
                     StatsText(stats: stats).opacity(showsAction ? 0 : 1)
                 }
                 if file.canStageOrUnstage {
-                    Button {
+                    Button(file.section == .staged ? "Unstage File" : "Stage File") {
                         file.section == .staged ? model.unstage([file]) : model.stage([file])
-                    } label: {
-                        Text(file.section == .staged ? "Unstage" : "Stage")
-                            .foregroundStyle(.token(file.section == .staged ? .statusDanger : .statusSuccess))
                     }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
+                    .outlineButton(file.section == .staged ? .danger : .success)
                     .opacity(showsAction ? 1 : 0)
                     .allowsHitTesting(showsAction)
                     .accessibilityHidden(!showsAction)
@@ -425,36 +408,28 @@ private struct FileRow: View {
     }
 }
 
-/// Shared values of the stage / unstage / discard controls.
-private enum StageControl {
-    static let disabledOpacity: Double = 0.4
-}
-
-/// Status letter, coloured by kind; a half-filled circle marks a partially staged file.
+/// How the file changed, as a glyph; a half-filled circle marks a partially staged file.
 private struct StatusGlyph: View {
     let file: WDFile
 
     var body: some View {
         HStack(spacing: Space.s1) {
-            Text(file.change.letter)
-                .typeStyle(.monoCaption)
-                .fontWeight(.semibold)
-                .foregroundStyle(color)
-                .frame(width: 10)
+            FileChangeIcon(glyph)
             Image(systemName: "circle.lefthalf.filled")
                 .symbolSize(IconSize.sm - 4)
-                .foregroundStyle(color)
+                .foregroundStyle(.token(glyph.token))
                 .opacity(file.isPartial ? 1 : 0)
         }
         .accessibilityHidden(true)
     }
 
-    private var color: Color {
+    private var glyph: FileChangeGlyph {
         switch file.change {
-        case .added, .untracked: .token(.statusSuccess)
-        case .modified, .typeChanged: .token(.statusWarning)
-        case .deleted, .conflicted: .token(.statusDanger)
-        case .renamed, .copied: .token(.statusInfo)
+        case .added, .untracked: .added
+        case .modified, .typeChanged: .modified
+        case .deleted: .deleted
+        case .conflicted: .conflicted
+        case .renamed, .copied: .renamed
         }
     }
 }
@@ -653,26 +628,5 @@ private struct ErrorBanner: View {
                 .stroke(ColorToken.statusDanger.color.opacity(0.5), lineWidth: Border.hairline)
         )
         .accessibilityElement(children: .contain)
-    }
-}
-
-/// SF Symbol for a file, by extension (design §3.1 file-type icon).
-enum FileIcon {
-    static func symbol(for file: WDFile) -> String {
-        if file.submodule != nil { return "shippingbox" }
-        if file.isDirectory { return "folder" }
-        switch (file.path as NSString).pathExtension.lowercased() {
-        case "swift", "c", "h", "m", "mm", "cpp", "hpp", "rs", "go", "py", "rb", "js", "ts", "tsx", "jsx", "java",
-            "kt", "cs", "sh", "zsh":
-            return "chevron.left.forwardslash.chevron.right"
-        case "json", "yml", "yaml", "toml", "plist", "xml", "ini", "cfg", "conf":
-            return "curlybraces"
-        case "md", "markdown", "txt", "rtf":
-            return "doc.text"
-        case "png", "jpg", "jpeg", "gif", "heic", "tiff", "svg", "webp", "pdf":
-            return "photo"
-        default:
-            return "doc"
-        }
     }
 }
