@@ -1,6 +1,6 @@
 // The single source of Jit's release identity (ADR-0049). Read by Xcode (via Base.xcconfig) and by
 // scripts/release/*.sh (scripts/release/lib.sh `xcconfig_value`). Change the version here only.
 PRODUCT_BUNDLE_IDENTIFIER = com.ashkanrmk.jit
-MARKETING_VERSION = 0.0.2
-CURRENT_PROJECT_VERSION = 2
+MARKETING_VERSION = 0.0.3
+CURRENT_PROJECT_VERSION = 3
 JIT_COPYRIGHT = © 2026 Ashkan Rahmani

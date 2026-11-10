@@ -1,7 +1,7 @@
 # Jit — Implementation Roadmap
 
-> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.2, a
-> test build ([notes](releases/v0.0.2.md)); the public 1.0.0 is not yet published.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
+> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.3, a
+> test build ([notes](releases/v0.0.3.md)); the public 1.0.0 is not yet published.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
 >
 > | Phase | State | Report |
 > |---|---|---|
@@ -320,6 +320,15 @@ smoke test. The test suites were not re-run for it. Details: [`releases/v0.0.1.m
 expansion for ref labels, Gravatar pictures, a column header with reorder / resize / show-hide, the diff in
 the centre pane, section containers in both side panels, the search as a button, and the tab-close and
 inspector animations. Details and what was verified: [`releases/v0.0.2.md`](releases/v0.0.2.md).
+
+**Test build 0.0.3 (2026-11-10).** A second owner-requested UX round (spec:
+[`P8.ux.2`](phases/08-post-v1/specs/P8.ux.2-action-bar-sidebar-and-diff.md)): an action bar under the tabs
+(Pull, Push, Fetch, Branch, Stash, Pop, Terminal as plain icon-and-title items), the current branch and the
+profile in the sidebar, a toolbar with only the sidebar toggle and tabs, word wrap and direct layout /
+whitespace buttons in the diff, Stage File in the diff, the sidebar closing while a diff is open, a reworked
+uncommitted-work panel and commit box, a non-scrolling commit panel with a real file tree, time tags and the
+branch-of-a-line label in the graph, a fixed graph column width, squarer shapes and a logotype. Details and
+what was verified: [`releases/v0.0.3.md`](releases/v0.0.3.md).
 
 **To publish 1.0.0 (owner)**
 - Set `MARKETING_VERSION` back to 1.0.0 in `macos/App/Config/Version.xcconfig`.
