@@ -21,3 +21,6 @@ AuthKey_*.p8
 *.mobileprovision
 release.local.env
 notary-*.json
+
+# Written by the Pages workflow at deploy time
+site/release.json

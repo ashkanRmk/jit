@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jit, a native Git client for Mac</title>
+<meta name="description" content="Jit is a free, open-source Git client for macOS, written entirely in Swift. A 10.8 MB download that opens in a quarter of a second and does nothing when idle.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="Jit, a native Git client for Mac">
+<meta property="og:description" content="Free, open source and written entirely in Swift. A 10.8 MB download, Git included.">
+<meta property="og:image" content="assets/shots/graph-dark.webp">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/familjen-grotesk.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+
+<a class="skip" href="#download">Skip to download</a>
+
+<header class="top">
+  <a class="brand" href="#top" aria-label="Jit">
+    <img src="assets/icon.svg" width="30" height="30" alt="">
+    <span>Jit</span>
+  </a>
+  <nav aria-label="Page">
+    <a href="#light">Footprint</a>
+    <a href="#features">Features</a>
+    <a href="https://github.com/ashkanRmk/jit">Source</a>
+    <a class="nav-download" href="https://github.com/ashkanRmk/jit/releases" data-download>Download</a>
+  </nav>
+</header>
+
+<main class="history" id="top">
+  <svg class="lanes" aria-hidden="true" focusable="false"></svg>
+
+  <section class="commit hero is-reached" data-lane="0" data-kind="head">
+    <h1 data-node>The Git client that behaves like the rest of your Mac.</h1>
+    <p class="lede">Jit is free, open source and written entirely in Swift. No Electron, no web views, no background process. It opens in a quarter of a second and then gets out of the way.</p>
+    <div class="actions">
+      <a class="button" href="https://github.com/ashkanRmk/jit/releases" data-download>
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 3v10m0 0 4-4m-4 4-4-4M4 16.5h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-download-label>Download Jit</span>
+      </a>
+      <p class="fine" data-release-meta>macOS 26 or later, Apple silicon</p>
+    </div>
+
+    <figure class="compare" style="--split: 100%">
+      <div class="compare-stage">
+        <img class="shot-dark" src="assets/shots/graph-dark.webp" width="2000" height="1288" alt="Jit in dark appearance: a commit graph with several feature branches merging into main, and the selected commit's details on the right.">
+        <img class="shot-light" src="assets/shots/graph-light.webp" width="2000" height="1288" alt="" aria-hidden="true">
+        <span class="compare-handle" aria-hidden="true"></span>
+        <input class="compare-range" type="range" min="0" max="100" value="56" step="0.1" aria-label="How much of the window is shown in dark appearance">
+      </div>
+      <figcaption>The same repository in dark and light. Drag the divider.</figcaption>
+    </figure>
+  </section>
+
+  <section class="commit" id="light" data-lane="0">
+    <h2 data-node>Light enough to forget it’s open</h2>
+    <p class="intro">Jit never polls, runs no repeating timers and keeps no helper running in the background. These are measurements of the release build, not targets.</p>
+    <dl class="ledger">
+      <div><dt>10.8 MB</dt><dd>The whole download, with Git 2.56 inside. Nothing else to install.</dd></div>
+      <div><dt>259 ms</dt><dd>From launch to a window you can use.</dd></div>
+      <div><dt>32 MB</dt><dd>Memory with no repository open. 72 MB with a 10,000-commit repository.</dd></div>
+      <div><dt>0.00 %</dt><dd>CPU while idle, with one tab open or five.</dd></div>
+      <div><dt>0 bytes</dt><dd>Network traffic while idle. No telemetry, no update checks.</dd></div>
+    </dl>
+    <p class="fine">Medians from the project’s own benchmark scripts. <a href="https://github.com/ashkanRmk/jit/blob/main/docs/performance.md">Methods and full results</a></p>
+  </section>
+
+  <section class="commit feature" id="features" data-lane="1">
+    <div class="feature-text">
+      <span class="ref" data-ref>features</span>
+      <h2 data-node>Diffs you can act on</h2>
+      <p>Read a change unified, side by side or as the full file, with syntax highlighting and word-level differences. Stage or discard a whole file, one hunk or a single line. Blame is a click away.</p>
+    </div>
+    <figure class="shot">
+      <picture>
+        <source srcset="assets/shots/diff-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="assets/shots/diff-light.webp" width="2000" height="1288" loading="lazy" alt="A side-by-side diff of a Swift file with added lines highlighted in green, next to the commit's author, SHA and changed files.">
+      </picture>
+    </figure>
+  </section>
+
+  <section class="commit feature" data-lane="1">
+    <div class="feature-text">
+      <h2 data-node>Stage, write, commit</h2>
+      <p>Uncommitted work sits at the top of the graph, with unstaged and staged files beside it. The commit box counts characters, warns about long lines, and commits with ⌘↩ under the profile you chose.</p>
+    </div>
+    <figure class="shot">
+      <picture>
+        <source srcset="assets/shots/wip-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="assets/shots/wip-light.webp" width="2000" height="1288" loading="lazy" alt="Jit showing uncommitted changes at the top of the graph, lists of unstaged and staged files, and the commit summary and description fields.">
+      </picture>
+    </figure>
+  </section>
+
+  <section class="commit" data-lane="1">
+    <h2 data-node>And the rest of a working day</h2>
+    <dl class="rest">
+      <div><dt>Everyday Git</dt><dd>Fetch, pull, push, clone, branch, merge, rebase, cherry-pick, revert and stash, each with continue, skip and abort where Git has them.</dd></div>
+      <div><dt>Conflicts</dt><dd>A three-way resolver that says plainly which side is yours and which is theirs.</dd></div>
+      <div><dt>Profiles</dt><dd>Work and personal identities, applied per command. Jit never edits <code>~/.gitconfig</code> or <code>~/.ssh/config</code>, and secrets stay in the Keychain.</dd></div>
+      <div><dt>GitHub and GitLab</dt><dd>SSH keys and access tokens, including self-managed GitLab, custom certificates and proxies.</dd></div>
+      <div><dt>Large histories</dt><dd>The graph is virtualized and tested on a repository of 100,000 commits.</dd></div>
+      <div><dt>Careful by default</dt><dd>Push uses force-with-lease, never plain force. Anything destructive asks first and says exactly what it will do.</dd></div>
+      <div><dt>Command palette</dt><dd>Press ⌘K and type what you want.</dd></div>
+      <div><dt>Git included</dt><dd>Git 2.56 ships inside the app. No Xcode, Command Line Tools or Homebrew needed.</dd></div>
+    </dl>
+  </section>
+
+  <section class="commit" id="source" data-lane="0" data-fork>
+    <h2 data-node>Free, and yours to read</h2>
+    <p class="intro">Jit is released under the MIT licence. There is no account, no subscription and no paid tier. All of it is on GitHub: the app, the design decisions and the benchmarks behind the numbers above.</p>
+    <p class="actions">
+      <a class="button quiet" href="https://github.com/ashkanRmk/jit">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="5.5" cy="4.5" r="2"/><circle cx="14.5" cy="4.5" r="2"/><circle cx="10" cy="15.5" r="2"/><path d="M5.5 6.5v1.2a2.3 2.3 0 0 0 2.3 2.3h4.4a2.3 2.3 0 0 0 2.3-2.3V6.5M10 10v3.5"/></g></svg>
+        View the source on GitHub
+      </a>
+    </p>
+  </section>
+
+  <section class="commit download" id="download" data-lane="0" data-kind="merge">
+    <span class="ref tag" data-ref data-version-tag hidden></span>
+    <h2 data-node>Download Jit</h2>
+    <p class="intro">Jit is in early testing, so expect rough edges. It needs macOS 26 or later on Apple silicon.</p>
+    <div class="actions">
+      <a class="button" href="https://github.com/ashkanRmk/jit/releases" data-download>
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 3v10m0 0 4-4m-4 4-4-4M4 16.5h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-download-label>Download Jit</span>
+      </a>
+      <p class="fine"><a href="https://github.com/ashkanRmk/jit/releases">All releases and checksums</a></p>
+    </div>
+
+    <div class="first-launch">
+      <h3>Opening it the first time</h3>
+      <p>Jit is distributed free and is not notarized by Apple, so macOS blocks the first launch. Drag Jit to Applications and open it, click Done on the warning, then choose Open Anyway in System Settings, under Privacy &amp; Security. Or run this once:</p>
+      <div class="command">
+        <code id="unquarantine">xattr -dr com.apple.quarantine /Applications/Jit.app</code>
+        <button type="button" data-copy="unquarantine">Copy</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>© 2026 Ashkan Rahmani. MIT licence.</p>
+  <p><a href="https://github.com/ashkanRmk/jit">GitHub</a> <a href="https://github.com/ashkanRmk/jit/issues">Report a problem</a></p>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>
