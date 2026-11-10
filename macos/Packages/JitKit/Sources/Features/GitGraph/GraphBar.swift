@@ -4,7 +4,7 @@ import Services
 import SwiftUI
 
 /// The repository action bar: the everyday commands in the middle (`CommandBarActions`: Fetch, Branch, Pull,
-/// Push, Stash, Pop, Terminal) and changes, transient chips and search at the trailing end. Since 0.0.4 it
+/// Push, Stash, Pop, Terminal), then Search; transient chips at the trailing end. Since 0.0.4 it
 /// has no glass and no container: plain tools with their names on an opaque strip. Rows scroll underneath.
 /// The current branch and the profile moved to the sidebar; the branch scope menu is gone.
 struct GraphBar: View {
@@ -19,15 +19,13 @@ struct GraphBar: View {
     private var model: GraphViewModel { controller.viewModel }
 
     var body: some View {
-        let changes = CommandBarChanges.count(controller.session.status?.summary)
-        let layout = commandLayout(changes: changes)
+        let layout = commandLayout()
         VStack(spacing: Space.s3) {
-            // The tools sit in the middle; changes, chips and search keep the trailing end.
+            // The tools sit in the middle; chips and the open search field keep the trailing end.
             ZStack {
-                // One centred row: the commands, then changes and Search.
+                // One centred row: the commands, then Search (the working directory is the graph's WIP row).
                 HStack(spacing: Space.s2) {
                     CommandBarActions(controller: controller, layout: layout)
-                    if let changes { changesAction(changes, labels: layout.showsLabels) }
                     if !showsSearchField {
                         BarAction(title: "Search", symbol: "magnifyingglass", help: "Search Commits (⌘F)") {
                             expandSearch()
@@ -89,7 +87,7 @@ struct GraphBar: View {
 
     /// Titles drop first, then groups move into `⋯` (`CommandBarLayout`). Widths are measured from the titles
     /// with the bar's font; the trailing side keeps what it needs.
-    private func commandLayout(changes: Int?) -> CommandBarLayout {
+    private func commandLayout() -> CommandBarLayout {
         let groups: [CommandBarGroup] = [.branch, .sync, .stash, .terminal]
         func item(_ title: String) -> CommandBarLayout.GroupWidth {
             .init(labelled: BarMetrics.itemWidth(title), iconOnly: BarMetrics.itemWidth(nil))
@@ -104,9 +102,8 @@ struct GraphBar: View {
             .sync: sum(["Pull ↓99", "Publish", "Fetch"]), .branch: item("Branch"), .stash: sum(["Stash", "Pop"]),
             .terminal: item("Terminal"),
         ]
-        // In the centred row with the commands: changes and the Search item.
-        var extras = showsSearchField ? 0 : BarMetrics.itemWidth("Search") + Space.s2
-        if let changes { extras += BarMetrics.itemWidth(CommandBarChanges.title(changes, labels: true)) + Space.s2 }
+        // In the centred row with the commands: the Search item.
+        let extras = showsSearchField ? 0 : BarMetrics.itemWidth("Search") + Space.s2
         // At the trailing end; the centred row must stay clear of it, so it counts on both sides.
         var trailing: CGFloat = showsSearchField ? 140 + 3 * Space.s5 + IconSize.md : 0
         if model.isSearching { trailing += 150 }
@@ -116,16 +113,6 @@ struct GraphBar: View {
             available: available, groups: groups, widths: widths, spacing: Space.s1,
             overflowButton: BarMetrics.itemWidth(nil), labelsAllowed: controller.model.preferences.commandBarShowsLabels
         )
-    }
-
-    private func changesAction(_ count: Int, labels: Bool) -> some View {
-        BarAction(
-            title: CommandBarChanges.title(count, labels: true), symbol: "circle.dashed",
-            help: "\(CommandBarChanges.title(count, labels: true)) in the working directory"
-        ) {
-            controller.selectWorkingDirectory()
-        }
-        .environment(\.barShowsTitles, labels)
     }
 
     private var isDeepRunning: Bool {

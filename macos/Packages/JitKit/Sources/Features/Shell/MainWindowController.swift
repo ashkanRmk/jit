@@ -25,6 +25,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     private var activityPopover: NSPopover?
     private weak var activityItem: NSToolbarItem?
     private weak var stripView: NSView?
+    private weak var pendingSeparatorSplitView: NSSplitView?
     private static let trafficLightsWidth: CGFloat = 86
     private static let systemItemWidth: CGFloat = 50
     /// Kept free at the toolbar's trailing end, so the strip never pushes an item out of place.
@@ -38,6 +39,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     static let activityIdentifier = NSToolbarItem.Identifier("jit.activity")
     /// The sidebar toggle as the icon alone: the system item always draws a button platter around it.
     static let sidebarToggleIdentifier = NSToolbarItem.Identifier("jit.sidebar.toggle")
+    /// Tracks the visible workbench's sidebar divider, so the sidebar toggle stays beside the window controls
+    /// over the sidebar and the tab strip starts at the sidebar's edge (macOS standard, as in Mail/Notes).
+    /// Without it the system placed the toggle after the sidebar of whichever split view it found — loaded
+    /// tabs keep their (hidden) split views in the window — so the toggle moved after tab switches.
+    static let sidebarSeparatorIdentifier = NSToolbarItem.Identifier("jit.sidebar.separator")
 
     public init(model: AppModel) {
         self.model = model
@@ -89,6 +95,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         }
         observeActivity()
         observeForeground()
+        updateSidebarSeparator()
         updateChromeWidth()
         recordFrame()
     }
@@ -137,10 +144,31 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         let controller = controllers[tab.id] ?? makeController(for: tab)
         controllers[tab.id] = controller
         container.show(controller)
+        updateSidebarSeparator()
         // Once more after layout: the new tab's sidebar has its width only then.
         DispatchQueue.main.async { [weak self] in self?.updateChromeWidth() }
         updateTitle()
         updateChromeWidth()
+    }
+
+    /// Present only while the visible tab has a sidebar, and always follows that tab's split view.
+    private func updateSidebarSeparator() {
+        guard let toolbar = window?.toolbar else { return }
+        let index = toolbar.items.firstIndex { $0.itemIdentifier == Self.sidebarSeparatorIdentifier }
+        guard let workbench = container.current as? WorkbenchController else {
+            if let index { toolbar.removeItem(at: index) }
+            return
+        }
+        if let index {
+            if (toolbar.items[index] as? NSTrackingSeparatorToolbarItem)?.splitView === workbench.splitView { return }
+            // A new item per split view: assigning `splitView` on the existing item throws inside AppKit
+            // ("Cannot remove an observer … splitView._peeking", seen on a tab switch).
+            toolbar.removeItem(at: index)
+        }
+        let after = toolbar.items.firstIndex { $0.itemIdentifier == Self.sidebarToggleIdentifier }.map { $0 + 1 } ?? 0
+        pendingSeparatorSplitView = workbench.splitView
+        toolbar.insertItem(withItemIdentifier: Self.sidebarSeparatorIdentifier, at: after)
+        pendingSeparatorSplitView = nil
     }
 
     private func makeController(for tab: TabModel) -> NSViewController {
@@ -225,11 +253,10 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.scheduleSave()
     }
 
-    /// The tab strip takes all the toolbar space after the sidebar toggle (minus the activity item while
-    /// there is activity). The system lays toolbar items out after an open full-height sidebar, and after the
-    /// window controls when it is closed; the strip's width follows that. When the width was too large — it
-    /// used to assume the toggle stayed beside the window controls — the whole strip fell into the toolbar's
-    /// overflow on a tab switch or resize (the 0.0.3 "tabs gone" bug).
+    /// The tab strip takes the toolbar space after the sidebar (or after the toggle when the sidebar is closed),
+    /// minus the activity item. The estimate is deliberately the larger of the two possible
+    /// origins plus the toggle: a strip that is too wide falls into the toolbar's overflow (the 0.0.3 "tabs
+    /// gone" bug), one a little narrower only leaves a gap.
     func updateChromeWidth() {
         guard let window else { return }
         let width = window.frame.width
@@ -259,7 +286,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar) + [Self.activityIdentifier]
+        toolbarDefaultItemIdentifiers(toolbar) + [Self.sidebarSeparatorIdentifier, Self.activityIdentifier]
     }
 
     public func toolbar(
@@ -286,6 +313,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             item.toolTip = "Show or hide the sidebar (⌃⌘S)"
             item.visibilityPriority = .high
             return item
+        case Self.sidebarSeparatorIdentifier:
+            guard let splitView = pendingSeparatorSplitView else { return nil }
+            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: splitView, dividerIndex: 0)
         case Self.stripIdentifier:
             let item = NSToolbarItem(itemIdentifier: identifier)
             let host = NSHostingView(rootView: TabStripView(model: model))
@@ -310,6 +340,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             let host = NSHostingView(
                 rootView: ActivityToolbarView(model: model) { [weak self] in self?.toggleActivityPopover() })
             item.view = host
+            // The icon alone, like the sidebar toggle: no glass platter around it.
+            item.isBordered = false
             item.label = "Activity"
             item.toolTip = "Activity (⌥⌘A)"
             activityItem = item
@@ -785,18 +817,20 @@ final class ContentContainerViewController: NSViewController {
         guard controller !== current else { return }
         let previous = current
         current = controller
-        // Loaded tabs keep their views in the hierarchy and are only hidden, so switching back doesn't
-        // re-insert (and re-lay out) a whole SwiftUI/split-view tree.
-        if controller.parent !== self {
-            addChild(controller)
-            let child = controller.view
+        // Loaded tabs keep their controllers (no reload on switching back), but only the visible tab's view is
+        // in the window: macOS lays the toolbar out around every full-height sidebar in the window, hidden or
+        // not, so a hidden tab's sidebar pushed the sidebar toggle out of place on other tabs. (Switching
+        // `allowsFullHeightLayout` off for hidden tabs instead left the sidebar under the window controls after
+        // quick back-and-forth switching.)
+        if controller.parent !== self { addChild(controller) }
+        previous?.view.removeFromSuperview()
+        let child = controller.view
+        if child.superview !== view {
             child.frame = view.bounds
             child.autoresizingMask = [.width, .height]
             (view as? DropTargetView)?.setContent(child)
         }
         (controller as? WorkbenchController)?.willBecomeVisible()
-        controller.view.isHidden = false
-        previous?.view.isHidden = true
         view.window?.makeFirstResponder(controller.view)
     }
 

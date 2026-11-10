@@ -33,6 +33,8 @@ final class WorkbenchController: NSSplitViewController {
     lazy var operations = OperationsController(session: session, model: model)
     private var needsWidthRestore = true
     private var isApplyingWidths = false
+    /// An open/close animation of a panel is running: its frames are not user choices.
+    private var isAnimatingPanel = false
     /// The sidebar was open when a diff took the centre: it closes for the diff and comes back with the graph.
     private var sidebarClosedForDiff = false
 
@@ -304,16 +306,26 @@ final class WorkbenchController: NSSplitViewController {
         if let inspectorItem, inspectorItem.isCollapsed != tab.inspectorCollapsed {
             collapseChanged(inspector: inspectorItem.isCollapsed)
         }
-        // Only user drags of a divider change the stored widths (not window resizes or restores).
-        guard !isApplyingWidths, !needsWidthRestore, notification.userInfo?["NSSplitViewDividerIndex"] != nil
+        // Only the user dragging a divider changes the stored width, and only that divider's panel: not window
+        // resizes, restores or the collapse animations, which also report a divider index. Recording those
+        // saved the inspector at its minimum (or whatever a tab was squeezed to), so tabs disagreed.
+        guard !isApplyingWidths, !isAnimatingPanel, !needsWidthRestore, Self.isDividerDrag,
+            let divider = notification.userInfo?["NSSplitViewDividerIndex"] as? Int
         else { return }
-        if let sidebarItem, !sidebarItem.isCollapsed {
+        if divider == 0, let sidebarItem, !sidebarItem.isCollapsed {
             model.layout.sidebarWidth = sidebarItem.viewController.view.frame.width
-        }
-        if let inspectorItem, !inspectorItem.isCollapsed {
+        } else if divider == 1, let inspectorItem, !inspectorItem.isCollapsed {
             model.layout.inspectorWidth = inspectorItem.viewController.view.frame.width
+        } else {
+            return
         }
         model.scheduleSave()
+    }
+
+    /// The split view's divider tracking loop runs on mouse-dragged events.
+    private static var isDividerDrag: Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        return event.type == .leftMouseDragged || event.type == .leftMouseDown
     }
 
     private func collapseChanged(sidebar: Bool? = nil, inspector: Bool? = nil) {
@@ -382,22 +394,35 @@ final class WorkbenchController: NSSplitViewController {
         guard let inspectorItem, inspectorItem.isCollapsed != collapsed else { return }
         if collapsed {
             if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || view.window == nil {
+                isAnimatingPanel = true
                 inspectorItem.isCollapsed = true
+                isAnimatingPanel = false
             } else {
-                inspectorItem.animator().isCollapsed = true
+                isAnimatingPanel = true
+                NSAnimationContext.runAnimationGroup { _ in
+                    inspectorItem.animator().isCollapsed = true
+                } completionHandler: { [weak self] in
+                    MainActor.assumeIsolated { self?.isAnimatingPanel = false }
+                }
             }
         } else if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || view.window == nil {
             // Open at the shared inspector width (a collapsed split item does not reliably keep it).
+            isAnimatingPanel = true
             inspectorItem.isCollapsed = false
+            isAnimatingPanel = false
             applyWidths()
         } else {
             // Slide in with the system animation, then settle on the shared width.
+            isAnimatingPanel = true
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = MotionToken.panel.duration
                 context.allowsImplicitAnimation = true
                 inspectorItem.animator().isCollapsed = false
             } completionHandler: { [weak self] in
-                MainActor.assumeIsolated { self?.applyWidths() }
+                MainActor.assumeIsolated {
+                    self?.isAnimatingPanel = false
+                    self?.applyWidths()
+                }
             }
         }
     }
@@ -414,12 +439,10 @@ final class WorkbenchController: NSSplitViewController {
         setInspectorCollapsed(true)
     }
 
+    /// Through `setInspectorCollapsed`, so a reopened inspector settles on the shared width too.
     override func toggleInspector(_ sender: Any?) {
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, let inspectorItem {
-            inspectorItem.isCollapsed.toggle()
-        } else {
-            super.toggleInspector(sender)
-        }
+        guard let inspectorItem else { return }
+        setInspectorCollapsed(!inspectorItem.isCollapsed)
     }
 }
 

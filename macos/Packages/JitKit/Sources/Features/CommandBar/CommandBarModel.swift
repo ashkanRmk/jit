@@ -105,16 +105,3 @@ struct CommandBarLocation: Equatable, Sendable {
         accessibilityLabel = spoken
     }
 }
-
-/// The `◌ 23 changes` item: hidden when the working tree is clean.
-enum CommandBarChanges {
-    /// Changed paths (a partially staged file counts once); `nil` hides the item.
-    static func count(_ summary: StatusSummary?) -> Int? {
-        guard let summary, !summary.isClean else { return nil }
-        return summary.changedFiles
-    }
-
-    static func title(_ count: Int, labels: Bool) -> String {
-        labels ? "\(count) \(count == 1 ? "change" : "changes")" : "\(count)"
-    }
-}

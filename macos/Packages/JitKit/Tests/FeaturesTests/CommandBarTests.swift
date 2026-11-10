@@ -125,23 +125,4 @@ import Testing
         #expect(location.branchTitle == "main — no commits")
         #expect(location.accessibilityLabel == "Repository repo, branch main, no commits yet")
     }
-
-    // MARK: Changes
-
-    @Test func changesCountFollowsStatusAndHidesWhenClean() async throws {
-        let sandbox = try GitSandbox()
-        let repo = try await sandbox.makeRepository()
-        try repo.write("a.txt", "a\n")
-        try await repo.commit("One")
-        #expect(CommandBarChanges.count(try await status(repo).summary) == nil)
-
-        try repo.write("a.txt", "staged\n")
-        try await repo.git("add", "a.txt")
-        try repo.write("a.txt", "staged and more\n")  // partially staged: one path
-        try repo.write("new.txt", "n\n")
-        #expect(CommandBarChanges.count(try await status(repo).summary) == 2)
-        #expect(CommandBarChanges.title(2, labels: true) == "2 changes")
-        #expect(CommandBarChanges.title(1, labels: true) == "1 change")
-        #expect(CommandBarChanges.title(2, labels: false) == "2")
-    }
 }

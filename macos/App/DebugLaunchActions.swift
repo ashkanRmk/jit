@@ -18,9 +18,42 @@
     enum DebugLaunchActions {
         private static var galleryWindow: NSWindow?
 
+        /// `-JitTabSequence 2,3,1`: selects those tabs (1-based) one every 2.5 s and prints where each toolbar
+        /// item sits (window x), for checking the toolbar layout across tab kinds without driving the keyboard.
+        /// A step that is a path (`2,/path/to/repo,1`) opens that repository as the New Tab page would.
+        private static func runTabSequence(_ sequence: String, model: AppModel) {
+            let steps = sequence.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            // `-JitTabSequenceInterval <seconds>` (default 2.5): small values hammer tab switching.
+            let saved = UserDefaults.standard.double(forKey: "JitTabSequenceInterval")
+            let interval = saved > 0 ? saved : 2.5
+            for (step, token) in steps.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2 + interval * Double(step)) {
+                    if token.hasPrefix("/") {
+                        model.open(URL(fileURLWithPath: token))
+                    } else if let index = Int(token), model.tabs.indices.contains(index - 1) {
+                        model.select(model.tabs[index - 1].id)
+                    } else {
+                        return
+                    }
+                    let index = token
+                    DispatchQueue.main.asyncAfter(deadline: .now() + min(1, interval / 2)) {
+                        let items = NSApp.mainWindow?.toolbar?.items ?? NSApp.windows.first?.toolbar?.items ?? []
+                        let layout = items.map { item -> String in
+                            guard let view = item.view, view.window != nil else { return item.itemIdentifier.rawValue }
+                            let frame = view.convert(view.bounds, to: nil)
+                            return "\(item.itemIdentifier.rawValue)@\(Int(frame.minX))-\(Int(frame.maxX))"
+                        }
+                        print("tab-sequence step=\(step + 1) tab=\(index) \(layout.joined(separator: " "))")
+                        fflush(stdout)
+                    }
+                }
+            }
+        }
+
         static func run(model: AppModel, controller: MainWindowController?) {
             let defaults = UserDefaults.standard
             NSApp.mainMenu?.addItem(debugMenu())
+            if let sequence = defaults.string(forKey: "JitTabSequence") { runTabSequence(sequence, model: model) }
             if defaults.bool(forKey: "JitShowGallery") { showGallery() }
             if let pane = defaults.string(forKey: "JitShowSettings") {
                 let selector: Selector =
