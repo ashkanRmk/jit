@@ -1,7 +1,7 @@
 # Jit — Implementation Roadmap
 
-> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.3, a
-> test build ([notes](releases/v0.0.3.md)); the public 1.0.0 is not yet published.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
+> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.4, a
+> test build ([notes](releases/v0.0.4.md)); the public 1.0.0 is not yet published.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
 >
 > | Phase | State | Report |
 > |---|---|---|
@@ -329,6 +329,13 @@ whitespace buttons in the diff, Stage File in the diff, the sidebar closing whil
 uncommitted-work panel and commit box, a non-scrolling commit panel with a real file tree, time tags and the
 branch-of-a-line label in the graph, a fixed graph column width, squarer shapes and a logotype. Details and
 what was verified: [`releases/v0.0.3.md`](releases/v0.0.3.md).
+
+**Test build 0.0.4 (2026-11-11).** A third owner-requested UX round (spec:
+[`P8.ux.3`](phases/08-post-v1/specs/P8.ux.3-flat-bars-and-panel-restyle.md)): the tab strip no longer drops
+into the toolbar's overflow, the action bar is a centred row of plain tools without glass, the diff has a flat
+two-row header with its tools on the right, the uncommitted-work and commit panels are restyled, the logotype
+sits at the sidebar's top, and new tabs take the saved panel widths. Details and what was verified:
+[`releases/v0.0.4.md`](releases/v0.0.4.md).
 
 **To publish 1.0.0 (owner)**
 - Set `MARKETING_VERSION` back to 1.0.0 in `macos/App/Config/Version.xcconfig`.
