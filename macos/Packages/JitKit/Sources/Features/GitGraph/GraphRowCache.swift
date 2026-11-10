@@ -17,6 +17,8 @@ struct RefLabel: Equatable {
     let kind: Kind
     let text: String
     let fullName: String?
+    /// `.localWithUpstream`: the upstream's short name (`origin/main`), shown in the cloud glyph's tooltip.
+    var upstream: String? = nil
 }
 
 /// Strings for one visible row. Built only for rows on screen (+ overscan), dropped with their window.
@@ -142,7 +144,8 @@ struct GraphRowDisplay {
                     labels.append(
                         RefLabel(
                             kind: .localWithUpstream(remote: remote.remoteName ?? "", isCurrent: local.isHead),
-                            text: DisplayText.sanitize(local.shortName), fullName: local.fullName))
+                            text: DisplayText.sanitize(local.shortName), fullName: local.fullName,
+                            upstream: DisplayText.sanitize(upstream)))
                 } else {
                     labels.append(
                         RefLabel(

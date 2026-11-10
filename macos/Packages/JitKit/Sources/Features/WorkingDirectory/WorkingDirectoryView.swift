@@ -131,34 +131,49 @@ struct WorkingDirectoryView: View {
     // MARK: Sections
 
     private var fileList: some View {
+        // Each section is one container (0.0.2): its header row, its files, then a gap before the next.
         List(selection: $model.selection) {
             ForEach(WDSection.allCases, id: \.self) { section in
                 if section != .conflicts || !model.list.conflicts.isEmpty {
-                    Section {
-                        let items = model.items(section)
-                        if items.isEmpty {
-                            EmptySectionRow(section: section, filtered: !model.filter.isEmpty)
-                                .dropTarget(section, model: model)
-                                .listRowBackground(dropBackground(section))
-                                .selectionDisabled()
-                                .listRowSeparator(.hidden)
-                        }
-                        ForEach(items) { item in
-                            row(item)
-                                .tag(item.id)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(dropBackground(section))
-                        }
-                    } header: {
-                        SectionHeader(section: section, model: model)
+                    let items = model.items(section)
+                    let targeted = model.dropTarget == section
+                    SectionHeader(section: section, model: model)
+                        .dropTarget(section, model: model)
+                        .selectionDisabled()
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(Self.rowInsets)
+                        .listRowBackground(SectionCardBackground(position: .top, isTargeted: targeted))
+                    if items.isEmpty {
+                        EmptySectionRow(section: section, filtered: !model.filter.isEmpty)
                             .dropTarget(section, model: model)
+                            .selectionDisabled()
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(Self.rowInsets)
+                            .listRowBackground(SectionCardBackground(position: .bottom, isTargeted: targeted))
                     }
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        row(item)
+                            .frame(minHeight: 24)
+                            .tag(item.id)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(Self.rowInsets)
+                            .listRowBackground(
+                                SectionCardBackground(
+                                    position: index == items.count - 1 ? .bottom : .middle, isTargeted: targeted,
+                                    isSelected: model.selection.contains(item.id)))
+                    }
+                    Color.clear
+                        .frame(height: Space.s3)
+                        .selectionDisabled()
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .accessibilityHidden(true)
                 }
             }
         }
         .listStyle(.inset)
         .scrollContentBackground(.hidden)
-        .environment(\.defaultMinListRowHeight, 24)
+        .environment(\.defaultMinListRowHeight, Space.s3)
         .animation(reduceMotion ? nil : MotionToken.select.animation, value: model.list)
         .contextMenu(forSelectionType: String.self) { ids in
             ContextMenu(model: model, files: model.files(for: ids))
@@ -170,6 +185,9 @@ struct WorkingDirectoryView: View {
         }
         .accessibilityLabel("Changed files")
     }
+
+    /// Row content sits inside its section's container.
+    private static let rowInsets = EdgeInsets(top: 0, leading: Space.s6, bottom: 0, trailing: Space.s6)
 
     @ViewBuilder
     private func row(_ item: WDItem) -> some View {
@@ -183,9 +201,36 @@ struct WorkingDirectoryView: View {
                 .dropTarget(folder.section, model: model)
         }
     }
+}
 
-    private func dropBackground(_ section: WDSection) -> Color? {
-        model.dropTarget == section ? ColorToken.accentMuted.color : nil
+/// The slice of a section's container behind one list row: the top row rounds the top corners, the last
+/// row the bottom ones, and the border runs around the whole section.
+private struct SectionCardBackground: View {
+    enum Position { case top, middle, bottom }
+
+    let position: Position
+    var isTargeted = false
+    var isSelected = false
+
+    var body: some View {
+        let radius = Radius.md
+        let top = position == .top ? radius : 0
+        let bottom = position == .bottom ? radius : 0
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: bottom, topTrailingRadius: top,
+            style: .continuous)
+        ZStack {
+            shape.fill(isTargeted ? ColorToken.accentMuted.color : ColorToken.surfaceRaised.color)
+            if isSelected { Selection.fill }
+            // The full outline, pushed past the edges this row does not own; the clip removes the rest.
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .strokeBorder(ColorToken.borderSubtle.color, lineWidth: Border.hairline)
+                .padding(.top, position == .top ? 0 : -2 * radius)
+                .padding(.bottom, position == .bottom ? 0 : -2 * radius)
+        }
+        .clipShape(shape)
+        // The list's row backgrounds run edge to edge; the container keeps a margin to the panel's sides.
+        .padding(.horizontal, Space.s4)
     }
 }
 
@@ -280,10 +325,32 @@ private struct FileRow: View {
                 .foregroundStyle(.token(.textSecondary))
                 .frame(width: IconSize.md)
                 .accessibilityHidden(true)
-            pathText
-                .lineLimit(1)
-                .truncationMode(.middle)
+            // The file name is never cut: the folder after it gives way first (shortened in its middle).
+            HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
+                HStack(spacing: 0) {
+                    if let original = file.originalPath {
+                        Text(DisplayText.sanitize((original as NSString).lastPathComponent) + " → ")
+                            .foregroundStyle(.token(.textTertiary))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Text(DisplayText.sanitize(file.name))
+                        .foregroundStyle(.token(.textPrimary))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .layoutPriority(1)
+                }
+                .font(TypeToken.body.font)
                 .layoutPriority(1)
+                if depth == 0, !file.directory.isEmpty, !model.showsTree {
+                    Text(DisplayText.sanitize(file.directory))
+                        .font(TypeToken.caption.font)
+                        .foregroundStyle(.token(.textTertiary))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .layoutPriority(1)
             ForEach(file.badges, id: \.self) { Badge(badge: $0) }
             Spacer(minLength: Space.s3)
             if let stats = model.stats[file.id] {
@@ -311,20 +378,6 @@ private struct FileRow: View {
         .accessibilityAction(named: file.section == .staged ? "Unstage" : "Stage") {
             file.section == .staged ? model.unstage([file]) : model.stage([file])
         }
-    }
-
-    private var pathText: Text {
-        let name = Text(DisplayText.sanitize(file.name)).font(TypeToken.body.font)
-            .foregroundStyle(.token(.textPrimary))
-        let original = file.originalPath.map {
-            Text(DisplayText.sanitize(($0 as NSString).lastPathComponent) + " → ").font(TypeToken.body.font)
-                .foregroundStyle(.token(.textTertiary))
-        }
-        let directory =
-            depth == 0 && !file.directory.isEmpty && !model.showsTree
-            ? Text("  " + DisplayText.sanitize(file.directory)).font(TypeToken.caption.font)
-                .foregroundStyle(.token(.textTertiary)) : nil
-        return Text("\(original ?? Text(""))\(name)\(directory ?? Text(""))")
     }
 
     private var help: String {

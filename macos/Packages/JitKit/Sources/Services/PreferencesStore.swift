@@ -30,6 +30,8 @@ public final class PreferencesStore {
     static let cloneParentKey = "cloneParentDirectory"
     static let codeTextSizeKey = "codeTextSize"
     static let customGitPathKey = "customGitPath"
+    static let gravatarKey = "showsGravatarAvatars"
+    static let graphColumnsKey = "graphColumns"
 
     /// App-level text size step for code and diff views (P6.10): View ▸ Larger / Smaller Code Text.
     public enum CodeTextSize: Int, CaseIterable, Sendable {
@@ -74,6 +76,16 @@ public final class PreferencesStore {
         didSet { defaults.set(commandBarShowsLabels, forKey: Self.commandBarLabelsKey) }
     }
 
+    /// Settings ▸ General: author pictures from Gravatar (looked up by a hash of the author's email).
+    public var showsGravatarAvatars: Bool {
+        didSet { defaults.set(showsGravatarAvatars, forKey: Self.gravatarKey) }
+    }
+
+    /// The graph columns as last arranged in any tab (JSON); new tabs start from it.
+    public var graphColumns: Data? {
+        didSet { defaults.set(graphColumns, forKey: Self.graphColumnsKey) }
+    }
+
     /// Where the clone sheet creates repositories (remembered; defaults to ~/Developer if it exists, else home).
     public var cloneParentDirectory: String {
         didSet { defaults.set(cloneParentDirectory, forKey: Self.cloneParentKey) }
@@ -92,6 +104,8 @@ public final class PreferencesStore {
         graphDensity =
             defaults.string(forKey: Self.graphDensityKey).flatMap(GraphDensity.init(rawValue:)) ?? .comfortable
         commandBarShowsLabels = defaults.object(forKey: Self.commandBarLabelsKey) as? Bool ?? true
+        showsGravatarAvatars = defaults.object(forKey: Self.gravatarKey) as? Bool ?? true
+        graphColumns = defaults.data(forKey: Self.graphColumnsKey)
         customGitPath = defaults.string(forKey: Self.customGitPathKey).flatMap { $0.isEmpty ? nil : $0 }
         let developer = NSHomeDirectory() + "/Developer"
         cloneParentDirectory =

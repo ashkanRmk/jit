@@ -47,8 +47,15 @@ public final class DiffViewModel {
     public var ignoresWhitespace = false {
         didSet { if ignoresWhitespace != oldValue, let target { load(target, keepPosition: true) } }
     }
-    /// Focused Diff: the viewer covers the graph area.
-    public var isFocused = false
+    /// An open diff covers the graph area (0.0.2: the diff always shows in the centre pane).
+    public var isFocused: Bool { target != nil }
+    /// Closes the diff through whoever opened it, so the file list drops its selection too.
+    @ObservationIgnored public var onCloseRequest: (() -> Void)?
+
+    /// Esc / the close button.
+    public func requestClose() {
+        if let onCloseRequest { onCloseRequest() } else { close() }
+    }
     /// The rows the view shows.
     public private(set) var source: DiffRowsSource?
 
@@ -178,7 +185,6 @@ public final class DiffViewModel {
         matches = []
         currentMatch = nil
         changeRows = []
-        isFocused = false
         onSourceChange?()
     }
 
@@ -255,11 +261,6 @@ public final class DiffViewModel {
         rebuildSource()
         startHighlight()
         #if DEBUG
-            // `-JitFocusDiff YES` (screenshots).
-            if UserDefaults.standard.bool(forKey: "JitFocusDiff"), !debugFocused {
-                debugFocused = true
-                isFocused = true
-            }
             // `-JitDiffSelect <text>`: selects the changed lines containing it.
             if let text = UserDefaults.standard.string(forKey: "JitDiffSelect"), !debugSelected {
                 debugSelected = true

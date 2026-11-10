@@ -155,8 +155,8 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
                 model.query = ""
                 return true
             }
-            if model.isFocused {
-                model.isFocused = false
+            if model.target != nil {
+                model.requestClose()
                 return true
             }
         }
@@ -255,7 +255,8 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
     @objc public func jitFindPrevious(_ sender: Any?) { model.nextMatch(forward: false) }
     @objc public func diffNextChange(_ sender: Any?) { model.nextChange(from: firstVisibleRow, forward: true) }
     @objc public func diffPreviousChange(_ sender: Any?) { model.nextChange(from: firstVisibleRow, forward: false) }
-    @objc public func toggleFocusDiff(_ sender: Any?) { model.isFocused.toggle() }
+    /// View ▸ Close Diff (⌥⌘↩): back to the graph.
+    @objc public func toggleFocusDiff(_ sender: Any?) { model.requestClose() }
     @objc public func showBlame(_ sender: Any?) { model.blame() }
 
     @objc public func diffGoToLine(_ sender: Any?) {
@@ -282,7 +283,6 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         case #selector(jitFindNext(_:)), #selector(jitFindPrevious(_:)): return !model.matches.isEmpty
         case #selector(diffNextChange(_:)), #selector(diffPreviousChange(_:)): return !model.changeRows.isEmpty
         case #selector(toggleFocusDiff(_:)):
-            menuItem.state = model.isFocused ? .on : .off
             return model.target != nil
         case #selector(diffGoToLine(_:)), #selector(jitFind(_:)): return model.source != nil
         case #selector(showBlame(_:)): return model.document?.files.first?.newPath != nil
@@ -553,15 +553,13 @@ struct DiffChromeView: View {
 
     private var focusButton: some View {
         Button {
-            model.isFocused.toggle()
+            model.requestClose()
         } label: {
-            Image(
-                systemName: model.isFocused
-                    ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+            Image(systemName: "xmark")
         }
         .secondaryGlassButton()
-        .help(model.isFocused ? "Exit Focused Diff (Esc)" : "Focus Diff (⌥⌘↩)")
-        .accessibilityLabel(model.isFocused ? "Exit focused diff" : "Focus diff")
+        .help("Close Diff (Esc)")
+        .accessibilityLabel("Close diff")
     }
 }
 

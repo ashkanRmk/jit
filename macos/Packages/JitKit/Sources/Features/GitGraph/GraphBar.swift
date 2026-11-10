@@ -11,6 +11,9 @@ struct GraphBar: View {
     let controller: GraphViewController
     @FocusState private var searchFocused: Bool
     @State private var showsBranchPicker = false
+    /// The search field is a magnifier button until it is used (0.0.2): the bar stays short enough to fit
+    /// beside an open inspector.
+    @State private var searchExpanded = false
     @State private var barWidth: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -25,20 +28,23 @@ struct GraphBar: View {
                 CommandBarLeading(controller: controller, layout: layout, location: location, changes: changes)
                     .fixedSize()
                 Spacer(minLength: 0)
-                GlassControlGroup(spacing: Space.s3) {
-                    scopeMenu
-                    searchField
-                    if model.isSearching { matchControls }
-                    ForEach(chips, id: \.id) { chip in
-                        ChipView(chip: chip)
-                            .transition(RevealTransition.transition(reduceMotion: reduceMotion))
-                    }
-                }
-                Spacer(minLength: 0)
                 if controller.isSlow || isDeepRunning {
                     ProgressView()
                         .controlSize(.small)
                         .accessibilityLabel(isDeepRunning ? "Searching all history" : "Loading history")
+                }
+                GlassControlGroup(spacing: Space.s3) {
+                    ForEach(chips, id: \.id) { chip in
+                        ChipView(chip: chip)
+                            .transition(RevealTransition.transition(reduceMotion: reduceMotion))
+                    }
+                    scopeMenu
+                    if showsSearchField {
+                        searchField
+                        if model.isSearching { matchControls }
+                    } else {
+                        searchButton
+                    }
                 }
             }
             if let operations = controller.operations {
@@ -49,7 +55,12 @@ struct GraphBar: View {
         .padding(.horizontal, Space.s5)
         .padding(.vertical, Space.s3)
         .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: chips.map(\.id))
-        .onChange(of: model.focusSearchToken) { searchFocused = true }
+        .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: showsSearchField)
+        .onChange(of: model.focusSearchToken) { expandSearch() }
+        .onChange(of: searchFocused) { _, focused in
+            // Leaving an empty field folds it back into the button.
+            if !focused, model.searchText.isEmpty { searchExpanded = false }
+        }
         // A flexible frame reports the width the pane offers, even while a child would overflow; measuring the
         // content itself would report the overflowing width and nothing would ever move into `⋯`.
         .frame(maxWidth: .infinity)
@@ -98,9 +109,8 @@ struct GraphBar: View {
                 iconOnly: capsule + icon + text(CommandBarChanges.title(changes, labels: false)))
         }
         // The find group (scope menu + search at its minimum width + chips) sits on the trailing side.
-        let find =
-            capsule + icon + text(scopeTitle) + 140 + 2 * capsule + icon + Space.s3
-            + CGFloat(chips.count) * 160
+        let search = showsSearchField ? 140 + 2 * capsule + icon : capsule + IconSize.md
+        let find = capsule + icon + text(scopeTitle) + search + Space.s3 + CGFloat(chips.count) * 160
         let available = max(barWidth - 2 * Space.s5 - Space.s4 - find, 0)
         return CommandBarLayout.make(
             available: available, groups: groups, widths: widths, spacing: Space.s4,
@@ -157,6 +167,23 @@ struct GraphBar: View {
 
     // MARK: Search
 
+    private var showsSearchField: Bool { searchExpanded || !model.searchText.isEmpty }
+
+    private func expandSearch() {
+        searchExpanded = true
+        // The field exists after this update; focus it then.
+        Task { @MainActor in searchFocused = true }
+    }
+
+    private var searchButton: some View {
+        Button(action: expandSearch) {
+            Image(systemName: "magnifyingglass")
+        }
+        .secondaryGlassButton()
+        .help("Search Commits (⌘F)")
+        .accessibilityLabel("Search commits")
+    }
+
     private var searchField: some View {
         HStack(spacing: Space.s3) {
             Image(systemName: "magnifyingglass")
@@ -169,7 +196,12 @@ struct GraphBar: View {
                 .onChange(of: model.searchText) { controller.searchTextChanged() }
                 .onSubmit { controller.nextMatch(forward: !NSEvent.modifierFlags.contains(.shift)) }
                 .onKeyPress(.escape) {
-                    controller.clearModes()
+                    if model.searchText.isEmpty {
+                        searchExpanded = false
+                        searchFocused = false
+                    } else {
+                        controller.clearModes()
+                    }
                     return .handled
                 }
                 .accessibilityLabel("Search commits")
@@ -177,6 +209,7 @@ struct GraphBar: View {
                 Button {
                     model.searchText = ""
                     controller.searchTextChanged()
+                    if !searchFocused { searchExpanded = false }
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }

@@ -76,8 +76,7 @@ final class WorkbenchController: NSSplitViewController {
         main.minimumThickness = PanelMetrics.contentColumnMax - 160
 
         let inspector = NSSplitViewItem(
-            inspectorWithViewController: Self.host(
-                InspectorWithDiff(model: inspectorModel, diff: diffModel, controller: diffController)))
+            inspectorWithViewController: Self.host(CommitInspectorView(model: inspectorModel)))
         inspector.minimumThickness = PanelMetrics.inspectorMin
         inspector.maximumThickness = PanelMetrics.inspectorMax
         inspector.canCollapse = true
@@ -104,7 +103,9 @@ final class WorkbenchController: NSSplitViewController {
         workingDirectory.composer = composer
         inspector.diff = diffModel
         inspector.diffController = diffController
+        inspector.avatars = model.avatars
         let diff = diffModel
+        diff.onCloseRequest = { [weak inspector] in inspector?.closeDiff() }
         let blame = blameModel
         blame.revealCommit = { [weak graph, weak blame] oid in
             blame?.close()
@@ -325,16 +326,30 @@ final class WorkbenchController: NSSplitViewController {
             } else {
                 inspectorItem.animator().isCollapsed = true
             }
-        } else {
+        } else if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || view.window == nil {
             // Open at the shared inspector width (a collapsed split item does not reliably keep it).
             inspectorItem.isCollapsed = false
             applyWidths()
+        } else {
+            // Slide in with the system animation, then settle on the shared width.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = MotionToken.panel.duration
+                context.allowsImplicitAnimation = true
+                inspectorItem.animator().isCollapsed = false
+            } completionHandler: { [weak self] in
+                MainActor.assumeIsolated { self?.applyWidths() }
+            }
         }
     }
 
     /// Esc anywhere in the workbench that nothing closer handled (search fields, sheets and the graph's own
     /// modes come first): clear the selection, which closes the inspector; or close a manually opened one.
     override func cancelOperation(_ sender: Any?) {
+        // An open diff covers the graph: Esc returns to the graph first.
+        if diffModel.target != nil {
+            diffModel.requestClose()
+            return
+        }
         if graph?.clearSelection() == true { return }
         setInspectorCollapsed(true)
     }
@@ -463,7 +478,8 @@ final class MainPaneController: NSViewController {
         }
     }
 
-    /// Focused Diff (design §3.3): the viewer covers the graph area; 200 ms fade, instant with Reduce Motion.
+    /// An open diff covers the graph area (0.0.2; it used to open under the file list in the inspector):
+    /// 200 ms fade in, instant with Reduce Motion. Esc or its close button returns to the graph.
     private func observeFocus() {
         withObservationTracking {
             _ = diffModel.isFocused
@@ -479,11 +495,15 @@ final class MainPaneController: NSViewController {
         let focused = diffModel.isFocused
         let instant = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if focused {
+            // Another file of the same commit: the diff is already showing, nothing to animate.
+            guard focusContainer.isHidden else { return }
             let view = diffController.view
-            view.removeFromSuperview()
-            view.frame = focusContainer.bounds
-            view.autoresizingMask = [.width, .height]
-            focusContainer.addSubview(view)
+            if view.superview !== focusContainer {
+                view.removeFromSuperview()
+                view.frame = focusContainer.bounds
+                view.autoresizingMask = [.width, .height]
+                focusContainer.addSubview(view)
+            }
             focusContainer.isHidden = false
             focusContainer.alphaValue = instant ? 1 : 0
             if !instant {
@@ -492,11 +512,14 @@ final class MainPaneController: NSViewController {
                     focusContainer.animator().alphaValue = 1
                 }
             }
-            diffController.focusBody()
-        } else {
+        } else if !focusContainer.isHidden {
             focusContainer.isHidden = true
-            // The inspector's pane re-attaches the view on its next update.
-            if diffController.view.superview === focusContainer { diffController.view.removeFromSuperview() }
+            // Keyboard focus goes back to the graph unless it is somewhere else already (the file list).
+            if let window = view.window, let responder = window.firstResponder as? NSView,
+                responder.isDescendant(of: focusContainer)
+            {
+                window.makeFirstResponder(graph.tableView)
+            }
         }
     }
 

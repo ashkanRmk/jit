@@ -93,4 +93,4 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
   `-JitShowProfilePopover YES`, `-JitShowProfileEditor YES`, `-JitUITestOpenRepository <path>`,
   `-JitSnapshot <png>` (debug only; renders the window to PNG, glass approximated),
   `-JitGraphSelectRow <n>` [`-JitGraphCompareRow <m>`], `-JitGraphSearch <text>` [`-JitGraphOnlyMatches YES`],
-  `-JitGraphSelectWIP YES`, `-JitDiscardSheet <path>`, `-JitShowCommandPalette YES` [`-JitPaletteQuery <text>`], `-graphDensity compact|comfortable` (debug only except the last)
+  `-JitGraphSelectWIP YES`, `-JitGraphHoverRow <n>` (ref labels expanded as on hover), `-JitInspectorOpenFile <n>` (opens the n-th changed file's diff), `-JitDiscardSheet <path>`, `-JitShowCommandPalette YES` [`-JitPaletteQuery <text>`], `-graphDensity compact|comfortable` (debug only except the last)

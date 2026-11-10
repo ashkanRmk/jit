@@ -22,7 +22,11 @@ import GitCore
         let laneSlot: UInt8
         let diameter: CGFloat
         let scale: CGFloat
+        /// The author's picture, when one is known (identity only: a new picture is a new key).
+        var photo: ObjectIdentifier?
     }
+    /// Looks up an author's picture by email (`AvatarStore`); `nil` keeps initials.
+    var photo: ((String) -> CGImage?)?
     private var avatars: [AvatarKey: CGImage] = [:]
     private var symbols: [String: NSImage] = [:]
     static let maxCachedAvatars = CacheLimits.graphAvatars
@@ -43,15 +47,15 @@ import GitCore
     var cachedAvatarCount: Int { avatars.count }
 
     /// The avatar node image for `key`, rendered once per appearance.
-    func avatar(_ key: AvatarKey) -> CGImage? {
+    func avatar(_ key: AvatarKey, photo: CGImage? = nil) -> CGImage? {
         if let image = avatars[key] { return image }
         if avatars.count >= Self.maxCachedAvatars { avatars.removeAll(keepingCapacity: true) }
-        let image = renderAvatar(key)
+        let image = renderAvatar(key, photo: photo)
         avatars[key] = image
         return image
     }
 
-    private func renderAvatar(_ key: AvatarKey) -> CGImage? {
+    private func renderAvatar(_ key: AvatarKey, photo: CGImage?) -> CGImage? {
         let pixels = Int((key.diameter * key.scale).rounded(.up))
         guard pixels > 0,
             let context = CGContext(
@@ -67,6 +71,19 @@ import GitCore
         // Opaque disc (edges never show through), author tint, then the lane ring.
         context.setFillColor(colors.canvas)
         context.fillEllipse(in: rect)
+        if let photo {
+            // The picture fills the disc inside the lane ring.
+            context.saveGState()
+            context.addEllipse(in: rect.insetBy(dx: ring / 2, dy: ring / 2))
+            context.clip()
+            context.interpolationQuality = .high
+            context.draw(photo, in: rect)
+            context.restoreGState()
+            context.setStrokeColor(colors.lane(key.laneSlot))
+            context.setLineWidth(ring)
+            context.strokeEllipse(in: rect.insetBy(dx: ring / 2, dy: ring / 2))
+            return context.makeImage()
+        }
         context.setFillColor(author.copy(alpha: colors.variant.isDark ? 0.32 : 0.22) ?? author)
         context.fillEllipse(in: rect.insetBy(dx: ring, dy: ring))
         context.setStrokeColor(colors.lane(key.laneSlot))
@@ -104,7 +121,10 @@ import GitCore
 /// Per-row decoration for a commit node.
 struct NodeDecor: Equatable {
     var initials = ""
+    var email = ""
     var avatarSlot = 0
+    /// Shown when the pointer rests on the node.
+    var toolTip = ""
     /// The row has ref labels: a connector runs from the ref column to the node.
     var hasRefs = false
     var wipAbove = false
@@ -126,8 +146,48 @@ enum GraphCellContent {
 final class GraphCellView: NSView {
     var style: GraphStyle?
     var content: GraphCellContent = .empty {
-        didSet { needsDisplay = true }
+        didSet {
+            needsDisplay = true
+            updateNodeToolTip()
+        }
     }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateNodeToolTip()
+    }
+
+    /// The node (avatar or merge dot) answers with the author; the rest of the cell has no tooltip.
+    private func updateNodeToolTip() {
+        guard let style else { return }
+        var lane = 0
+        var text = ""
+        switch content {
+        case .commit(let row, let decor):
+            lane = Int(row.nodeLane)
+            text = decor.toolTip
+        case .flat(_, _, let decor):
+            text = decor.toolTip
+        case .wip, .empty:
+            break
+        }
+        let diameter = style.metrics.nodeDiameter + 4
+        let rect =
+            text.isEmpty
+            ? NSRect.zero
+            : NSRect(
+                x: style.metrics.laneX(lane) - diameter / 2, y: (bounds.height - diameter) / 2, width: diameter,
+                height: diameter
+            ).intersection(bounds)
+        nodeToolTip = text
+        // The text is asked for when the tooltip shows; the tracking rect changes only when the node moves.
+        guard rect != nodeToolTipRect else { return }
+        removeAllToolTips()
+        nodeToolTipRect = rect
+        if !rect.isEmpty { addToolTip(rect, owner: self, userData: nil) }
+    }
+    private var nodeToolTip = ""
+    private var nodeToolTipRect = NSRect.zero
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
@@ -256,9 +316,11 @@ final class GraphCellView: NSView {
             return
         }
         let diameter = metrics.nodeDiameter
+        let photo = decor.email.isEmpty ? nil : style.photo?(decor.email)
         let key = GraphStyle.AvatarKey(
-            initials: decor.initials, authorSlot: decor.avatarSlot, laneSlot: color, diameter: diameter, scale: scale)
-        guard let image = style.avatar(key) else { return }
+            initials: decor.initials, authorSlot: decor.avatarSlot, laneSlot: color, diameter: diameter, scale: scale,
+            photo: photo.map { ObjectIdentifier($0) })
+        guard let image = style.avatar(key, photo: photo) else { return }
         let rect = CGRect(x: cx - diameter / 2, y: mid - diameter / 2, width: diameter, height: diameter)
         // The view is flipped; CGImages draw bottom-up.
         context.saveGState()
@@ -267,6 +329,14 @@ final class GraphCellView: NSView {
         context.draw(image, in: CGRect(origin: .zero, size: rect.size))
         context.restoreGState()
     }
+}
+
+extension GraphCellView: @MainActor NSViewToolTipOwner {
+    func view(
+        _ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData: UnsafeMutableRawPointer?
+    )
+        -> String
+    { nodeToolTip }
 }
 
 /// The subject (and WIP counts / footer), drawn in one view.
@@ -339,12 +409,15 @@ final class SubjectCellView: NSView {
 }
 
 /// The "Branch / Tag" column (P2.13): the row's first ref as a pill, `+N` for the rest, and a connector
-/// towards the node. One view, no subview per pill (design §4.5).
+/// towards the node. One view, no subview per pill (design §4.5). Hovering the cell shows every label in
+/// full in `RefsHoverView`, which also owns the tooltips.
 final class RefsCellView: NSView {
     struct Content {
         var labels: [RefLabel] = []
         var labelColor: UInt8 = 0
         var dimmed = false
+        /// The graph column is the next column: the connector runs to the trailing edge.
+        var connects = true
     }
 
     var style: GraphStyle?
@@ -398,7 +471,7 @@ final class RefsCellView: NSView {
                 (nil, NSRect(x: x, y: mid - metrics.pillHeight / 2, width: moreWidth, height: metrics.pillHeight)))
             x += moreWidth
         }
-        if x < bounds.width {
+        if content.connects, x < bounds.width {
             context.setStrokeColor(colors.laneOutlines[Int(slot) % max(1, colors.laneOutlines.count)])
             context.setLineWidth(1)
             context.move(to: CGPoint(x: x, y: mid + 0.5))
@@ -416,80 +489,143 @@ final class RefsCellView: NSView {
     }
 }
 
-/// Draws (or measures) one opaque tinted ref pill. Never glass (design §3.2).
+/// A part of a drawn pill with its own tooltip (the location glyphs, the name).
+struct PillRegion {
+    let rect: NSRect
+    let toolTip: String
+}
+
+/// Draws (or measures) one opaque tinted ref pill. Never glass (design §3.2). Where a branch lives is shown
+/// with glyphs instead of text: a computer for a local branch, a cloud for a remote one, both when a local
+/// branch and its upstream sit on the same commit.
 @MainActor struct PillPainter {
     let style: GraphStyle
     let slot: UInt8
 
+    static let localSymbol = "laptopcomputer"
+    static let remoteSymbol = "cloud"
+
+    private struct Glyph {
+        var name: String
+        var color: NSColor
+        var width: CGFloat
+        var neutral = false
+        var toolTip: String?
+    }
+
     private struct Layout {
         var text: String
-        var prefix: String?
         var font: NSFont
         var textColor: NSColor
         var fill: CGColor?
         var stroke: CGColor?
-        var glyph: (name: String, color: NSColor, width: CGFloat)?
+        var glyphs: [Glyph] = []
+        var toolTip: String
     }
 
     private func layout(_ label: RefLabel, neutral: Bool) -> Layout {
         let colors = style.colors
         let laneText = NSColor(cgColor: colors.lane(slot)) ?? colors.textSecondary
         var result = Layout(
-            text: label.text, prefix: nil, font: style.pillFont, textColor: laneText,
-            fill: colors.laneFills[Int(slot) % max(1, colors.laneFills.count)], stroke: nil, glyph: nil)
-        let check = (name: "checkmark", color: laneText, width: CGFloat(10))
+            text: label.text, font: style.pillFont, textColor: laneText,
+            fill: colors.laneFills[Int(slot) % max(1, colors.laneFills.count)], stroke: nil, toolTip: label.text)
+        let check = Glyph(name: "checkmark", color: laneText, width: 10, toolTip: "Checked out")
+        let local = Glyph(name: Self.localSymbol, color: laneText, width: 13, toolTip: "Local branch \(label.text)")
         switch label.kind {
         case .current:
             result.font = style.pillBoldFont
-            result.glyph = check
+            result.glyphs = [check, local]
+            result.toolTip = "\(label.text) — current branch, local only"
         case .localWithUpstream(let remote, let isCurrent):
             if isCurrent {
                 result.font = style.pillBoldFont
-                result.glyph = check
+                result.glyphs = [check]
             }
-            result.text = "\(label.text) ⇄ \(remote)"
+            let upstream = label.upstream ?? "\(remote)/\(label.text)"
+            result.glyphs += [
+                local, Glyph(name: Self.remoteSymbol, color: laneText, width: 13, toolTip: upstream),
+            ]
+            result.toolTip = "\(label.text) — local and \(upstream)"
         case .local:
-            break
+            result.glyphs = [local]
+            result.toolTip = "\(label.text) — local only"
         case .remote:
             result.fill = nil
             result.stroke = colors.laneOutlines[Int(slot) % max(1, colors.laneOutlines.count)]
             result.textColor = colors.textSecondary
             if let slash = label.text.firstIndex(of: "/") {
-                result.prefix = String(label.text[...slash])
                 result.text = String(label.text[label.text.index(after: slash)...])
             }
+            result.glyphs = [
+                Glyph(
+                    name: Self.remoteSymbol, color: colors.textSecondary, width: 13, neutral: true,
+                    toolTip: label.text)
+            ]
+            result.toolTip = "\(label.text) — remote only"
         case .tag:
             result.fill = colors.neutralFill
             result.textColor = colors.textSecondary
-            if !neutral { result.glyph = (name: "tag", color: colors.textSecondary, width: 10) }
+            if !neutral {
+                result.glyphs = [
+                    Glyph(name: "tag", color: colors.textSecondary, width: 10, neutral: true, toolTip: nil)
+                ]
+            }
+            result.toolTip = "Tag \(label.text)"
         case .detachedHead:
             result.fill = colors.neutralFill
             result.stroke = colors.warning
             result.textColor = colors.textPrimary
+            result.toolTip = "HEAD is detached at this commit"
         }
         if neutral {
             result.fill = colors.neutralFill
             result.stroke = nil
             result.textColor = colors.textSecondary
-            result.glyph = nil
+            result.glyphs = []
         }
         return result
     }
 
-    private func chrome(_ layout: Layout) -> (glyph: CGFloat, prefix: CGFloat) {
-        let glyph = layout.glyph.map { $0.width + Space.s1 } ?? 0
-        let prefix =
-            layout.prefix.map {
-                ($0 as NSString).size(withAttributes: [.font: layout.font]).width
-            } ?? 0
-        return (glyph, ceil(prefix))
+    private func glyphsWidth(_ layout: Layout) -> CGFloat {
+        layout.glyphs.reduce(0) { $0 + $1.width + Space.s1 }
     }
 
     func width(_ label: RefLabel, neutral: Bool = false) -> CGFloat {
         let layout = layout(label, neutral: neutral)
-        let (glyph, prefix) = chrome(layout)
         let text = ceil((layout.text as NSString).size(withAttributes: [.font: layout.font]).width)
-        return style.metrics.pillPadding * 2 + glyph + prefix + text
+        return style.metrics.pillPadding * 2 + glyphsWidth(layout) + text
+    }
+
+    /// The tooltip regions of `label` drawn at `x` with `width` (as returned by `draw`).
+    func regions(_ label: RefLabel, at x: CGFloat, mid: CGFloat, width: CGFloat) -> [PillRegion] {
+        let metrics = style.metrics
+        let layout = layout(label, neutral: false)
+        let top = (mid - metrics.pillHeight / 2).rounded()
+        var result: [PillRegion] = []
+        var glyphX = x + metrics.pillPadding
+        var nameStart = x
+        for (index, glyph) in layout.glyphs.enumerated() {
+            let end = glyphX + glyph.width + Space.s1
+            if let toolTip = glyph.toolTip {
+                // The first glyph's region starts at the pill's edge so no sliver is left without a tooltip.
+                let start = index == 0 ? x : glyphX
+                result.append(
+                    PillRegion(
+                        rect: NSRect(x: start, y: top, width: end - start, height: metrics.pillHeight),
+                        toolTip: toolTip))
+                nameStart = end
+            } else if index == 0 {
+                nameStart = x
+            }
+            glyphX = end
+        }
+        if x + width > nameStart {
+            result.append(
+                PillRegion(
+                    rect: NSRect(x: nameStart, y: top, width: x + width - nameStart, height: metrics.pillHeight),
+                    toolTip: layout.toolTip))
+        }
+        return result
     }
 
     /// Draws `label` no wider than `maxWidth` (the name truncates in the middle); returns its width.
@@ -497,13 +633,12 @@ final class RefsCellView: NSView {
         _ label: RefLabel, at x: CGFloat, mid: CGFloat, maxWidth: CGFloat, context: CGContext, neutral: Bool = false
     ) -> CGFloat {
         let metrics = style.metrics
-        let colors = style.colors
         let layout = layout(label, neutral: neutral)
-        let (glyphWidth, prefixWidth) = chrome(layout)
+        let glyphWidth = glyphsWidth(layout)
         let attributes: [NSAttributedString.Key: Any] = [.font: layout.font, .foregroundColor: layout.textColor]
         let measured = ceil((layout.text as NSString).size(withAttributes: attributes).width)
-        let textWidth = max(0, min(measured, maxWidth - metrics.pillPadding * 2 - glyphWidth - prefixWidth))
-        let width = metrics.pillPadding * 2 + glyphWidth + prefixWidth + textWidth
+        let textWidth = max(0, min(measured, maxWidth - metrics.pillPadding * 2 - glyphWidth))
+        let width = metrics.pillPadding * 2 + glyphWidth + textWidth
         let rect = CGRect(x: x, y: (mid - metrics.pillHeight / 2).rounded(), width: width, height: metrics.pillHeight)
         let path = CGPath(roundedRect: rect, cornerWidth: Radius.xs, cornerHeight: Radius.xs, transform: nil)
         if let fill = layout.fill {
@@ -521,21 +656,23 @@ final class RefsCellView: NSView {
             context.strokePath()
         }
         var textX = rect.minX + metrics.pillPadding
-        if let glyph = layout.glyph {
+        for glyph in layout.glyphs {
             let image = style.symbol(
-                glyph.name, color: glyph.color, slot: Int(slot), pointSize: 9,
+                glyph.name, color: glyph.color, slot: glyph.neutral ? -1 : Int(slot), pointSize: 9,
                 weight: glyph.name == "checkmark" ? .bold : .medium)
-            image?.draw(in: NSRect(x: textX, y: rect.midY - glyph.width / 2, width: glyph.width, height: glyph.width))
+            if let image, image.size.width > 0 {
+                // Symbols are not square: fit the glyph's width, keep the aspect ratio.
+                let scale = min(glyph.width / image.size.width, (metrics.pillHeight - 6) / image.size.height)
+                let size = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+                image.draw(
+                    in: NSRect(
+                        x: textX + (glyph.width - size.width) / 2, y: rect.midY - size.height / 2, width: size.width,
+                        height: size.height))
+            }
             textX += glyph.width + Space.s1
         }
         let lineHeight = ceil(layout.font.ascender - layout.font.descender)
         let textY = rect.midY - lineHeight / 2
-        if let prefix = layout.prefix {
-            (prefix as NSString).draw(
-                at: NSPoint(x: textX, y: textY),
-                withAttributes: [.font: layout.font, .foregroundColor: colors.textTertiary])
-            textX += prefixWidth
-        }
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingMiddle
         var truncating = attributes
@@ -544,6 +681,160 @@ final class RefsCellView: NSView {
             with: NSRect(x: textX, y: textY, width: textWidth, height: lineHeight), options: [.usesLineFragmentOrigin],
             attributes: truncating)
         return width
+    }
+}
+
+/// Every ref label of the hovered row, in full (the cell shows one pill and `+N`). Sits over the row,
+/// starting at the ref column and growing over the columns after it; opaque, so nothing shows through.
+/// Owns the label tooltips. Mouse events go to the table underneath.
+final class RefsHoverView: NSView {
+    private(set) var row = -1
+    private(set) var pillFrames: [(RefLabel, NSRect)] = []
+    private var regions: [PillRegion] = []
+    private var labels: [RefLabel] = []
+    private var slot: UInt8 = 0
+    private var isSelectedRow = false
+    private var style: GraphStyle?
+    private weak var table: NSTableView?
+    private var generation = 0
+
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        clipsToBounds = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        // Redraws are not needed while the width animates: the content keeps its place, the clip grows.
+        layer?.contentsGravity = .topLeft
+        setAccessibilityElement(false)
+        isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The width that shows every label in full.
+    static func naturalWidth(_ labels: [RefLabel], style: GraphStyle, slot: UInt8) -> CGFloat {
+        let painter = PillPainter(style: style, slot: slot)
+        let pills = labels.reduce(CGFloat(0)) { $0 + painter.width($1) }
+        return Space.s2 + pills + CGFloat(max(0, labels.count - 1)) * style.metrics.pillSpacing + Space.s3
+    }
+
+    /// Shows the labels of `row` starting at `cellFrame` (table coordinates), growing to the width they need
+    /// (never past `maxWidth`).
+    func show(
+        row: Int, labels: [RefLabel], slot: UInt8, isSelected: Bool, style: GraphStyle, cellFrame: NSRect,
+        maxWidth: CGFloat, in table: NSTableView
+    ) {
+        generation += 1
+        self.row = row
+        self.labels = labels
+        self.slot = slot
+        self.style = style
+        self.table = table
+        isSelectedRow = isSelected
+        let width = min(max(cellFrame.width, Self.naturalWidth(labels, style: style, slot: slot)), maxWidth)
+        layoutPills(width: width, height: cellFrame.height)
+        if superview !== table { table.addSubview(self) }
+        isHidden = false
+        alphaValue = 1
+        let target = NSRect(x: cellFrame.minX, y: cellFrame.minY, width: width, height: cellFrame.height)
+        // Draw at the final size first, then reveal it from the cell's width.
+        frame = target
+        needsDisplay = true
+        displayIfNeeded()
+        guard !style.reduceMotion, width > cellFrame.width + 0.5 else { return }
+        frame = cellFrame
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = MotionToken.select.duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            self.animator().frame = target
+        }
+    }
+
+    func hide(animated: Bool = true) {
+        guard !isHidden else { return }
+        row = -1
+        generation += 1
+        let current = generation
+        removeAllToolTips()
+        guard animated, style?.reduceMotion == false else {
+            isHidden = true
+            return
+        }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = MotionToken.feedbackOut.duration
+            self.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.generation == current else { return }
+                self.isHidden = true
+            }
+        }
+    }
+
+    private func layoutPills(width: CGFloat, height: CGFloat) {
+        pillFrames.removeAll(keepingCapacity: true)
+        regions.removeAll(keepingCapacity: true)
+        removeAllToolTips()
+        guard let style else { return }
+        let metrics = style.metrics
+        let painter = PillPainter(style: style, slot: slot)
+        let mid = (height / 2).rounded()
+        var x = Space.s2
+        for (index, label) in labels.enumerated() {
+            // Labels that still do not fit (very long names in a narrow window) truncate, the last one first.
+            let remaining = width - x - Space.s3
+            let later = labels[(index + 1)...].reduce(CGFloat(0)) {
+                $0 + min(painter.width($1), 60) + metrics.pillSpacing
+            }
+            let pillWidth = max(metrics.pillHeight, min(painter.width(label), remaining - later))
+            let frame = NSRect(x: x, y: mid - metrics.pillHeight / 2, width: pillWidth, height: metrics.pillHeight)
+            pillFrames.append((label, frame))
+            regions += painter.regions(label, at: x, mid: mid, width: pillWidth)
+            x += pillWidth + metrics.pillSpacing
+        }
+        for region in regions { addToolTip(region.rect, owner: self, userData: nil) }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let style, let context = NSGraphicsContext.current?.cgContext else { return }
+        let colors = style.colors
+        // The row's own look (canvas + hover or selection), opaque.
+        context.setFillColor(colors.canvas)
+        context.fill(bounds)
+        if isSelectedRow {
+            NSColor.controlAccentColor.withAlphaComponent(colors.variant.isDark ? 0.24 : 0.16).setFill()
+        } else {
+            ColorToken.stateHover.nsColor.setFill()
+        }
+        bounds.fill(using: .sourceOver)
+        let painter = PillPainter(style: style, slot: slot)
+        let mid = (bounds.height / 2).rounded()
+        for (label, frame) in pillFrames {
+            _ = painter.draw(label, at: frame.minX, mid: mid, maxWidth: frame.width, context: context)
+        }
+    }
+
+    func label(at point: NSPoint) -> RefLabel? {
+        pillFrames.first { $0.1.contains(point) }?.0
+    }
+
+    // MARK: Events go to the table (selection, context menus, double-click)
+
+    override func mouseDown(with event: NSEvent) { table?.mouseDown(with: event) }
+    override func rightMouseDown(with event: NSEvent) { table?.rightMouseDown(with: event) }
+    override func menu(for event: NSEvent) -> NSMenu? { table?.menu(for: event) }
+}
+
+extension RefsHoverView: @MainActor NSViewToolTipOwner {
+    func view(
+        _ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData: UnsafeMutableRawPointer?
+    )
+        -> String
+    {
+        regions.first { $0.rect.contains(point) }?.toolTip ?? ""
     }
 }
 

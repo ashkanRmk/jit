@@ -30,6 +30,8 @@ public final class AppModel {
     public let preferences: PreferencesStore
     public let recents: RecentsStore
     public let profiles: ProfileStore
+    /// Author pictures (Gravatar). Fetches nothing until the app installs a fetcher.
+    public let avatars = AvatarStore(cacheDirectory: AvatarStore.defaultCacheDirectory())
     /// Profile authentication: exec contexts, Keychain, connectivity (Phase 5). Created on first use — never at
     /// launch (P6.4): `configureAccounts` runs once when it is created.
     @ObservationIgnored public lazy var accounts: AccountsService = {
@@ -73,6 +75,7 @@ public final class AppModel {
         self.sessionStore = sessionStore
         self.layout = layout
         self.watchesFileSystem = watchesFileSystem
+        avatars.isEnabled = { [weak preferences] in preferences?.showsGravatarAvatars ?? false }
     }
 
     public var activeTab: TabModel? { tabs.first { $0.id == activeTabID } }

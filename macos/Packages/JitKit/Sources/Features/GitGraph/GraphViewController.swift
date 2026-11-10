@@ -48,6 +48,9 @@ final class GraphViewController: NSViewController {
     private var scannedRows = 0
     private var matchSet = Set<Int32>()
     private var hoveredRow: Int?
+    private let refsHover = RefsHoverView()
+    private var columns = GraphColumnLayout()
+    private let columnsMenu = NSMenu()
     private var isLiveScrolling = false
     private var deepSearchTask: Task<Void, Never>?
     private var observers: [any NSObjectProtocol] = []
@@ -72,6 +75,15 @@ final class GraphViewController: NSViewController {
         style = GraphStyle(density: model.preferences.graphDensity == .compact ? .compact : .comfortable)
         super.init(nibName: nil, bundle: nil)
         viewModel.restore(from: tab.ui)
+        if let saved = tab.ui[Self.columnsKey] {
+            columns = GraphColumnLayout(json: saved)
+        } else if let data = model.preferences.graphColumns,
+            let value = try? JSONDecoder().decode(JSONValue.self, from: data)
+        {
+            columns = GraphColumnLayout(json: value)
+        }
+        let avatars = model.avatars
+        style.photo = { [weak avatars] email in avatars?.image(for: email) }
     }
 
     @available(*, unavailable)
@@ -148,6 +160,20 @@ final class GraphViewController: NSViewController {
                 forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: NSWorkspace.shared,
                 queue: .main
             ) { [weak self] _ in MainActor.assumeIsolated { self?.appearanceChanged() } })
+        observers.append(
+            center.addObserver(forName: AvatarStore.didLoad, object: model.avatars, queue: .main) {
+                [weak self] _ in MainActor.assumeIsolated { self?.redrawNodes() }
+            })
+    }
+
+    /// A picture arrived: the nodes on screen redraw (no reload, no strings rebuilt).
+    private func redrawNodes() {
+        let visible = tableView.rows(in: tableView.visibleRect)
+        let column = tableView.column(withIdentifier: Self.columnGraph)
+        guard column >= 0, visible.length > 0 else { return }
+        for row in visible.location..<(visible.location + visible.length) {
+            tableView.view(atColumn: column, row: row, makeIfNecessary: false)?.needsDisplay = true
+        }
     }
 
     override func viewDidLayout() {
@@ -163,44 +189,26 @@ final class GraphViewController: NSViewController {
         fitSubjectColumn()
     }
 
-    /// The subject column takes whatever the fixed columns leave (no horizontal scrolling). In narrow
-    /// layouts the SHA column hides first, then the author column narrows (design §3.1).
+    /// The message column takes whatever the others leave (no horizontal scrolling). In narrow layouts the
+    /// SHA column hides first, then author, branch and date narrow (design §3.1). Widths set here are layout,
+    /// not the user's choice: never persisted.
     private func fitSubjectColumn() {
-        // Widths set here are layout, not the user's choice: never persisted (columnResized).
+        guard !isFittingColumns else { return }
         isFittingColumns = true
         defer { isFittingColumns = false }
-        guard let subject = tableView.tableColumn(withIdentifier: Self.columnSubject),
-            let sha = tableView.tableColumn(withIdentifier: Self.columnSHA),
-            let author = tableView.tableColumn(withIdentifier: Self.columnAuthor)
-        else { return }
         let available = scrollView.contentView.bounds.width
         guard available > 0 else { return }
-        func others() -> CGFloat {
-            tableView.tableColumns.filter { $0 !== subject && !$0.isHidden }.reduce(0) { $0 + $1.width }
-        }
-        let comfortableSubject: CGFloat = 260
-        sha.isHidden = false
-        if available - others() < comfortableSubject { sha.isHidden = true }
-        let preferredAuthor = savedColumnWidths()[Self.columnAuthor.rawValue] ?? 150
-        if author.width < preferredAuthor, available - others() - (preferredAuthor - author.width) >= comfortableSubject
-        {
-            author.width = preferredAuthor
-        }
-        if available - others() < comfortableSubject {
-            author.width = max(author.minWidth, author.width - (comfortableSubject - (available - others())))
-        }
-        // Then the ref column gives back width down to its minimum (pills truncate in the middle).
-        if let refs = tableView.tableColumn(withIdentifier: Self.columnRefs) {
-            let preferredRefs = savedColumnWidths()[Self.columnRefs.rawValue] ?? 150
-            if refs.width < preferredRefs, available - others() - (preferredRefs - refs.width) >= comfortableSubject {
-                refs.width = preferredRefs
-            }
-            if available - others() < comfortableSubject {
-                refs.width = max(refs.minWidth, refs.width - (comfortableSubject - (available - others())))
+        var fixed: [GraphColumnLayout.Column: CGFloat] = [:]
+        if let graph = tableView.tableColumn(withIdentifier: Self.columnGraph) { fixed[.graph] = graph.width }
+        let fitted = columns.fitted(available: available, fixed: fixed)
+        for column in tableView.tableColumns {
+            guard let kind = GraphColumnLayout.Column(rawValue: column.identifier.rawValue) else { continue }
+            let hidden = columns.hidden.contains(kind) || fitted.autoHidden.contains(kind)
+            if column.isHidden != hidden { column.isHidden = hidden }
+            if kind != .graph, let width = fitted.widths[kind], abs(column.width - width) > 0.5 {
+                column.width = width
             }
         }
-        let width = max(subject.minWidth, available - others())
-        if abs(subject.width - width) > 0.5 { subject.width = width }
     }
 
     override func viewWillAppear() {
@@ -228,34 +236,72 @@ final class GraphViewController: NSViewController {
         tableView.menu = NSMenu()
         tableView.menu?.delegate = self
 
-        let saved = savedColumnWidths()
-        func column(_ id: NSUserInterfaceItemIdentifier, _ title: String, width: CGFloat, min: CGFloat) -> NSTableColumn
-        {
-            let column = NSTableColumn(identifier: id)
-            column.title = title
-            column.width = saved[id.rawValue] ?? width
-            column.minWidth = min
-            column.resizingMask = .userResizingMask
-            return column
+        tableView.columnAutoresizingStyle = .noColumnAutoresizing
+        tableView.allowsColumnReordering = true
+        tableView.allowsColumnResizing = true
+        tableView.allowsColumnSelection = false
+        let header = NSTableHeaderView()
+        columnsMenu.delegate = self
+        header.menu = columnsMenu
+        tableView.headerView = header
+        for kind in columns.order {
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(kind.rawValue))
+            column.title = kind.title
+            column.width = columns.width(kind)
+            column.minWidth = kind.minWidth
+            column.resizingMask = kind.userResizable ? .userResizingMask : []
+            column.isHidden = columns.hidden.contains(kind)
+            column.headerToolTip =
+                kind == .graph
+                ? "Sized to the branches on screen" : "Drag to reorder · right-click to show or hide columns"
+            tableView.addTableColumn(column)
         }
-        let refs = column(Self.columnRefs, "Branch / Tag", width: 150, min: 96)
-        refs.resizingMask = .userResizingMask
-        tableView.addTableColumn(refs)
-        let graph = column(Self.columnGraph, "Graph", width: 80, min: 24)
-        graph.resizingMask = []
-        tableView.addTableColumn(graph)
-        let subject = column(Self.columnSubject, "Subject", width: 420, min: 160)
-        subject.resizingMask = [.autoresizingMask, .userResizingMask]
-        tableView.addTableColumn(subject)
-        // Only the subject column absorbs width changes; the others keep their (persisted) widths.
-        for (id, title, width, min) in [
-            (Self.columnAuthor, "Author", CGFloat(150), CGFloat(80)), (Self.columnDate, "Date", 104, 64),
-            (Self.columnSHA, "SHA", 72, 56),
-        ] {
-            let fixed = column(id, title, width: width, min: min)
-            fixed.resizingMask = .userResizingMask
-            tableView.addTableColumn(fixed)
+    }
+
+    /// The header's context menu: one checkmark item per column.
+    private func buildColumnsMenu() {
+        columnsMenu.removeAllItems()
+        for kind in GraphColumnLayout.Column.allCases {
+            let item = ClosureMenuItem(title: kind.title) { [weak self] in
+                guard let self else { return }
+                self.columns.setHidden(kind, !self.columns.hidden.contains(kind))
+                self.columnsChanged()
+            }
+            item.state = columns.hidden.contains(kind) ? .off : .on
+            if !kind.canHide {
+                item.action = nil
+                item.target = nil
+            }
+            columnsMenu.addItem(item)
         }
+        columnsMenu.addItem(.separator())
+        columnsMenu.addItem(
+            ClosureMenuItem(title: "Reset Columns") { [weak self] in
+                guard let self else { return }
+                self.columns = GraphColumnLayout()
+                for (index, kind) in self.columns.order.enumerated() {
+                    let current = self.tableView.column(withIdentifier: NSUserInterfaceItemIdentifier(kind.rawValue))
+                    if current >= 0, current != index { self.tableView.moveColumn(current, toColumn: index) }
+                }
+                self.columnsChanged()
+            })
+    }
+
+    /// Order, visibility or a preferred width changed: persist, re-fit and redraw.
+    private func columnsChanged() {
+        refsHover.hide(animated: false)
+        tab.ui[Self.columnsKey] = columns.json
+        model.preferences.graphColumns = try? JSONEncoder().encode(columns.json)
+        model.scheduleSave()
+        fitSubjectColumn()
+        redrawVisibleRows()
+    }
+
+    /// The branch column's connector reaches the node only when the graph column comes right after it.
+    private var refsConnectToGraph: Bool {
+        let visible = tableView.tableColumns.filter { !$0.isHidden }.map(\.identifier)
+        guard let refs = visible.firstIndex(of: Self.columnRefs) else { return false }
+        return refs + 1 < visible.count && visible[refs + 1] == Self.columnGraph
     }
 
     // MARK: - History
@@ -461,7 +507,8 @@ final class GraphViewController: NSViewController {
         }
         // The HEAD row draws the dashed top half when WIP sits above it.
         if let head = snapshot.headRow, let row = tableRow(forCommit: head) {
-            tableView.reloadData(forRowIndexes: [row], columnIndexes: [0])
+            tableView.reloadData(
+                forRowIndexes: [row], columnIndexes: IndexSet(0..<tableView.numberOfColumns))
         }
     }
 
@@ -558,6 +605,7 @@ final class GraphViewController: NSViewController {
         showsWIP = wantsWIP
         showsFooter = snapshot.complete && snapshot.count > 0
         rowCount = computeRowCount()
+        refsHover.hide(animated: false)
         tableView.reloadData()
         restoreSelection()
         if let anchor, let index = snapshot.row(for: anchor.oid), let row = tableRow(forCommit: index) {
@@ -589,6 +637,7 @@ final class GraphViewController: NSViewController {
     private var isFittingColumns = false
 
     private func redrawVisibleRows() {
+        refsHover.hide(animated: false)
         let visible = tableView.rows(in: tableView.visibleRect)
         guard visible.length > 0 else { return }
         let range = max(0, visible.location - 8)..<min(tableView.numberOfRows, visible.location + visible.length + 8)
@@ -609,6 +658,7 @@ final class GraphViewController: NSViewController {
 
     private func liveScroll(started: Bool) {
         isLiveScrolling = started
+        if started { refsHover.hide(animated: false) }
         if !started { fitLanesToVisibleRows(allowShrink: true) }
         if started, let hoveredRow {
             (tableView.rowView(atRow: hoveredRow, makeIfNecessary: false) as? GraphRowView)?.resetHover()
@@ -631,6 +681,7 @@ final class GraphViewController: NSViewController {
         let density: Density = model.preferences.graphDensity == .compact ? .compact : .comfortable
         guard GraphMetrics.forDensity(density) != style.metrics else { return }
         style.metrics = .forDensity(density)
+        refsHover.hide(animated: false)
         tableView.rowHeight = style.metrics.rowHeight
         updateGraphColumnWidth()
         tableView.reloadData()
@@ -672,6 +723,18 @@ final class GraphViewController: NSViewController {
                 }
                 tableView.selectRowIndexes(rows, byExtendingSelection: false)
                 tableView.scrollRowToVisible(first)
+            }
+            // `-JitGraphHoverRow <n>`: the row's ref labels expanded, as if the pointer were over them.
+            if defaults.object(forKey: "JitGraphHoverRow") != nil {
+                let row = defaults.integer(forKey: "JitGraphHoverRow")
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(600))
+                    guard let self else { return }
+                    let column = self.tableView.column(withIdentifier: Self.columnRefs)
+                    guard column >= 0, row < self.tableView.numberOfRows else { return }
+                    let frame = self.tableView.frameOfCell(atColumn: column, row: row)
+                    self.mouseMoved(toRow: row, at: NSPoint(x: frame.midX, y: frame.midY))
+                }
             }
         }
     #endif
@@ -722,7 +785,8 @@ final class GraphViewController: NSViewController {
 
     // MARK: - Hover
 
-    func mouseMoved(toRow row: Int?) {
+    func mouseMoved(toRow row: Int?, at point: NSPoint? = nil) {
+        updateRefsHover(row: row, point: point)
         guard !isLiveScrolling, row != hoveredRow else { return }
         if let hoveredRow {
             (tableView.rowView(atRow: hoveredRow, makeIfNecessary: false) as? GraphRowView)?.isHovered = false
@@ -995,20 +1059,63 @@ final class GraphViewController: NSViewController {
         }
     }
 
-    // MARK: - Column persistence
+    // MARK: - Columns (resize, reorder)
 
-    private func savedColumnWidths() -> [String: CGFloat] {
-        guard case .object(let values) = tab.ui[Self.columnsKey] else { return [:] }
-        return values.compactMapValues { if case .number(let width) = $0 { CGFloat(width) } else { nil } }
+    /// The user dragged a column edge. The message column has no width of its own, so dragging its edge
+    /// resizes the column after it (or before it, when it is last) the other way.
+    fileprivate func userResized(_ column: NSTableColumn, oldWidth: CGFloat?) {
+        guard let kind = GraphColumnLayout.Column(rawValue: column.identifier.rawValue) else { return }
+        if kind == .subject {
+            guard let oldWidth else { return }
+            let delta = column.width - oldWidth
+            let visible = tableView.tableColumns.filter { !$0.isHidden }
+            guard let index = visible.firstIndex(of: column) else { return }
+            let candidates = Array(visible[(index + 1)...]) + Array(visible[..<index].reversed())
+            guard
+                let neighbor = candidates.first(where: { $0.identifier != Self.columnGraph }),
+                let neighborKind = GraphColumnLayout.Column(rawValue: neighbor.identifier.rawValue)
+            else { return }
+            columns.widths[neighborKind] = max(neighborKind.minWidth, neighbor.width - delta)
+        } else {
+            columns.widths[kind] = column.width
+        }
+        refsHover.hide(animated: false)
+        tab.ui[Self.columnsKey] = columns.json
+        model.preferences.graphColumns = try? JSONEncoder().encode(columns.json)
+        model.scheduleSave()
+        fitSubjectColumn()
     }
 
-    func columnResized() {
-        var values: [String: JSONValue] = [:]
-        for column in tableView.tableColumns where column.identifier != Self.columnGraph {
-            values[column.identifier.rawValue] = .number(Double(column.width))
+    fileprivate func userMovedColumn() {
+        let order = tableView.tableColumns.compactMap { GraphColumnLayout.Column(rawValue: $0.identifier.rawValue) }
+        guard order != columns.order, order.count == columns.order.count else { return }
+        columns.order = order
+        columnsChanged()
+    }
+
+    // MARK: - Ref label hover
+
+    /// Shows every label of the row under the pointer, in full, while it is over the branch column (or over
+    /// the expanded labels themselves).
+    private func updateRefsHover(row: Int?, point: NSPoint?) {
+        let column = tableView.column(withIdentifier: Self.columnRefs)
+        guard let row, let point, !isLiveScrolling, column >= 0, !tableView.tableColumns[column].isHidden,
+            case .commit(let index) = displayRow(row), let display = cache.display(index), !display.labels.isEmpty
+        else {
+            refsHover.hide()
+            return
         }
-        tab.ui[Self.columnsKey] = .object(values)
-        model.scheduleSave()
+        let cellFrame = tableView.frameOfCell(atColumn: column, row: row)
+        let showing = refsHover.row == row && !refsHover.isHidden
+        guard cellFrame.contains(point) || (showing && refsHover.frame.contains(point)) else {
+            refsHover.hide()
+            return
+        }
+        guard !showing else { return }
+        refsHover.show(
+            row: row, labels: display.labels, slot: isFlat ? 0 : snapshot.row(index).nodeColor,
+            isSelected: tableView.selectedRowIndexes.contains(row), style: style, cellFrame: cellFrame,
+            maxWidth: tableView.visibleRect.maxX - cellFrame.minX, in: tableView)
     }
 
     // MARK: - State for the bar and overlays
@@ -1074,8 +1181,10 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
                 var decor = NodeDecor()
                 if let display = cache.display(index) {
                     decor.initials = display.initials
+                    decor.email = display.authorEmail
+                    decor.toolTip = "\(display.authorName)\n\(display.authorEmail)\n\(display.date)"
                     decor.avatarSlot = display.avatarSlot
-                    decor.hasRefs = !display.labels.isEmpty
+                    decor.hasRefs = !display.labels.isEmpty && refsConnectToGraph
                 }
                 if isFlat {
                     cell.content = .flat(isMerge: commit.isMerge, color: 0, decor)
@@ -1121,6 +1230,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
                 content.labels = display.labels
                 content.labelColor = isFlat ? 0 : snapshot.row(index).nodeColor
             }
+            content.connects = refsConnectToGraph
             cell.content = content
             return cell
         case Self.columnAuthor:
@@ -1177,6 +1287,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        refsHover.hide(animated: false)
         guard !isSyncingSelection else { return }
         var rows = tableView.selectedRowIndexes
         // Compare takes exactly two commits; a third replaces the oldest selection.
@@ -1209,7 +1320,12 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard let column = notification.userInfo?["NSTableColumn"] as? NSTableColumn,
             column.identifier != Self.columnGraph, !isFittingColumns
         else { return }
-        columnResized()
+        userResized(
+            column, oldWidth: (notification.userInfo?["NSOldWidth"] as? NSNumber).map { CGFloat($0.doubleValue) })
+    }
+
+    func tableViewColumnDidMove(_ notification: Notification) {
+        userMovedColumn()
     }
 }
 
@@ -1217,6 +1333,10 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
 
 extension GraphViewController: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === columnsMenu {
+            buildColumnsMenu()
+            return
+        }
         menu.removeAllItems()
         let row = tableView.clickedRow
         guard row >= 0, let kind = displayRow(row) else { return }
@@ -1322,7 +1442,13 @@ extension GraphViewController: NSMenuDelegate {
 
     /// The pill under the click in the ref column; `isOverflow` for the `+N` pill.
     private func pillUnderClick(row: Int) -> (label: RefLabel?, isOverflow: Bool)? {
-        guard let event = NSApp.currentEvent,
+        guard let event = NSApp.currentEvent else { return nil }
+        if refsHover.row == row, !refsHover.isHidden {
+            // The expanded labels cover the cell: the click is on what is shown.
+            let point = refsHover.convert(event.locationInWindow, from: nil)
+            return refsHover.label(at: point).map { ($0, false) }
+        }
+        guard
             let column = tableView.tableColumns.firstIndex(where: { $0.identifier == Self.columnRefs }),
             let cell = tableView.view(atColumn: column, row: row, makeIfNecessary: false) as? RefsCellView
         else { return nil }
@@ -1420,7 +1546,7 @@ final class GraphTableView: NSTableView, @MainActor NSAccessibilityCustomRotorIt
         super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
         let row = row(at: point)
-        controller?.mouseMoved(toRow: row >= 0 ? row : nil)
+        controller?.mouseMoved(toRow: row >= 0 ? row : nil, at: point)
     }
 
     override func mouseExited(with event: NSEvent) {

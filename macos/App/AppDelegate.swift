@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let model = AppModel(
             engine: engine, preferences: preferences, recents: RecentsStore(location: location),
             profiles: ProfileStore(location: location), sessionStore: sessionStore)
+        model.avatars.fetcher = AvatarStore.networkFetcher
         let savedSession = sessionStore.load().value
         let controller = MainWindowController(model: model)
         self.model = model

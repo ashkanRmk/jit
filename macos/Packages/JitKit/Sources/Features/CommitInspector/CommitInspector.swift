@@ -54,7 +54,17 @@ final class InspectorModel {
         openedFilePath = file.path
         diff?.open(target)
     }
+
+    /// The diff was closed from the centre pane (Esc, its close button): the file row drops its highlight.
+    func closeDiff() {
+        openedFilePath = nil
+        if mode == .workingDirectory { workingDirectory?.selection = [] }
+        diff?.close()
+    }
+
     @ObservationIgnored var selectCommit: (ObjectID) -> Void = { _ in }
+    /// Author pictures (`AvatarStore`); `nil` in previews and tests.
+    @ObservationIgnored var avatars: AvatarStore?
     @ObservationIgnored var showFileHistory: (String, Bool) -> Void = { _, _ in }
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var spinnerTask: Task<Void, Never>?
@@ -140,7 +150,19 @@ final class InspectorModel {
     private func finish() {
         spinnerTask?.cancel()
         showsSpinner = false
+        #if DEBUG
+            // `-JitInspectorOpenFile <n>` (screenshots): opens the diff of the n-th changed file once.
+            if !debugOpenedFile, UserDefaults.standard.object(forKey: "JitInspectorOpenFile") != nil {
+                debugOpenedFile = true
+                let index = UserDefaults.standard.integer(forKey: "JitInspectorOpenFile")
+                if files.indices.contains(index) { openDiff(files[index]) }
+            }
+        #endif
     }
+
+    #if DEBUG
+        @ObservationIgnored private var debugOpenedFile = false
+    #endif
 }
 
 /// Inspector content (opaque `surface.panel`, design §3.4).
@@ -154,21 +176,23 @@ struct CommitInspectorView: View {
                 Placeholder(text: "Select a commit")
             case .commit(let oid):
                 ScrollView {
-                    VStack(alignment: .leading, spacing: Space.s7) {
+                    VStack(alignment: .leading, spacing: Space.s5) {
                         if let details = model.details {
                             CommitHeader(details: details, model: model)
                         } else if let error = model.error {
-                            InlineError(text: error)
+                            InlineError(text: error).panelSection()
                         } else {
                             Text(oid.hex(model.format, length: 7))
                                 .typeStyle(.monoBody)
                                 .foregroundStyle(.token(.textTertiary))
+                                .panelSection()
                         }
                         if model.details != nil {
                             FilesSection(model: model, isMerge: (model.details?.parents.count ?? 0) > 1)
+                                .panelSection()
                         }
                     }
-                    .padding(Space.s7)
+                    .padding(Space.s5)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             case .workingDirectory:
@@ -177,61 +201,34 @@ struct CommitInspectorView: View {
                 }
             case .compare(let a, let b):
                 ScrollView {
-                    VStack(alignment: .leading, spacing: Space.s6) {
-                        CompareHeader(model: model, from: a, to: b)
-                        FilesSection(model: model, isMerge: false)
+                    VStack(alignment: .leading, spacing: Space.s5) {
+                        CompareHeader(model: model, from: a, to: b).panelSection()
+                        FilesSection(model: model, isMerge: false).panelSection()
                     }
-                    .padding(Space.s7)
+                    .padding(Space.s5)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             case .compareWithWorkingDirectory(let oid):
                 ScrollView {
-                    VStack(alignment: .leading, spacing: Space.s6) {
-                        Text("Comparing \(oid.hex(model.format, length: 7)) → working directory")
-                            .typeStyle(.headline)
-                            .foregroundStyle(.token(.textPrimary))
-                        Text("Tracked files only — untracked files are not included.")
-                            .typeStyle(.callout)
-                            .foregroundStyle(.token(.textTertiary))
-                        FilesSection(model: model, isMerge: false)
+                    VStack(alignment: .leading, spacing: Space.s5) {
+                        VStack(alignment: .leading, spacing: Space.s3) {
+                            Text("Comparing \(oid.hex(model.format, length: 7)) → working directory")
+                                .typeStyle(.headline)
+                                .foregroundStyle(.token(.textPrimary))
+                            Text("Tracked files only — untracked files are not included.")
+                                .typeStyle(.callout)
+                                .foregroundStyle(.token(.textTertiary))
+                        }
+                        .panelSection()
+                        FilesSection(model: model, isMerge: false).panelSection()
                     }
-                    .padding(Space.s7)
+                    .padding(Space.s5)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ColorToken.surfacePanel.color.ignoresSafeArea())
-    }
-}
-
-/// The inspector: its content above, the diff viewer below once a file is chosen (design §3.3).
-struct InspectorWithDiff: View {
-    let model: InspectorModel
-    let diff: DiffViewModel
-    let controller: DiffViewController
-
-    var body: some View {
-        if diff.target == nil {
-            CommitInspectorView(model: model)
-        } else {
-            VSplitView {
-                CommitInspectorView(model: model)
-                    .frame(minHeight: 160, idealHeight: 260)
-                Group {
-                    if diff.isFocused {
-                        Text("Shown in Focused Diff — press Esc to return")
-                            .typeStyle(.callout)
-                            .foregroundStyle(.token(.textTertiary))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(ColorToken.surfacePanel.color)
-                    } else {
-                        DiffPane(controller: controller)
-                    }
-                }
-                .frame(minHeight: 200, idealHeight: 420)
-            }
-        }
     }
 }
 
@@ -262,7 +259,8 @@ private struct CommitHeader: View {
     @State private var hoversSHA = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s6) {
+        // One container per section: the message, the people, the commit's facts.
+        VStack(alignment: .leading, spacing: Space.s5) {
             VStack(alignment: .leading, spacing: Space.s4) {
                 Text(DisplayText.sanitize(details.subject))
                     .typeStyle(.title)
@@ -277,32 +275,26 @@ private struct CommitHeader: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .panelSection()
+            VStack(alignment: .leading, spacing: Space.s5) {
+                PersonLine(
+                    role: hasCommitter ? "Author" : nil, name: details.authorName, email: details.authorEmail,
+                    date: Self.date(details.authorTime),
+                    dateHelp: Self.iso(details.authorTime) + " (" + details.authorTimeZone + ")", avatars: model.avatars
+                )
+                if hasCommitter {
+                    PersonLine(
+                        role: "Committer", name: details.committerName, email: details.committerEmail,
+                        date: details.committerTime != details.authorTime ? Self.date(details.committerTime) : nil,
+                        dateHelp: Self.iso(details.committerTime), avatars: model.avatars)
+                } else if details.committerTime != details.authorTime {
+                    Text("Committed \(Self.date(details.committerTime))")
+                        .typeStyle(.caption)
+                        .foregroundStyle(.token(.textTertiary))
+                }
+            }
+            .panelSection()
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Space.s5, verticalSpacing: Space.s4) {
-                GridRow {
-                    MetaLabel("Author")
-                    PersonLine(name: details.authorName, email: details.authorEmail)
-                }
-                if details.committerName != details.authorName || details.committerEmail != details.authorEmail {
-                    GridRow {
-                        MetaLabel("Committer")
-                        PersonLine(name: details.committerName, email: details.committerEmail)
-                    }
-                }
-                GridRow {
-                    MetaLabel(details.committerTime == details.authorTime ? "Date" : "Authored")
-                    Text(Self.date(details.authorTime))
-                        .typeStyle(.callout)
-                        .foregroundStyle(.token(.textSecondary))
-                        .help(Self.iso(details.authorTime) + " (" + details.authorTimeZone + ")")
-                }
-                if details.committerTime != details.authorTime {
-                    GridRow {
-                        MetaLabel("Committed")
-                        Text(Self.date(details.committerTime))
-                            .typeStyle(.callout)
-                            .foregroundStyle(.token(.textSecondary))
-                    }
-                }
                 GridRow {
                     MetaLabel("SHA")
                     HStack(spacing: Space.s3) {
@@ -348,7 +340,12 @@ private struct CommitHeader: View {
                     }
                 }
             }
+            .panelSection()
         }
+    }
+
+    private var hasCommitter: Bool {
+        details.committerName != details.authorName || details.committerEmail != details.authorEmail
     }
 
     private var refsHere: [String] {
@@ -376,20 +373,86 @@ private struct MetaLabel: View {
     }
 }
 
+/// A person with their picture (Gravatar when there is one, initials otherwise), name, email and date.
 private struct PersonLine: View {
+    let role: String?
     let name: String
     let email: String
+    let date: String?
+    let dateHelp: String
+    let avatars: AvatarStore?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(DisplayText.sanitize(name))
-                .typeStyle(.callout)
-                .foregroundStyle(.token(.textPrimary))
-            Text(DisplayText.sanitize(email))
-                .typeStyle(.caption)
-                .foregroundStyle(.token(.textTertiary))
-                .textSelection(.enabled)
+        HStack(alignment: .center, spacing: Space.s4) {
+            AvatarView(name: name, email: email, store: avatars, size: 32)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
+                    Text(DisplayText.sanitize(name))
+                        .typeStyle(.headline)
+                        .foregroundStyle(.token(.textPrimary))
+                        .lineLimit(1)
+                    if let role {
+                        Text(role)
+                            .typeStyle(.caption)
+                            .foregroundStyle(.token(.textTertiary))
+                    }
+                }
+                Text(DisplayText.sanitize(email))
+                    .typeStyle(.caption)
+                    .foregroundStyle(.token(.textTertiary))
+                    .textSelection(.enabled)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let date {
+                    Text(date)
+                        .typeStyle(.caption)
+                        .foregroundStyle(.token(.textSecondary))
+                        .help(dateHelp)
+                }
+            }
+            Spacer(minLength: 0)
         }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// An author's picture in a circle: the Gravatar picture when one is known, initials on the author's
+/// colour otherwise (the same colour and initials as the graph node).
+struct AvatarView: View {
+    let name: String
+    let email: String
+    let store: AvatarStore?
+    var size: CGFloat = 28
+
+    var body: some View {
+        // Reading the revision makes the view refresh when a picture arrives.
+        let _ = store?.revision
+        Group {
+            if let image = store?.image(for: email) {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                let color = Self.color(email: email)
+                ZStack {
+                    color.opacity(0.22)
+                    Text(AvatarStyle.initials(for: name))
+                        .font(Font(GraphTypography.nodeInitials(diameter: size)))
+                        .foregroundStyle(color)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().strokeBorder(ColorToken.borderSubtle.color, lineWidth: Border.hairline))
+        .accessibilityHidden(true)
+    }
+
+    @MainActor static func color(email: String) -> Color {
+        var hash = StableHash()
+        hash.combine(email.lowercased())
+        return LaneColor.allCases[AvatarStyle.colorSlot(forHash: hash.value)].color
     }
 }
 
@@ -512,11 +575,14 @@ private struct FileRow: View {
                 .foregroundStyle(statusColor)
                 .frame(width: 12)
                 .accessibilityLabel(statusName)
-            pathText
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
+            FilePathText(
+                prefix: file.oldPath.map { DisplayText.sanitize($0) + " → " },
+                directory: nameOnly ? "" : (DisplayText.sanitize(file.path) as NSString).deletingLastPathComponent,
+                name: (DisplayText.sanitize(file.path) as NSString).lastPathComponent
+            )
+            .font(TypeToken.monoCaption.font)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
             StatBar(additions: file.additions, deletions: file.deletions)
         }
         .padding(.vertical, Space.s2)
@@ -541,20 +607,6 @@ private struct FileRow: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var pathText: Text {
-        let path = DisplayText.sanitize(file.path)
-        let name = (path as NSString).lastPathComponent
-        let directory = (path as NSString).deletingLastPathComponent
-        var result = Text("")
-        if let old = file.oldPath {
-            result = Text(DisplayText.sanitize(old) + " → ").foregroundStyle(.token(.textTertiary))
-        }
-        if !nameOnly, !directory.isEmpty {
-            result = result + Text(directory + "/").foregroundStyle(.token(.textTertiary))
-        }
-        return (result + Text(name).foregroundStyle(.token(.textPrimary))).font(TypeToken.monoCaption.font)
-    }
-
     private var statusColor: Color {
         switch file.status {
         case .added: .token(.diffAddMark)
@@ -576,6 +628,66 @@ private struct FileRow: View {
         case .unmerged: "Unmerged"
         case .unknown: "Changed"
         }
+    }
+}
+
+/// A file path on one line that never cuts the file name: when it does not fit, the folders before the name
+/// shorten in the middle (`src/…/views/`) and the name stays whole. The name itself shortens only when it
+/// alone is wider than the row.
+struct FilePathText: View {
+    var prefix: String?
+    let directory: String
+    let name: String
+
+    var body: some View {
+        let leading = (prefix ?? "") + (directory.isEmpty ? "" : directory + "/")
+        FilePathLayout {
+            Text(leading)
+                .foregroundStyle(.token(.textTertiary))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(minWidth: 0, alignment: .leading)
+                .clipped()
+            Text(name)
+                .foregroundStyle(.token(.textPrimary))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+}
+
+/// Lays out `[folders, name]` on one line: the name takes the width it needs first; the folders get what is
+/// left, and disappear when that is too little to show anything useful.
+struct FilePathLayout: Layout {
+    /// Below this the folders would be an ellipsis and a letter: show the name alone.
+    static let minimumFolders: CGFloat = 36
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let folders = subviews[0].sizeThatFits(.unspecified)
+        let name = subviews[1].sizeThatFits(.unspecified)
+        let ideal = folders.width + name.width
+        return CGSize(width: min(ideal, proposal.width ?? ideal), height: max(folders.height, name.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let widths = Self.widths(
+            available: bounds.width, folders: subviews[0].sizeThatFits(.unspecified).width,
+            name: subviews[1].sizeThatFits(.unspecified).width)
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX, y: bounds.midY), anchor: .leading,
+            proposal: ProposedViewSize(width: widths.folders, height: bounds.height))
+        subviews[1].place(
+            at: CGPoint(x: bounds.minX + widths.folders, y: bounds.midY), anchor: .leading,
+            proposal: ProposedViewSize(width: widths.name, height: bounds.height))
+    }
+
+    static func widths(available: CGFloat, folders: CGFloat, name: CGFloat) -> (folders: CGFloat, name: CGFloat) {
+        let nameWidth = min(name, available)
+        var foldersWidth = min(folders, available - nameWidth)
+        if foldersWidth < min(folders, minimumFolders) { foldersWidth = 0 }
+        return (foldersWidth, nameWidth)
     }
 }
 

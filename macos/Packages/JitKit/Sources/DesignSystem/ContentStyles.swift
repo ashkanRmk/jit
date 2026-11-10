@@ -25,6 +25,11 @@ extension View {
         modifier(ContentCard(padding: padding))
     }
 
+    /// One section of a side panel in its own container (0.0.2): a `contentCard` that fills the panel's width.
+    public func panelSection(padding: CGFloat = Space.s5) -> some View {
+        frame(maxWidth: .infinity, alignment: .leading).contentCard(padding: padding)
+    }
+
     /// The window's content layer background.
     public func canvasBackground() -> some View {
         background(ColorToken.surfaceCanvas.color)

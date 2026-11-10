@@ -229,8 +229,8 @@ public enum CommandRegistry {
                 #selector(GraphViewController.toggleCommandBarLabels(_:)),
                 group: 2, submenu: ["Command Bar"], symbol: "textformat"),
             C(
-                "view.focusDiff", "Focus Diff", .view, #selector(DiffViewController.toggleFocusDiff(_:)), key: "\r",
-                [.command, .option], group: 3, symbol: "arrow.up.left.and.arrow.down.right"),
+                "view.focusDiff", "Close Diff", .view, #selector(DiffViewController.toggleFocusDiff(_:)), key: "\r",
+                [.command, .option], group: 3, symbol: "xmark"),
             C(
                 "view.blame", "Blame File", .view, #selector(DiffViewController.showBlame(_:)), key: "B", group: 3,
                 symbol: "person.text.rectangle"),

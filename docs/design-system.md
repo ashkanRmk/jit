@@ -84,9 +84,16 @@ adjacent lane's colour (ADR-0021).
   ring in the system accent. Edges: straight per row, S-curves (control points at 50 %) confined to a half
   row; butt caps; vertical lines snapped to the device pixel grid. No gradients, glow or neon.
 - Ref pills (opaque, never glass, radius `radius.xs`): local = lane colour at 14 % (light) / 22 % (dark)
-  with lane-colour text; current = + 6 pt dot and semibold; local + upstream at the same commit = one pill
-  `main ⇄ origin`; remote = 1 pt outline at 60 %, remote prefix dimmed; tag = neutral fill + `tag` symbol;
-  detached `HEAD` = neutral fill with `status.warning` outline; more than 3 → `+N`.
+  with lane-colour text; current = + checkmark and semibold; where a branch lives is a glyph, not text (0.0.2): `laptopcomputer`
+  = local, `cloud` = remote, both for a local branch and its upstream at the same commit; remote-only = 1 pt
+  outline at 60 %, cloud glyph, name without the remote prefix; tag = neutral fill + `tag` symbol;
+  detached `HEAD` = neutral fill with `status.warning` outline; the cell shows the first label and `+N`.
+  Hovering the column shows every label in full in an opaque strip over the row (grows with `motion.select`,
+  fades with `motion.feedback.out`, instant with Reduce Motion); tooltips: cloud = full remote name.
+- Graph node: the author's Gravatar picture inside the lane ring when there is one (ADR-0050), initials
+  otherwise; its tooltip is name / email / date.
+- Columns: a standard table header; drag to reorder, drag an edge to resize, right-click to show or hide.
+  The message column takes the remaining width; in narrow panes SHA hides, then author, date, branch narrow.
 - WIP row: dashed hollow node on HEAD's lane, dashed edge into HEAD's row, counts in `text.tertiary`.
 - Rows: hover `state.hover` (100 ms in / 140 ms out, off during live scroll, instant with Reduce Motion);
   selection = system accent 16 %/24 % + 2 pt leading accent bar; search matches tinted with the system
@@ -164,8 +171,15 @@ Chrome text uses the system's fonts. Counts use `.monospacedDigit()`. SF Symbols
 - **Inspector visibility:** opens when something is selected (a commit, two commits, the WIP row) and closes
   when the selection becomes empty; a new tab starts closed. Esc in the graph leaves search / solo / file
   history / compare first, then clears the selection (closing the inspector); with nothing selected, Esc
-  closes an inspector opened by the toolbar button or ⌥⌘0, which keeps working as a manual toggle. It always
-  opens at the shared inspector width.
+  closes an inspector opened by the toolbar button or ⌥⌘0, which keeps working as a manual toggle. It slides
+  in with the system split-view animation (`motion.panel`; instant with Reduce Motion) and settles on the
+  shared inspector width.
+- **Panel sections (0.0.2):** each section of a side panel sits in its own container — `panelSection()`
+  (`contentCard`: `surface.raised`, hairline `border.subtle`, `radius.md`) in the inspector and the
+  working-directory list; in the sidebar a `state.hover` fill with a hairline border behind each top-level
+  section. File paths never cut the file name: the folders shorten in the middle, then disappear.
+- **Diff placement (0.0.2):** a chosen file's diff covers the graph area; Esc / close returns to the graph.
+- **Command bar search (0.0.2):** a magnifier button that opens into the field (click or ⌘F).
 - Density: compact 22 pt rows, comfortable 26 pt (default).
 
 ## Motion (`MotionToken`)

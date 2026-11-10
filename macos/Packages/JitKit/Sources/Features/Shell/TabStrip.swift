@@ -9,6 +9,9 @@ struct TabStripView: View {
     let model: AppModel
     @Namespace private var glassNamespace
     @State private var drag: DragState?
+    /// The tab count the strip last settled on. While it differs from the model's (a tab was just closed or
+    /// opened), nothing animates: the closed tab's glass used to slide behind its neighbour before vanishing.
+    @State private var settledCount = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     struct DragState: Equatable {
@@ -66,6 +69,7 @@ struct TabStripView: View {
                     move: { offset in model.moveTab(tab.id, by: offset) }
                 )
                 .id(tab.id)
+                .transition(.identity)
                 .offset(x: offset(for: index, tab: tab, layout: layout))
                 .zIndex(drag?.id == tab.id ? 1 : 0)
                 // A plain (not high-priority) gesture so the close button inside keeps its clicks.
@@ -73,8 +77,14 @@ struct TabStripView: View {
             }
         }
         .animation(reduceMotion ? nil : MotionToken.select.animation, value: drag?.destination)
-        // Glass morph on selection only with motion; Reduce Motion switches instantly (no morph).
-        .animation(reduceMotion ? nil : MotionToken.glassMorph.animation, value: model.activeTabID)
+        // Glass morph on selection only with motion; Reduce Motion switches instantly (no morph). Closing or
+        // opening a tab also changes the selection, but the row is laid out anew then: no morph either.
+        .animation(
+            reduceMotion || tabs.count != settledCount ? nil : MotionToken.glassMorph.animation,
+            value: model.activeTabID
+        )
+        .transaction(value: tabs.count) { $0.animation = nil }
+        .onChange(of: tabs.count, initial: true) { _, count in settledCount = count }
     }
 
     private func offset(for index: Int, tab: TabModel, layout: TabOrdering.Layout) -> CGFloat {

@@ -300,6 +300,15 @@ extension NavigatorViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
         return cell
     }
 
+    /// Section rows are taller: the extra height is the gap between two section containers.
+    func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
+        // `rowHeight` follows the system's sidebar icon size.
+        if case .section = (item as? NavigatorNode)?.kind {
+            return outlineView.rowHeight + NavigatorOutlineView.sectionGap
+        }
+        return outlineView.rowHeight
+    }
+
     func outlineViewItemDidExpand(_ notification: Notification) {
         guard let node = notification.userInfo?["NSObject"] as? NavigatorNode else { return }
         if !isRestoringExpansion, filterField.stringValue.isEmpty {
@@ -437,6 +446,44 @@ extension NavigatorViewController {
 final class NavigatorOutlineView: NSOutlineView {
     weak var controller: NavigatorViewController?
 
+    static let sectionGap: CGFloat = Space.s4
+
+    /// One container per section (0.0.2): a rounded, lightly filled shape behind each top-level section and
+    /// the rows under it. Drawn here, behind the rows, so row reuse and selection are untouched.
+    override func drawBackground(inClipRect clipRect: NSRect) {
+        super.drawBackground(inClipRect: clipRect)
+        let fill = ColorToken.stateHover.nsColor
+        let stroke = ColorToken.borderSubtle.nsColor
+        var row = 0
+        while row < numberOfRows {
+            guard level(forRow: row) == 0 else {
+                row += 1
+                continue
+            }
+            var last = row
+            while last + 1 < numberOfRows, level(forRow: last + 1) > 0 { last += 1 }
+            var rect = self.rect(ofRow: row).union(self.rect(ofRow: last))
+            rect.origin.y += Self.sectionGap
+            rect.size.height -= Self.sectionGap
+            rect = rect.insetBy(dx: Space.s3, dy: 0)
+            if rect.intersects(clipRect) {
+                let path = NSBezierPath(roundedRect: rect, xRadius: Radius.md, yRadius: Radius.md)
+                fill.setFill()
+                path.fill()
+                stroke.setStroke()
+                path.lineWidth = Border.hairline
+                path.stroke()
+            }
+            row = last + 1
+        }
+    }
+
+    /// The containers follow the rows: redraw the background when rows are added, removed or resized.
+    override func noteNumberOfRowsChanged() {
+        super.noteNumberOfRowsChanged()
+        needsDisplay = true
+    }
+
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.keyCode == 36 || event.keyCode == 76 {  // Return / Enter
@@ -456,6 +503,8 @@ final class NavigatorCellView: NSTableCellView {
     private let badge = NSTextField(labelWithString: "")
     private let dot = NSView()
     private let pin = NSImageView()
+    /// Section titles sit in their container, below the gap at the top of a section row.
+    private lazy var sectionOffset = title.centerYAnchor.constraint(equalTo: centerYAnchor)
 
     init() {
         super.init(frame: .zero)
@@ -478,9 +527,9 @@ final class NavigatorCellView: NSTableCellView {
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Space.s1),
             icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            sectionOffset,
             icon.widthAnchor.constraint(equalToConstant: IconSize.md),
             title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: Space.s3),
-            title.centerYAnchor.constraint(equalTo: centerYAnchor),
             dot.leadingAnchor.constraint(equalTo: title.trailingAnchor, constant: Space.s3),
             dot.centerYAnchor.constraint(equalTo: centerYAnchor),
             dot.widthAnchor.constraint(equalToConstant: 6),
@@ -489,7 +538,7 @@ final class NavigatorCellView: NSTableCellView {
             pin.centerYAnchor.constraint(equalTo: centerYAnchor),
             badge.leadingAnchor.constraint(equalTo: pin.trailingAnchor, constant: Space.s2),
             badge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Space.s4),
-            badge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badge.centerYAnchor.constraint(equalTo: title.centerYAnchor),
         ])
     }
 
@@ -505,6 +554,11 @@ final class NavigatorCellView: NSTableCellView {
         pin.isHidden = true
         icon.isHidden = false
         toolTip = nil
+        if case .section = node.kind {
+            sectionOffset.constant = NavigatorOutlineView.sectionGap / 2
+        } else {
+            sectionOffset.constant = 0
+        }
         switch node.kind {
         case .section(let section):
             title.stringValue = section.rawValue

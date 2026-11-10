@@ -118,6 +118,14 @@ struct GeneralSettingsView: View {
             }
             .pickerStyle(.segmented)
             Toggle("Restore tabs on launch", isOn: $preferences.restoreTabsOnLaunch)
+            Section {
+                Toggle("Show author pictures from Gravatar", isOn: $preferences.showsGravatarAvatars)
+            } footer: {
+                Text(
+                    "Jit asks gravatar.com for a picture using a hash of each author's email address, for commits on screen. Authors without one keep their initials."
+                )
+                .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }
