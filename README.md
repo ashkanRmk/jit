@@ -81,9 +81,6 @@ Not in V1 by design: pull/merge request management, code review, CI dashboards, 
 - No XCUITest target (keyboard-only commit and conflict flows, accessibility audit are untested at UI level).
 - Tab switch is 17.4 ms median against a 16 ms target.
 - In a short window with a diff open, the inspector gives the file list too little height.
-- The website ([ashkanrmk.github.io/jit](https://ashkanrmk.github.io/jit/), source in [`site/`](site/)) is not
-  deployed yet: GitHub Pages is not enabled for the repository, and its Pages workflow is blocked by the same
-  GitHub Actions billing limit.
 
 **Post-V1 (Phase 8, all unstarted)** — reflog explorer, reset, tags, interactive rebase, commit surgery,
 history filters, worktrees, patches, advanced remotes, branch history manipulation, signing, submodules, LFS.
