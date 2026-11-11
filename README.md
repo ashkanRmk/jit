@@ -3,7 +3,19 @@
 A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + AppKit), native Liquid
 Glass design, driving the Git CLI. No Electron, web views, background daemons or telemetry.
 
-![Commit graph](docs/phases/07-packaging-and-release/screenshots/release-graph-branchy-dark.png)
+**[Website](https://ashkanrmk.github.io/jit/)** · **[Download the latest test build](https://github.com/ashkanRmk/jit/releases)**
+(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.0.5.md)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/graph-dark.webp">
+  <img src="site/assets/shots/graph-light.webp" width="1000" alt="Jit showing the commit graph of a repository with feature branches merging into main, the branch sidebar on the left and the selected commit's details on the right.">
+</picture>
+
+| Working copy | Side-by-side diff |
+|---|---|
+| <picture><source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/wip-dark.webp"><img src="site/assets/shots/wip-light.webp" alt="Uncommitted changes at the top of the graph, with unstaged and staged files and the commit summary and description fields."></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/diff-dark.webp"><img src="site/assets/shots/diff-light.webp" alt="A side-by-side diff of a Swift file with added and removed lines highlighted, next to the commit's author and changed files."></picture> |
+
+Screenshots follow your GitHub light/dark appearance. They are real captures of Jit 0.0.5.
 
 ## Status
 
@@ -64,7 +76,9 @@ Not in V1 by design: pull/merge request management, code review, CI dashboards, 
 - No XCUITest target (keyboard-only commit and conflict flows, accessibility audit are untested at UI level).
 - Tab switch is 17.4 ms median against a 16 ms target.
 - In a short window with a diff open, the inspector gives the file list too little height.
-- Updates (ADR-0051) need the releases to be public on GitHub. Until then the bell shows the saved change log only.
+- The website ([ashkanrmk.github.io/jit](https://ashkanrmk.github.io/jit/), source in [`site/`](site/)) is not
+  deployed yet: GitHub Pages is not enabled for the repository, and its Pages workflow is blocked by the same
+  GitHub Actions billing limit.
 
 **Post-V1 (Phase 8, all unstarted)** — reflog explorer, reset, tags, interactive rebase, commit surgery,
 history filters, worktrees, patches, advanced remotes, branch history manipulation, signing, submodules, LFS.
@@ -72,10 +86,11 @@ history filters, worktrees, patches, advanced remotes, branch history manipulati
 ## Install
 - **System requirements:** macOS 26 or later on Apple silicon (arm64; ADR-0049). Nothing else: Jit bundles Git
   2.56.0 and doesn't need Xcode, the Command Line Tools or Homebrew. SSH uses the system `/usr/bin/ssh`.
-- **Get the app:** there is no public download yet (see [What remains](#what-remains)). Build the DMG yourself
-  with `scripts/release/release.sh --adhoc` (see [`docs/release.md`](docs/release.md)), open
-  `build/release/0.0.5/Jit-0.0.5.dmg` and drag **Jit** to **Applications**. A DMG built on your own Mac is not
-  quarantined and opens without the step below.
+- **Get the app:** download `Jit-<version>.dmg` from the newest test build on
+  [GitHub Releases](https://github.com/ashkanRmk/jit/releases) (pre-releases; currently 0.0.5), open it and drag
+  **Jit** to **Applications**. Or build the DMG yourself with `scripts/release/release.sh --adhoc` (see
+  [`docs/release.md`](docs/release.md)); a DMG built on your own Mac is not quarantined and opens without the
+  step below.
 - **First launch — Jit is not notarized by Apple** (it's signed ad-hoc). A DMG downloaded from the internet
   makes macOS show "“Jit” Not Opened — Apple could not verify…". Click **Done** (not Move to Trash), then either:
   - **System Settings → Privacy & Security**, scroll to "“Jit” was blocked…", click **Open Anyway**, confirm
