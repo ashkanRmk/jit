@@ -4,47 +4,72 @@ import GitCore
 import Services
 import SwiftUI
 
-/// Settings ▸ Accounts (design §3.2): one row per hosting account with method, scopes, expiry, last check and
-/// status; Check Now, Replace Token…, Reconnect, Disconnect…. Nothing is checked in the background.
+/// Settings ▸ Accounts (spec P8.accounts.1): one tab per place an account can live — GitHub, GitHub Enterprise,
+/// GitLab, GitLab Self-Managed. A tab shows its connected accounts (status, Check Now, Replace Token…,
+/// Disconnect…) or the connect form: a browser button on the SaaS tabs when this build has an OAuth client ID,
+/// a host domain on the self-hosted tabs, and a personal access token. Connect checks the token and saves it in
+/// one step. Nothing is checked in the background.
 struct AccountsSettingsView: View {
     let accounts: AccountsService
     let open: (SettingsWindowController.Pane) -> Void
+    @State private var tab: AccountTab
+    @State private var adding: Set<AccountTab> = []
     @State private var connect: ConnectAccountRequest?
     @State private var pendingDisconnect: HostingAccount?
     @State private var checking: Set<HostingAccountID> = []
     @State private var checkMessages: [HostingAccountID: String] = [:]
 
+    init(accounts: AccountsService, open: @escaping (SettingsWindowController.Pane) -> Void) {
+        self.accounts = accounts
+        self.open = open
+        // `-JitAccountsTab <tab>` opens a given tab (screenshots).
+        let requested = UserDefaults.standard.string(forKey: "JitAccountsTab").flatMap(AccountTab.init(rawValue:))
+        _tab = State(initialValue: requested ?? .github)
+    }
+
     private var store: ProfileStore { accounts.profiles }
+
+    private func instances(in tab: AccountTab) -> [ProviderInstance] {
+        store.allInstances.filter { AccountTab.tab(for: $0) == tab }
+    }
+
+    private func accounts(in tab: AccountTab) -> [HostingAccount] {
+        let ids = Set(instances(in: tab).map(\.id))
+        return store.accounts.filter { ids.contains($0.instanceID) }
+    }
 
     var body: some View {
         Form {
-            if store.accounts.isEmpty {
-                Section {
-                    VStack(alignment: .leading, spacing: Space.s3) {
-                        Text("No hosting accounts yet").typeStyle(.headline)
-                        Text(
-                            "Connect a GitHub or GitLab account to push and pull over HTTPS and browse your repositories. Tokens are stored only in your Keychain."
-                        )
-                        .typeStyle(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, Space.s2)
+            Section {
+                Picker("Service", selection: $tab) {
+                    ForEach(AccountTab.allCases) { Text($0.title).tag($0) }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
-            ForEach(store.allInstances.filter { instance in store.accounts.contains { $0.instanceID == instance.id } })
-            {
+            let connected = accounts(in: tab)
+            ForEach(instances(in: tab).filter { instance in connected.contains { $0.instanceID == instance.id } }) {
                 instance in
-                Section(instance.isSelfManaged ? "\(instance.name) — \(instance.httpsHost)" : instance.name) {
-                    ForEach(store.accounts.filter { $0.instanceID == instance.id }) { account in
+                Section(instance.isSelfManaged ? instance.httpsHost : instance.name) {
+                    ForEach(connected.filter { $0.instanceID == instance.id }) { account in
                         accountRow(account, instance: instance)
                     }
                 }
             }
-            Section {
-                HStack {
-                    Button("Connect Account…") { connect = ConnectAccountRequest(replacing: nil) }
-                    Spacer()
+            if connected.isEmpty || adding.contains(tab) {
+                AccountConnectForm(
+                    accounts: accounts, tab: tab, canCancel: !connected.isEmpty,
+                    openNetwork: { open(.network) }
+                ) {
+                    adding.remove(tab)
+                }
+                .id(tab)
+            } else {
+                Section {
+                    HStack {
+                        Button("Add Another Account…") { adding.insert(tab) }
+                        Spacer()
+                    }
                 }
             }
         }
@@ -71,15 +96,21 @@ struct AccountsSettingsView: View {
     private func accountRow(_ account: HostingAccount, instance: ProviderInstance) -> some View {
         VStack(alignment: .leading, spacing: Space.s3) {
             HStack(alignment: .top, spacing: Space.s4) {
-                Image(systemName: ProviderSymbols.symbol(instance.kind))
+                Image(systemName: "person.crop.circle.fill")
                     .symbolSize(IconSize.lg)
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: Space.s1) {
                     HStack(spacing: Space.s2) {
-                        Text("@\(account.login)").typeStyle(.headline)
+                        Text(account.displayName ?? "@\(account.login)").typeStyle(.headline)
+                        Spacer()
                         AccountStatusDot(status: account.status)
-                        Text(account.status.title).typeStyle(.caption).foregroundStyle(.secondary)
+                        Text(account.status.title)
+                            .typeStyle(.callout)
+                            .foregroundStyle(account.status == .ok ? .token(.statusSuccess) : .secondary)
+                    }
+                    if account.displayName != nil {
+                        Text("@\(account.login)").typeStyle(.callout).foregroundStyle(.secondary)
                     }
                     Text(AccountText.details(account))
                         .typeStyle(.caption)
@@ -93,7 +124,6 @@ struct AccountsSettingsView: View {
                         Text(message).typeStyle(.caption).foregroundStyle(.token(.statusWarning))
                     }
                 }
-                Spacer()
             }
             HStack {
                 Spacer()
@@ -123,6 +153,194 @@ struct AccountsSettingsView: View {
             case .success: checkMessages[account.id] = nil
             case .failure(let error): checkMessages[account.id] = error.localizedDescription
             }
+        }
+    }
+}
+
+/// The connect form of one tab: browser sign-in (SaaS tabs, only with a configured client ID), then host domain
+/// (self-hosted tabs) and personal access token with a single Connect.
+struct AccountConnectForm: View {
+    let accounts: AccountsService
+    let tab: AccountTab
+    let canCancel: Bool
+    let openNetwork: () -> Void
+    let finish: () -> Void
+    @State private var host = ""
+    @State private var token = ""
+    @State private var connecting = false
+    @State private var failure: String?
+    @State private var oauth: ConnectAccountModel
+
+    init(
+        accounts: AccountsService, tab: AccountTab, canCancel: Bool, openNetwork: @escaping () -> Void,
+        finish: @escaping () -> Void
+    ) {
+        self.accounts = accounts
+        self.tab = tab
+        self.canCancel = canCancel
+        self.openNetwork = openNetwork
+        self.finish = finish
+        let model = ConnectAccountModel(accounts: accounts, replacing: nil)
+        model.instanceID = tab.fixedInstance?.id ?? .github
+        model.method = .browser
+        _oauth = State(initialValue: model)
+    }
+
+    private var offersBrowser: Bool { tab.fixedInstance != nil && oauth.oauthClientID != nil }
+    private var hostIsValid: Bool { !tab.isSelfHosted || accounts.connectInstance(tab: tab, host: host) != nil }
+    private var canConnect: Bool {
+        !connecting && !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && hostIsValid
+    }
+
+    var body: some View {
+        if offersBrowser { browserSection }
+        Section {
+            if tab.isSelfHosted {
+                TextField("Host Domain", text: $host, prompt: Text(verbatim: hostPrompt))
+                    .autocorrectionDisabled()
+                    .onChange(of: host) { _, _ in failure = nil }
+                if !host.isEmpty, !hostIsValid {
+                    Text(ConnectAccountError.invalidHost.description)
+                        .typeStyle(.caption)
+                        .foregroundStyle(.token(.statusDanger))
+                }
+            }
+            SecureField("Personal Access Token", text: $token, prompt: Text(verbatim: "Paste the token"))
+                .onChange(of: token) { _, _ in failure = nil }
+                .onSubmit(connect)
+            if let url = tokenPageURL {
+                Link("Create a token on \(url.host ?? tab.title)…", destination: url)
+            }
+            Text(scopeGuidance)
+                .typeStyle(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let failure {
+                Label(failure, systemImage: "xmark.octagon")
+                    .typeStyle(.callout)
+                    .foregroundStyle(.token(.statusDanger))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: Space.s3) {
+                Button("Connect", action: connect)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canConnect)
+                if canCancel { Button("Cancel", action: finish) }
+                if connecting {
+                    ProgressView().controlSize(.small)
+                    Text("Checking the token…").typeStyle(.callout).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+        } header: {
+            Text(offersBrowser ? "Or use a personal access token" : "Connect to \(tab.title)")
+        } footer: {
+            VStack(alignment: .leading, spacing: Space.s2) {
+                Text(
+                    "The token is stored only in your Keychain. Jit never writes it to Git's configuration or any file."
+                )
+                if tab.isSelfHosted {
+                    HStack(spacing: Space.s1) {
+                        Text("Custom certificates and proxies are set per server in")
+                        Button("Servers & Network", action: openNetwork).buttonStyle(.link)
+                    }
+                }
+            }
+            .typeStyle(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private var browserSection: some View {
+        Section {
+            switch oauth.phase {
+            case .waitingForBrowser:
+                HStack(spacing: Space.s3) {
+                    ProgressView().controlSize(.small)
+                    Text("Waiting for the browser…").typeStyle(.callout)
+                    Spacer()
+                    Button("Cancel") { oauth.reset() }
+                }
+            case .deviceCode(let code, let url):
+                VStack(alignment: .leading, spacing: Space.s3) {
+                    Text("Enter this code on GitHub:").typeStyle(.callout)
+                    Text(code).typeStyle(.monoTitle).textSelection(.enabled)
+                    Link("Open \(url.host ?? "github.com")…", destination: url)
+                    HStack(spacing: Space.s3) {
+                        ProgressView().controlSize(.small)
+                        Text("Waiting for you to approve…").typeStyle(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel") { oauth.reset() }
+                    }
+                }
+            default:
+                HStack {
+                    Button("Connect with \(tab.title)") {
+                        oauth.signInWithBrowser(anchor: NSApp.keyWindow, finish: finish)
+                    }
+                    .controlSize(.large)
+                    Spacer()
+                }
+                if case .failed(let message) = oauth.phase {
+                    Label(message, systemImage: "xmark.octagon")
+                        .typeStyle(.callout)
+                        .foregroundStyle(.token(.statusDanger))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        } header: {
+            Text("Connect to \(tab.title)")
+        } footer: {
+            Text("Your browser opens \(tab.title)'s sign-in page. Jit receives a token for this account only.")
+                .typeStyle(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func connect() {
+        guard canConnect else { return }
+        let secret = SecretBytes(utf8: token.trimmingCharacters(in: .whitespacesAndNewlines))
+        connecting = true
+        failure = nil
+        Task {
+            let result = await accounts.connect(tab: tab, host: host, token: secret)
+            connecting = false
+            switch result {
+            case .success:
+                token = ""
+                host = ""
+                finish()
+            case .failure(let error):
+                failure = error.description
+            }
+        }
+    }
+
+    private var hostPrompt: String {
+        tab == .githubEnterprise ? "e.g., github.mycompany.com" : "e.g., gitlab.mycompany.com"
+    }
+
+    private var tokenPageURL: URL? {
+        switch tab {
+        case .github: return URL(string: "https://github.com/settings/personal-access-tokens/new")
+        case .gitlab: return URL(string: "https://gitlab.com/-/user_settings/personal_access_tokens")
+        case .githubEnterprise:
+            return accounts.connectInstance(tab: tab, host: host)?.webBaseURL
+                .appendingPathComponent("settings/tokens")
+        case .gitlabSelfManaged:
+            return accounts.connectInstance(tab: tab, host: host)?.webBaseURL
+                .appendingPathComponent("-/user_settings/personal_access_tokens")
+        }
+    }
+
+    private var scopeGuidance: String {
+        switch tab {
+        case .github:
+            "Fine-grained token: give it access to the repositories you need with Contents “Read and write” and Metadata “Read”. Classic token: “repo” for private repositories (“public_repo” for public only)."
+        case .githubEnterprise:
+            "Classic token with the “repo” scope, or a fine-grained token with Contents “Read and write” and Metadata “Read” if your server offers them."
+        case .gitlab, .gitlabSelfManaged:
+            "Scopes: read_api (browse repositories), read_repository (fetch and clone), write_repository (push)."
         }
     }
 }

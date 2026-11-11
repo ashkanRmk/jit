@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  OAuth client IDs for one-click sign-in on GitHub.com and GitLab.com (ADR-0017). Client IDs are public; a
+  client secret must never be added here. An empty value hides that "Connect with …" button.
+  GitHub: an OAuth App with "Enable Device Flow" ticked.
+  GitLab: an application that is not confidential, redirect URI jit://oauth/gitlab,
+          scopes read_api read_repository write_repository.
+-->
+<plist version="1.0">
+<dict>
+	<key>GitHubClientID</key>
+	<string></string>
+	<key>GitLabClientID</key>
+	<string></string>
+</dict>
+</plist>

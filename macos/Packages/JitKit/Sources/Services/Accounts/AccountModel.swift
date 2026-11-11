@@ -94,7 +94,7 @@ public struct ManualProxy: Codable, Sendable, Hashable {
     public var isValid: Bool { HostSyntax.isHostname(host) && (1...65_535).contains(port) }
 }
 
-/// A GitHub.com, GitLab.com or self-managed GitLab server (design §4.1). Non-secret configuration only.
+/// A GitHub.com, GitLab.com, GitHub Enterprise Server or self-managed GitLab server (design §4.1). Non-secret configuration only.
 public struct ProviderInstance: Codable, Sendable, Hashable, Identifiable {
     public let id: ProviderInstanceID
     public var kind: ProviderKind
@@ -185,7 +185,7 @@ public enum AccountStatus: String, Codable, Sendable, Hashable {
     public var title: String {
         switch self {
         case .unknown: "Not checked"
-        case .ok: "Signed in"
+        case .ok: "Connected"
         case .expired: "Expired"
         case .rejected: "Rejected"
         }
