@@ -82,7 +82,8 @@ extension AccountsService {
     public func provider(instance: ProviderInstance, method: AuthMethod, token: SecretBytes) async
         -> any HostingProvider
     {
-        let transport = await transport(for: instance)
+        let transport: any HTTPTransport =
+            if let transportOverride { transportOverride(instance) } else { await transport(for: instance) }
         switch instance.kind {
         case .github: return GitHubProvider(instance: instance, transport: transport, token: { token })
         case .gitlab: return GitLabProvider(instance: instance, method: method, transport: transport, token: { token })

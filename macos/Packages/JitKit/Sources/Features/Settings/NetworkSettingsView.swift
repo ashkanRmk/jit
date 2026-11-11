@@ -35,15 +35,18 @@ struct NetworkSettingsView: View {
             }
             Section {
                 if store.customInstances.isEmpty {
-                    Text("No self-managed servers. Add your company's GitLab to browse and authenticate against it.")
-                        .typeStyle(.callout)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        "No self-hosted servers. Connect one in Accounts with its host domain and a token, or add a GitLab server here."
+                    )
+                    .typeStyle(.callout)
+                    .foregroundStyle(.secondary)
                 }
                 ForEach(store.customInstances) { instance in
                     HStack(spacing: Space.s4) {
                         Image(systemName: "server.rack").foregroundStyle(.secondary).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: Space.s1) {
                             Text(instance.name).typeStyle(.headline)
+                            Text(AccountTab.tab(for: instance).title).typeStyle(.caption).foregroundStyle(.secondary)
                             Text(instance.webBaseURL.absoluteString).typeStyle(.monoCaption).foregroundStyle(.secondary)
                             Text(InstanceText.summary(instance, caStore: accounts.caStore))
                                 .typeStyle(.caption)
@@ -60,7 +63,7 @@ struct NetworkSettingsView: View {
                     Spacer()
                 }
             } header: {
-                Text("Self-managed GitLab servers")
+                Text("Self-hosted servers")
             }
         }
         .formStyle(.grouped)
@@ -212,7 +215,7 @@ struct ProxyModeEditor: View {
     }
 }
 
-/// Add/edit a self-managed GitLab server: URL with path prefix, SSH host/port, OAuth application ID (shows the
+/// Add a self-managed GitLab server, or edit any self-hosted server (the kind is kept): URL with path prefix, SSH host/port, OAuth application ID (shows the
 /// redirect URI and scopes for the admin), custom CAs (validated: must be a CA), proxy.
 struct InstanceEditorSheet: View {
     let accounts: AccountsService
@@ -243,23 +246,25 @@ struct InstanceEditorSheet: View {
                     TextField("SSH host", text: $sshHost, prompt: Text(verbatim: "git.corp.example"))
                     TextField("SSH port", text: $sshPort)
                 }
-                Section {
-                    TextField("OAuth application ID (optional)", text: $oauthID)
-                    LabeledContent("Redirect URI") {
-                        Text(GitLabOAuthClient.redirectURI).typeStyle(.monoCaption).textSelection(.enabled)
+                if (editing?.kind ?? .gitlab) == .gitlab {
+                    Section {
+                        TextField("OAuth application ID (optional)", text: $oauthID)
+                        LabeledContent("Redirect URI") {
+                            Text(GitLabOAuthClient.redirectURI).typeStyle(.monoCaption).textSelection(.enabled)
+                        }
+                        LabeledContent("Scopes") {
+                            Text(GitLabOAuthClient.defaultScopes.joined(separator: " ")).typeStyle(.monoCaption)
+                                .textSelection(.enabled)
+                        }
+                    } header: {
+                        Text("Browser sign-in")
+                    } footer: {
+                        Text(
+                            "Ask your GitLab administrator to register a non-confidential application with this redirect URI and scopes. No secret is needed."
+                        )
+                        .typeStyle(.caption)
+                        .foregroundStyle(.secondary)
                     }
-                    LabeledContent("Scopes") {
-                        Text(GitLabOAuthClient.defaultScopes.joined(separator: " ")).typeStyle(.monoCaption)
-                            .textSelection(.enabled)
-                    }
-                } header: {
-                    Text("Browser sign-in")
-                } footer: {
-                    Text(
-                        "Ask your GitLab administrator to register a non-confidential application with this redirect URI and scopes. No secret is needed."
-                    )
-                    .typeStyle(.caption)
-                    .foregroundStyle(.secondary)
                 }
                 Section {
                     ForEach(caIDs, id: \.self) { caID in
@@ -330,7 +335,8 @@ struct InstanceEditorSheet: View {
         guard HostSyntax.isHostname(host) else { return nil }
         let clientID = oauthID.trimmingCharacters(in: .whitespaces)
         return ProviderInstance(
-            id: id, kind: .gitlab, name: name.trimmingCharacters(in: .whitespaces), webBaseURL: url, sshHost: host,
+            id: id, kind: editing?.kind ?? .gitlab, name: name.trimmingCharacters(in: .whitespaces), webBaseURL: url,
+            sshHost: host,
             sshPort: port, oauthClientID: clientID.isEmpty ? nil : clientID, caCertificateIDs: caIDs, proxy: proxy)
     }
 

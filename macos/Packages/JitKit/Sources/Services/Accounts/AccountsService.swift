@@ -56,6 +56,8 @@ public final class AccountsService {
     /// OAuth client IDs (build-time `OAuthClients.plist`; never secrets).
     @ObservationIgnored public var oauthClients = OAuthClients(bundle: .main)
     @ObservationIgnored public let oauthRefresher = OAuthRefresher()
+    /// Tests only: answers token validation (`provider(instance:method:token:)`) instead of a URLSession.
+    @ObservationIgnored var transportOverride: (@MainActor (ProviderInstance) -> any HTTPTransport)?
 
     /// Published SSH fingerprints for github.com (fetched over verified HTTPS when the trust sheet opens).
     @ObservationIgnored public var publishedFingerprints: @Sendable (String) async -> [String] = { _ in [] }

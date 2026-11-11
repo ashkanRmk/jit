@@ -397,7 +397,10 @@ struct ConnectAccountSheet: View {
     private var tokenPageURL: URL? {
         guard let instance = model.instance else { return nil }
         switch instance.kind {
-        case .github: return URL(string: "https://github.com/settings/personal-access-tokens/new")
+        case .github:
+            return instance.isSelfManaged
+                ? instance.webBaseURL.appendingPathComponent("settings/tokens")
+                : URL(string: "https://github.com/settings/personal-access-tokens/new")
         case .gitlab:
             return instance.webBaseURL.appendingPathComponent("-/user_settings/personal_access_tokens")
         }
