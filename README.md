@@ -1,4 +1,9 @@
-# Jit
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logotype-dark.svg">
+    <img src="docs/assets/logotype-light.svg" alt="Jit" width="160">
+  </picture>
+</h1>
 
 A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + AppKit), native Liquid
 Glass design, driving the Git CLI. No Electron, web views, background daemons or telemetry.

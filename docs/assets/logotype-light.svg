@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 64" width="216" height="128" role="img" aria-label="Jit">
+  <title>Jit</title>
+  <!-- Same artwork as site/index.html: "jit" with its dots drawn as commits on a lane. -->
+  <style>
+    path { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1 1; }
+    .lane { stroke: #21707a; stroke-width: 2.5; animation: draw .7s cubic-bezier(.5,0,.2,1) .4s backwards; }
+    .ink { stroke: #132024; stroke-width: 7; }
+    .c1 { fill: #21707a; }
+    .c2 { fill: #ffffff; stroke: #21707a; stroke-width: 3; }
+    circle { transform-box: fill-box; transform-origin: center; }
+    .c1 { animation: pop .5s cubic-bezier(.2,.7,.2,1) .15s backwards; }
+    .c2 { animation: pop .45s cubic-bezier(.2,.7,.2,1) .68s backwards; }
+    .j { animation: draw .55s cubic-bezier(.2,.7,.2,1) .55s backwards; }
+    .i { animation: draw .45s cubic-bezier(.2,.7,.2,1) .9s backwards; }
+    .t { animation: draw .6s cubic-bezier(.2,.7,.2,1) 1.05s backwards; }
+    .bar { animation: draw .4s cubic-bezier(.2,.7,.2,1) 1.4s backwards; }
+    @keyframes draw { from { stroke-dashoffset: 1; opacity: 0; } 1% { opacity: 1; } }
+    @keyframes pop { from { transform: scale(0); } 60% { transform: scale(1.18); } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+  <path class="lane" pathLength="1" d="M20 12H80"/>
+  <path class="ink t" pathLength="1" d="M80 12V41Q80 50 90 50"/>
+  <path class="ink bar" pathLength="1" d="M70 28H92"/>
+  <path class="ink j" pathLength="1" d="M20 28V48Q20 58 9 58"/>
+  <path class="ink i" pathLength="1" d="M50 28V50"/>
+  <circle class="c1" cx="20" cy="12" r="6"/>
+  <circle class="c2" cx="50" cy="12" r="4.5"/>
+</svg>
