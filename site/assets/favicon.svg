@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 -14 96 96">
+  <!-- The logotype (site/index.html) centred in a square, without the animation; colours follow the tab's theme. -->
+  <style>
+    path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .lane { stroke: #21707a; stroke-width: 3; }
+    .ink { stroke: #132024; stroke-width: 8; }
+    .c1 { fill: #21707a; }
+    .c2 { fill: none; stroke: #21707a; stroke-width: 3.5; }
+    @media (prefers-color-scheme: dark) {
+      .lane { stroke: #67b5ba; } .ink { stroke: #e9efef; } .c1 { fill: #67b5ba; }
+      .c2 { stroke: #67b5ba; }
+    }
+  </style>
+  <path class="lane" d="M20 12H45.5M54.5 12H80"/>
+  <path class="ink" d="M80 12V41Q80 50 90 50M70 28H92M20 28V48Q20 58 9 58M50 28V50"/>
+  <circle class="c1" cx="20" cy="12" r="6"/>
+  <circle class="c2" cx="50" cy="12" r="4.5"/>
+</svg>
