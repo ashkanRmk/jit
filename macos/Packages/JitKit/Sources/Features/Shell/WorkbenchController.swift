@@ -185,6 +185,11 @@ final class WorkbenchController: NSSplitViewController {
                 operations?.openConflict(path: file.path)
             }
         }
+        workingDirectory.closeDiff = { [weak diff] in
+            guard let diff, diff.target != nil else { return false }
+            diff.requestClose()
+            return true
+        }
         workingDirectory.openFileHistory = { [weak graph] path in
             graph?.showFileHistory(path: path, isDirectory: false)
         }

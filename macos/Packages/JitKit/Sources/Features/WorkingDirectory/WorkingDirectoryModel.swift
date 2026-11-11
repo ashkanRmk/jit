@@ -38,6 +38,8 @@ final class WorkingDirectoryModel {
         }
     }
     @ObservationIgnored var openDiff: (WDFile?) -> Void = { _ in }
+    /// Esc in the file list: closes an open diff (returns false when none is open, so Esc goes on up the chain).
+    @ObservationIgnored var closeDiff: () -> Bool = { false }
     @ObservationIgnored var openBlame: (String) -> Void = { _ in }
     /// The section under a drag (drop highlight).
     var dropTarget: WDSection?

@@ -104,12 +104,21 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         chrome = nil
     }
 
+    /// The file whose rows are on screen: another file starts at the top, a reload of the same one keeps its place.
+    private var shownTarget: DiffTarget?
+
     private func sourceChanged() {
         codeView.showsWhitespace = model.showsWhitespace
         codeView.wrapsLines = model.wrapsLines
         scrollView.hasHorizontalScroller = !model.wrapsLines
         codeView.dataSource = model.source
         scrollView.isHidden = model.source == nil
+        let target = model.source?.document.target
+        if model.source != nil, target != shownTarget {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: -scrollView.contentInsets.top))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+        shownTarget = model.source == nil ? nil : target
         updateMessage()
         if model.source != nil, let token = model.switchSignpost {
             model.switchSignpost = nil

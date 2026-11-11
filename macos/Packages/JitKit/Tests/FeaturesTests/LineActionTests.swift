@@ -135,7 +135,7 @@ import Testing
         try repo.write("f.txt", "alpha\nBETA\ngamma\nDELTA\nepsilon\nzeta\n")
         try repo.write("other.txt", "keep me\nunrelated edit\n")
         _ = sandbox
-        let model = DiffViewModel(session: session)
+        let model = DiffViewModel(session: session, defaults: .scratch())
         model.layout = .unified
         model.recovery = RecoveryStore(
             location: StoreLocation(directory: URL(fileURLWithPath: repo.sandbox.root + "/AppSupport")))
@@ -223,7 +223,7 @@ import Testing
     @Test func chromeDoesNotSwallowBodyClicks() async throws {
         let (_, repo, session) = try await world(["f.txt": "a\n"])
         try repo.write("f.txt", "a\nb\n")
-        let model = DiffViewModel(session: session)
+        let model = DiffViewModel(session: session, defaults: .scratch())
         let controller = DiffViewController(model: model)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered,

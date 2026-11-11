@@ -201,6 +201,7 @@ struct WorkingDirectoryView: View {
                     model.toggleSelection()
                     return .handled
                 }
+                .onKeyPress(.escape) { model.closeDiff() ? .handled : .ignored }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

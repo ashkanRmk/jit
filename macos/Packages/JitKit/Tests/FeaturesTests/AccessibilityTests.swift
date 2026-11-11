@@ -14,7 +14,7 @@ import Testing
         _ = NSApplication.shared
         let session = RepositorySession(path: repo.path, engine: repo.sandbox.engine, watchesFileSystem: false)
         session.activate()
-        let model = DiffViewModel(session: session)
+        let model = DiffViewModel(session: session, defaults: .scratch())
         model.layout = .unified
         let controller = DiffViewController(model: model)
         let window = NSWindow(

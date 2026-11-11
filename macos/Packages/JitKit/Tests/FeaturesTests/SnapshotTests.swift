@@ -108,7 +108,7 @@ struct SnapshotTests {
         try repo.write("Sources/Model.swift", after)
         let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
         session.activate()
-        let model = DiffViewModel(session: session)
+        let model = DiffViewModel(session: session, defaults: .scratch())
         model.layout = layout
         let controller = DiffViewController(model: model)
         model.open(.unstaged(path: "Sources/Model.swift"))

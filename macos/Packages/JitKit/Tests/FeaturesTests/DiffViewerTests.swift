@@ -44,7 +44,7 @@ import Testing
         let (_, repo) = try await document(before, before.replacingOccurrences(of: "line 50\n", with: "fifty\n"))
         let session = RepositorySession(path: repo.path, engine: repo.sandbox.engine, watchesFileSystem: false)
         session.activate()
-        let model = DiffViewModel(session: session)
+        let model = DiffViewModel(session: session, defaults: .scratch())
         model.layout = .unified
         model.open(.unstaged(path: "f.txt"))
         let clock = ContinuousClock()
@@ -73,7 +73,7 @@ import Testing
         let (_, repo) = try await document(before, after)
         let session = RepositorySession(path: repo.path, engine: repo.sandbox.engine, watchesFileSystem: false)
         session.activate()
-        let model = DiffViewModel(session: session)
+        let model = DiffViewModel(session: session, defaults: .scratch())
         model.layout = .fullFile
         var scrolled: [Int] = []
         model.scrollToRow = { row, _ in scrolled.append(row) }
@@ -133,7 +133,7 @@ import Testing
         try repo.write("f.txt", "a\nb\n")
         let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
         session.activate()
-        let model = DiffViewModel(session: session)
+        let model = DiffViewModel(session: session, defaults: .scratch())
         func wait(_ condition: () -> Bool) async throws {
             let deadline = ContinuousClock.now + TimingBudget.latency(.seconds(5))
             while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
@@ -150,6 +150,80 @@ import Testing
         #expect(model.document != nil && !model.isReleased)
         session.close()
     }
+
+    /// Switching files keeps the previous rows on screen until the next file is ready (0.0.5: the blank frame
+    /// between them read as a flicker), and the new file replaces them in one step.
+    @Test func switchingFilesKeepsRowsUntilTheNextFileLoads() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await sandbox.makeRepository()
+        try repo.write("f.txt", "a\n")
+        try repo.write("g.txt", "x\n")
+        try await repo.commit("One")
+        try repo.write("f.txt", "a\nb\n")
+        try repo.write("g.txt", "x\ny\n")
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
+        session.activate()
+        let model = DiffViewModel(session: session, defaults: .scratch())
+        var cleared = 0
+        model.onSourceChange = { if model.source == nil { cleared += 1 } }
+        func wait(_ condition: () -> Bool) async throws {
+            let deadline = ContinuousClock.now + TimingBudget.latency(.seconds(5))
+            while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        }
+        model.open(.unstaged(path: "f.txt"))
+        try await wait { model.state == .loaded }
+        #expect(model.title == "f.txt")
+        cleared = 0
+        model.open(.unstaged(path: "g.txt"))
+        // Synchronously after the switch: still the old rows, already the new title.
+        #expect(model.state == .loading && model.source != nil && !model.showsCurrentTarget)
+        #expect(model.title == "g.txt")
+        try await wait { model.state == .loaded }
+        #expect(model.showsCurrentTarget && model.document?.files.first?.path == "g.txt")
+        // A fast load never shows the empty state (a slow one may, after the spinner delay).
+        if !model.showsSpinner { #expect(cleared == 0) }
+        session.close()
+    }
+
+    /// View options are app-wide: a new model starts with them, an existing one (another tab) takes them on
+    /// the next file it opens.
+    @Test func viewOptionsAreRememberedForEveryTab() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await sandbox.makeRepository()
+        try repo.write("f.txt", "a\n")
+        try await repo.commit("One")
+        try repo.write("f.txt", "a\nb\n")
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
+        session.activate()
+        let defaults = UserDefaults.scratch()
+        let other = DiffViewModel(session: session, defaults: defaults)
+        let model = DiffViewModel(session: session, defaults: defaults)
+        #expect(!model.wrapsLines && model.layout == .unified && model.showsWordDiff && model.highlightsSyntax)
+        model.layout = .split
+        model.wrapsLines = true
+        model.showsWhitespace = true
+        model.ignoresWhitespace = true
+        model.showsWordDiff = false
+        model.highlightsSyntax = false
+        let fresh = DiffViewModel(session: session, defaults: defaults)
+        #expect(fresh.layout == .split && fresh.wrapsLines && fresh.showsWhitespace && fresh.ignoresWhitespace)
+        #expect(!fresh.showsWordDiff && !fresh.highlightsSyntax)
+        #expect(!other.wrapsLines)
+        other.open(.unstaged(path: "f.txt"))
+        #expect(other.layout == .split && other.wrapsLines && other.showsWhitespace && other.ignoresWhitespace)
+        #expect(!other.showsWordDiff && !other.highlightsSyntax)
+        let deadline = ContinuousClock.now + TimingBudget.latency(.seconds(5))
+        while other.state != .loaded, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(other.document?.options.ignoreWhitespace == true)
+        session.close()
+    }
+}
+
+extension UserDefaults {
+    /// A throwaway suite, so parallel tests never share remembered diff options.
+    static func scratch() -> UserDefaults {
+        UserDefaults(suiteName: "jit.tests.\(UUID().uuidString)") ?? .standard
+    }
 }
 
 @Suite @MainActor struct DiffAccessibilityTests {
@@ -161,7 +235,7 @@ import Testing
         try repo.write("f.txt", "keep\nnew\n")
         let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
         session.activate()
-        let model = DiffViewModel(session: session)
+        let model = DiffViewModel(session: session, defaults: .scratch())
         model.layout = .unified
         let controller = DiffViewController(model: model)
         let window = NSWindow(

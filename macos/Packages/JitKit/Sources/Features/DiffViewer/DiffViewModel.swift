@@ -25,19 +25,27 @@ public final class DiffViewModel {
     public private(set) var state: State = .idle
     /// Shown after 120 ms of loading.
     public private(set) var showsSpinner = false
-    public var layout: DiffLayout = DiffViewModel.storedLayout {
+    // The view options are app-wide preferences (0.0.5): every tab and repository opens diffs with the last
+    // choice. Each tab's model writes them when they change and reads them back on the next file it opens.
+    public var layout: DiffLayout = .unified {
         didSet {
             guard layout != oldValue else { return }
-            UserDefaults.standard.set(Self.name(layout), forKey: "diffLayout")
+            defaults.set(Self.name(layout), forKey: Self.layoutKey)
             rebuildSource()
         }
     }
-    public var showsWhitespace = false { didSet { onSourceChange?() } }
+    public var showsWhitespace = false {
+        didSet {
+            guard showsWhitespace != oldValue else { return }
+            defaults.set(showsWhitespace, forKey: Self.showsWhitespaceKey)
+            onSourceChange?()
+        }
+    }
     /// Long lines continue on the next visual line instead of scrolling sideways (0.0.3; remembered).
-    public var wrapsLines = UserDefaults.standard.bool(forKey: "diffWrapsLines") {
+    public var wrapsLines = false {
         didSet {
             guard wrapsLines != oldValue else { return }
-            UserDefaults.standard.set(wrapsLines, forKey: "diffWrapsLines")
+            defaults.set(wrapsLines, forKey: Self.wrapsLinesKey)
             onSourceChange?()
         }
     }
@@ -58,9 +66,22 @@ public final class DiffViewModel {
         onStageFile?(action.path, action.stage)
     }
     /// Word-level emphasis inside paired lines (ADR-0029).
-    public var showsWordDiff = true { didSet { if showsWordDiff != oldValue { attachProviders(); onTextChange?() } } }
+    public var showsWordDiff = true {
+        didSet {
+            guard showsWordDiff != oldValue else { return }
+            defaults.set(showsWordDiff, forKey: Self.showsWordDiffKey)
+            attachProviders()
+            onTextChange?()
+        }
+    }
     /// Syntax colours (ADR-0012); applied when the off-main pass finishes.
-    public var highlightsSyntax = true { didSet { if highlightsSyntax != oldValue { startHighlight() } } }
+    public var highlightsSyntax = true {
+        didSet {
+            guard highlightsSyntax != oldValue else { return }
+            defaults.set(highlightsSyntax, forKey: Self.highlightsSyntaxKey)
+            startHighlight()
+        }
+    }
     public private(set) var language: SyntaxLanguage = .plain
     @ObservationIgnored private(set) var highlight: HighlightResult?
     @ObservationIgnored private var highlightTask: Task<Void, Never>?
@@ -69,7 +90,11 @@ public final class DiffViewModel {
     /// Text attributes changed (spans arrived): cached lines must be rebuilt.
     @ObservationIgnored public var onTextChange: (() -> Void)?
     public var ignoresWhitespace = false {
-        didSet { if ignoresWhitespace != oldValue, let target { load(target, keepPosition: true) } }
+        didSet {
+            guard ignoresWhitespace != oldValue else { return }
+            defaults.set(ignoresWhitespace, forKey: Self.ignoresWhitespaceKey)
+            if !loadFollows, let target { load(target, keepPosition: true) }
+        }
     }
     /// An open diff covers the graph area (0.0.2: the diff always shows in the centre pane).
     public var isFocused: Bool { target != nil }
@@ -123,8 +148,19 @@ public final class DiffViewModel {
     @ObservationIgnored private var spinnerTask: Task<Void, Never>?
     @ObservationIgnored private var observing = false
 
-    public init(session: RepositorySession) {
+    /// Where the view options are remembered (`.standard` in the app; tests pass their own suite).
+    @ObservationIgnored public let defaults: UserDefaults
+
+    public init(session: RepositorySession, defaults: UserDefaults = .standard) {
         self.session = session
+        self.defaults = defaults
+        // Observers do not run in an initializer: nothing is written back here.
+        layout = Self.storedLayout(in: defaults)
+        wrapsLines = Self.stored(Self.wrapsLinesKey, default: false, in: defaults)
+        showsWhitespace = Self.stored(Self.showsWhitespaceKey, default: false, in: defaults)
+        ignoresWhitespace = Self.stored(Self.ignoresWhitespaceKey, default: false, in: defaults)
+        showsWordDiff = Self.stored(Self.showsWordDiffKey, default: true, in: defaults)
+        highlightsSyntax = Self.stored(Self.highlightsSyntaxKey, default: true, in: defaults)
         observeLifecycle()
     }
 
@@ -160,6 +196,7 @@ public final class DiffViewModel {
             isReleased = target != nil
             onSourceChange?()
         case .active:
+            adoptStoredOptions()
             if isReleased, let target {
                 isReleased = false
                 load(target, keepPosition: false)
@@ -169,8 +206,42 @@ public final class DiffViewModel {
         }
     }
 
-    static var storedLayout: DiffLayout {
-        switch UserDefaults.standard.string(forKey: "diffLayout") {
+    static let layoutKey = "diffLayout"
+    static let wrapsLinesKey = "diffWrapsLines"
+    static let showsWhitespaceKey = "diffShowsWhitespace"
+    static let ignoresWhitespaceKey = "diffIgnoresWhitespace"
+    static let showsWordDiffKey = "diffShowsWordDiff"
+    static let highlightsSyntaxKey = "diffHighlightsSyntax"
+
+    static func stored(_ key: String, default value: Bool, in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: key) == nil ? value : defaults.bool(forKey: key)
+    }
+
+    /// Takes the options another tab changed since this one last opened a file (no-op when they match).
+    /// Called before a load, so `ignoresWhitespace` needs no reload of its own then.
+    private func adoptStoredOptions(beforeLoad: Bool = false) {
+        let layout = Self.storedLayout(in: defaults)
+        if self.layout != layout { self.layout = layout }
+        let wraps = Self.stored(Self.wrapsLinesKey, default: false, in: defaults)
+        if wrapsLines != wraps { wrapsLines = wraps }
+        let whitespace = Self.stored(Self.showsWhitespaceKey, default: false, in: defaults)
+        if showsWhitespace != whitespace { showsWhitespace = whitespace }
+        let words = Self.stored(Self.showsWordDiffKey, default: true, in: defaults)
+        if showsWordDiff != words { showsWordDiff = words }
+        let syntax = Self.stored(Self.highlightsSyntaxKey, default: true, in: defaults)
+        if highlightsSyntax != syntax { highlightsSyntax = syntax }
+        let ignores = Self.stored(Self.ignoresWhitespaceKey, default: false, in: defaults)
+        if ignoresWhitespace != ignores {
+            loadFollows = beforeLoad  // the coming load uses the new value; no reload of the old file first
+            ignoresWhitespace = ignores
+            loadFollows = false
+        }
+    }
+
+    @ObservationIgnored private var loadFollows = false
+
+    static func storedLayout(in defaults: UserDefaults) -> DiffLayout {
+        switch defaults.string(forKey: layoutKey) {
         case "split": .split
         case "full": .fullFile
         default: .unified
@@ -189,6 +260,7 @@ public final class DiffViewModel {
 
     public func open(_ target: DiffTarget) {
         guard target != self.target || state != .loaded else { return }
+        adoptStoredOptions(beforeLoad: true)
         query = ""
         load(target, keepPosition: false)
     }
@@ -229,14 +301,20 @@ public final class DiffViewModel {
         loadTask?.cancel()
         spinnerTask?.cancel()
         if !keepPosition {
+            // The previous file stays on screen until the new one is ready (no blank frame between files, which
+            // read as a flicker); only a load that outlasts the spinner delay clears it.
             state = .loading
-            document = nil
-            source = nil
-            onSourceChange?()
+            banner = nil
+            pendingDiscard = nil
+            if !selection.isEmpty {
+                selection.clear()
+                selectionChanged()
+            }
         }
         spinnerTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard let self, !Task.isCancelled, self.state == .loading else { return }
+            self.clearStaleDocument()
             self.showsSpinner = true
         }
         let options = DiffOptions(ignoreWhitespace: ignoresWhitespace)
@@ -252,11 +330,28 @@ public final class DiffViewModel {
                 guard let self, !Task.isCancelled else { return }
                 self.spinnerTask?.cancel()
                 self.showsSpinner = false
+                if !keepPosition { self.clearStaleDocument() }
                 self.state = .failed(error.summary)
             }
         }
         observeStatus()
     }
+
+    /// Drops the previous file's rows while a switch is still loading or failed.
+    private func clearStaleDocument() {
+        guard document != nil || source != nil else { return }
+        highlightTask?.cancel()
+        highlight = nil
+        document = nil
+        source = nil
+        matches = []
+        currentMatch = nil
+        changeRows = []
+        onSourceChange?()
+    }
+
+    /// The document on screen belongs to `target` (it may still be the previous file's while a switch loads).
+    public var showsCurrentTarget: Bool { document != nil && document?.target == target }
 
     private func apply(_ newDocument: DiffDocument, keepPosition: Bool) {
         spinnerTask?.cancel()
@@ -656,7 +751,7 @@ public final class DiffViewModel {
     /// Title for the header: path and what is compared.
     public var title: String {
         guard let target else { return "" }
-        let path = document?.files.first?.path ?? target.path ?? "All files"
+        let path = (showsCurrentTarget ? document?.files.first?.path : nil) ?? target.path ?? "All files"
         return path
     }
 
