@@ -80,6 +80,9 @@ Run from the repository root. Requires full Xcode 26+ selected and `brew install
   runs steps `scripts/release/01-build-app.sh … 09-validate.sh` → `build/release/<version>/` (DMG, `validation.txt`).
   Version/bundle ID only in `macos/App/Config/Version.xcconfig`; identity in git-ignored `scripts/release/release.local.env`.
   The DMG Finder layout needs Finder automation permission (`JIT_DMG_LAYOUT=0` skips it)
+- Website: `scripts/site/publish.sh [--version X.Y.Z] [--dry-run]` builds `site/` locally and pushes it to the
+  `gh-pages` branch (GitHub Pages serves it; no Actions). **Mandatory after every release**, once the GitHub
+  Release with the DMG exists (`docs/release.md` §2)
 - Bundled Git (ADR-0019): `scripts/build/build-git.sh` (pinned in `scripts/build/git-version.env`) → `build/git-runtime/<v>/git`;
   `scripts/build/test-bundled-git.sh [--network] [--suite]` (relocation checks; `--suite` runs all tests against it with GIT_TRACE)
 - Benchmarks against another app (e.g. installed from the DMG): `JIT_BENCH_APP=/Applications/Jit.app scripts/benchmarks/run-all.sh`

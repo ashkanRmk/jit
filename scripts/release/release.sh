@@ -44,3 +44,6 @@ else
 fi
 echo "  Validation  $OUT/validation.txt ($(tail -1 "$OUT/validation.txt"))"
 echo "  Took        $((SECONDS - start)) s"
+echo
+echo "Next: tag $JIT_VERSION, push, create the GitHub Release (DMG + .sha256), then update the website —"
+echo "      mandatory after every release: scripts/site/publish.sh --version $JIT_VERSION"

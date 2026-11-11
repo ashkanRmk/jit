@@ -1,7 +1,7 @@
 // Jit landing page. Three small jobs:
 //  1. draw the commit graph in the left gutter and extend it as the page scrolls,
 //  2. the dark/light comparison divider in the hero,
-//  3. point the download buttons at the newest release (release.json is written at deploy time).
+//  3. point the download buttons at the newest release (release.json is written by scripts/site/publish.sh).
 
 const RELEASES_URL = 'https://github.com/ashkanRmk/jit/releases';
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;

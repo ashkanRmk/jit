@@ -65,6 +65,18 @@ Tag `vX.Y.Z` on the release commit. Attach to the GitHub Release: the DMG, its S
 corresponding source for Git (`build/git-src/git-<v>.tar.xz`, `scripts/build/build-git.sh`,
 `scripts/build/git-version.env`). Release notes must call out security fixes. Nothing is uploaded by the scripts.
 
+### Website (mandatory after every release)
+Right after the GitHub Release exists, publish the website:
+
+```bash
+scripts/site/publish.sh --version X.Y.Z   # --dry-run builds build/site/ without pushing
+```
+
+It builds `site/` locally, writes `release.json` and the download links, size and version into the page from
+`build/release/X.Y.Z/Jit-X.Y.Z.dmg`, and pushes one commit to the `gh-pages` branch. GitHub Pages serves that
+branch as is (Settings ▸ Pages: "Deploy from a branch", `gh-pages`, `/`); nothing runs in GitHub Actions. A
+release is not done until the site offers its DMG: check https://ashkanrmk.github.io/jit/ after about a minute.
+
 The in-app updater (ADR-0051) reads these releases: the tag must be the version (`X.Y.Z` or `vX.Y.Z`), the
 assets must be named exactly `Jit-X.Y.Z.dmg` and `Jit-X.Y.Z.dmg.sha256`, the release must not be a draft, and
 the repository must be public. The notes are shown in the app's What's New sheet (headings, paragraphs,

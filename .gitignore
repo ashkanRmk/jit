@@ -22,5 +22,5 @@ AuthKey_*.p8
 release.local.env
 notary-*.json
 
-# Written by the Pages workflow at deploy time
+# Written into build/site/ by scripts/site/publish.sh; never committed
 site/release.json
