@@ -79,7 +79,7 @@ identity, the user's Git/SSH configuration.
   another Git's `credential.helper`. Pruned to 16 files. Patch process: `docs/release.md`.
 - **Git resolution**: never runs the `/usr/bin/git` shim or `xcrun`. A custom Git is validated before use. The
   CLT installer starts only from an explicit button.
-- **Updates**: none, and no update network traffic (ADR-0020).
+- **Updates** (ADR-0051): from the project's GitHub Releases. Off by default — a request is made only on Check for Updates; with "Update Jit automatically" on, at most one check a day (on start or activation, no timer). The DMG is checked against its published SHA-256, the app inside must be Jit (bundle ID, expected and newer version, strict code-signature validation, same Developer ID team when Jit has one) and is swapped in atomically at quit. Ad-hoc releases carry no publisher identity: trust is GitHub over TLS plus the repository's release permissions (see the ADR's follow-up on signing).
 - **Dependency audit (2026-11-09)**: JitKit has no third-party Swift packages (no `Package.resolved`); build-time
   tools are Xcode 27.2 and XcodeGen 2.46. The only bundled third-party component is Git 2.56.0 (GPLv2; license,
   source location and written offer in the app). Git 2.56.0 is the newest release on kernel.org as of

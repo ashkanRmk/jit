@@ -88,6 +88,12 @@
                     if let query = defaults.string(forKey: "JitPaletteQuery") { controller?.setPaletteQuery(query) }
                 }
             }
+            if defaults.bool(forKey: "JitShowUpdates") {
+                // `-JitShowUpdates YES` (+ `-JitUpdateCheck YES` to ask GitHub, `-JitUpdateCurrentVersion <v>`).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    controller?.presentUpdates(checkNow: defaults.bool(forKey: "JitUpdateCheck"))
+                }
+            }
             if defaults.bool(forKey: "JitShowDropOverlay") {
                 controller?.showDropOverlayForScreenshot()
             }

@@ -1,6 +1,6 @@
 # ADR-0020: Updates for V1
 
-- Status: accepted
+- Status: superseded by ADR-0051 (2026-11-11)
 - Date: 2026-11-09
 - Phase: P7
 - Requirements: §19 (no unintended remote requests), §21; Phase 7 design §4.10

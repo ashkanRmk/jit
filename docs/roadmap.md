@@ -211,7 +211,7 @@ Assigned across the phase designs; check here before adding one (Phase 6 audits 
 | 0017 | OAuth: `ASWebAuthenticationSession`, auth code + PKCE + state for GitLab; for GitHub, PKCE if GitHub supports it for public clients at implementation time, otherwise device flow. Public clients only; registered client IDs are an external prerequisite. | P5 |
 | 0018 | Custom CA and proxy: URLSession trust evaluation scoped to configured hosts; Git gets `-c http.<url>.sslCAInfo` / `-c http.<url>.proxy` scoped per invocation. | P5 |
 | 0019 | **Accepted.** Git 2.56.0 built from the pinned kernel.org tarball, relocatable, system libcurl, pruned to 16 files, empty bundled system config, GPLv2 offer. | P7 |
-| 0020 | **Accepted.** V1 ships without any updater or update network traffic; opt-in Sparkle is a Phase 8 candidate. | P7 |
+| 0020 | **Superseded by ADR-0051.** V1 shipped without any updater or update network traffic. | P7 |
 
 Additional ADRs discovered while designing each phase use reserved number ranges so phases never
 collide: **0021–0024** P2, **0025–0029** P3, **0030–0034** P4, **0035–0039** P5, **0040–0044** P6,

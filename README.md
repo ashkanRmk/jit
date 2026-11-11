@@ -69,7 +69,7 @@ Not in V1 by design: pull/merge request management, code review, CI dashboards, 
 - No XCUITest target (keyboard-only commit and conflict flows, accessibility audit are untested at UI level).
 - Tab switch is 17.4 ms median against a 16 ms target.
 - In a short window with a diff open, the inspector gives the file list too little height.
-- No auto-updater (by design, ADR-0020): updating means replacing the app.
+- Updates (ADR-0051) need the releases to be public on GitHub. Until then the bell shows the saved change log only.
 
 **Post-V1 (Phase 8, all unstarted)** — reflog explorer, reset, tags, interactive rebase, commit surgery,
 history filters, worktrees, patches, advanced remotes, branch history manipulation, signing, submodules, LFS.
@@ -94,8 +94,12 @@ history filters, worktrees, patches, advanced remotes, branch history manipulati
   (tokens, SSH passphrases); choose **Always Allow**.
 - What's included: Jit, `jit-git-helper` (credential helper), and Git 2.56.0 under the GNU GPL v2. The license,
   the source location and a written offer are in **Help ▸ Acknowledgements**. Jit makes no network requests on
-  its own, with one exception you can switch off in **Settings ▸ General**: author pictures are looked up at
-  gravatar.com by a hash of the author's email, for commits on screen (ADR-0050).
+  its own, with two exceptions, both in **Settings ▸ General**: author pictures are looked up at
+  gravatar.com by a hash of the author's email, for commits on screen (ADR-0050, on by default); and with
+  **Update Jit automatically** on (off by default) Jit asks GitHub for new releases at most once a day,
+  downloads a newer one and installs it when you quit (ADR-0051).
+- Updating: the bell at the top right opens **What's New** — the change log, **Check for Updates** and
+  **Install and Restart**. Nothing is requested until you check, unless automatic updates are on.
 
 ## Develop
 

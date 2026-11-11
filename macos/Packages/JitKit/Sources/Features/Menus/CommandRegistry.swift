@@ -115,6 +115,7 @@ public enum CommandRegistry {
     static let showHelp = Selector(("showJitHelp:"))
     static let showAbout = Selector(("showAboutJit:"))
     static let showAcknowledgements = Selector(("showAcknowledgements:"))
+    static let checkForUpdates = Selector(("checkForUpdates:"))
     static let toggleCommandPalette = Selector(("toggleCommandPalette:"))
 
     /// Every command, in menu order.
@@ -131,6 +132,9 @@ public enum CommandRegistry {
             C(
                 "app.about", "About Jit", .app, showAbout, group: 0,
                 symbol: "info.circle"),
+            C(
+                "app.checkForUpdates", "Check for Updates…", .app, checkForUpdates, group: 0,
+                symbol: "arrow.down.circle", keywords: "upgrade version release what's new change log changelog"),
             C(
                 "app.settings", "Settings…", .app, showSettings, key: ",", group: 1, symbol: "gearshape",
                 keywords: "preferences"),

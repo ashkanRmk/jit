@@ -126,6 +126,14 @@ struct GeneralSettingsView: View {
                 )
                 .foregroundStyle(.secondary)
             }
+            Section {
+                Toggle("Update Jit automatically", isOn: $preferences.updatesAutomatically)
+            } footer: {
+                Text(
+                    "On: Jit asks GitHub for new releases at most once a day, downloads a newer one and installs it when you quit. Off: nothing is requested until you choose Jit ▸ Check for Updates… or open the bell in the toolbar."
+                )
+                .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }

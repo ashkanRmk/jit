@@ -32,6 +32,7 @@ public final class PreferencesStore {
     static let customGitPathKey = "customGitPath"
     static let gravatarKey = "showsGravatarAvatars"
     static let graphColumnsKey = "graphColumns"
+    static let automaticUpdatesKey = "updatesAutomatically"
 
     /// App-level text size step for code and diff views (P6.10): View ▸ Larger / Smaller Code Text.
     public enum CodeTextSize: Int, CaseIterable, Sendable {
@@ -81,6 +82,12 @@ public final class PreferencesStore {
         didSet { defaults.set(showsGravatarAvatars, forKey: Self.gravatarKey) }
     }
 
+    /// Settings ▸ General and the change log: check for, download and install new releases without asking
+    /// (ADR-0051). Off by default: no update request is made until the user asks for one.
+    public var updatesAutomatically: Bool {
+        didSet { defaults.set(updatesAutomatically, forKey: Self.automaticUpdatesKey) }
+    }
+
     /// The graph columns as last arranged in any tab (JSON); new tabs start from it.
     public var graphColumns: Data? {
         didSet { defaults.set(graphColumns, forKey: Self.graphColumnsKey) }
@@ -105,6 +112,7 @@ public final class PreferencesStore {
             defaults.string(forKey: Self.graphDensityKey).flatMap(GraphDensity.init(rawValue:)) ?? .comfortable
         commandBarShowsLabels = defaults.object(forKey: Self.commandBarLabelsKey) as? Bool ?? true
         showsGravatarAvatars = defaults.object(forKey: Self.gravatarKey) as? Bool ?? true
+        updatesAutomatically = defaults.bool(forKey: Self.automaticUpdatesKey)
         graphColumns = defaults.data(forKey: Self.graphColumnsKey)
         customGitPath = defaults.string(forKey: Self.customGitPathKey).flatMap { $0.isEmpty ? nil : $0 }
         let developer = NSHomeDirectory() + "/Developer"

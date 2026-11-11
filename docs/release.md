@@ -63,8 +63,12 @@ All outputs are in `build/release/<version>/` (git-ignored). dSYMs stay there, p
 ### Publishing (owner approval required)
 Tag `vX.Y.Z` on the release commit. Attach to the GitHub Release: the DMG, its SHA-256, and the GPLv2
 corresponding source for Git (`build/git-src/git-<v>.tar.xz`, `scripts/build/build-git.sh`,
-`scripts/build/git-version.env`). Release notes must call out security fixes, because there is no updater
-(ADR-0020). Nothing is uploaded by the scripts.
+`scripts/build/git-version.env`). Release notes must call out security fixes. Nothing is uploaded by the scripts.
+
+The in-app updater (ADR-0051) reads these releases: the tag must be the version (`X.Y.Z` or `vX.Y.Z`), the
+assets must be named exactly `Jit-X.Y.Z.dmg` and `Jit-X.Y.Z.dmg.sha256`, the release must not be a draft, and
+the repository must be public. The notes are shown in the app's What's New sheet (headings, paragraphs,
+bullets, inline bold/code/links). `CFBundleShortVersionString` in the DMG's app must equal the tag's version.
 
 ## 3. Troubleshooting
 - **Notarization "Invalid"**: `07` prints the issues from `notary-log-<id>.json`. Typical causes: a nested

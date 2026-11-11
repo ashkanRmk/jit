@@ -27,6 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var memoryPressure: MemoryPressureMonitor?
     private var recentsMenu: NSMenu?
     private let preferences = PreferencesStore()
+    /// Restart to Update: reopen Jit after this quit.
+    private var relaunchAfterQuit = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Before any window exists, so a dark launch never flashes light.
@@ -48,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     userOverridePath: preferences.customGitPath)))
         let model = AppModel(
             engine: engine, preferences: preferences, recents: RecentsStore(location: location),
-            profiles: ProfileStore(location: location), sessionStore: sessionStore)
+            profiles: ProfileStore(location: location), sessionStore: sessionStore, updates: makeUpdateService())
         model.avatars.fetcher = AvatarStore.networkFetcher
         let savedSession = sessionStore.load().value
         let controller = MainWindowController(model: model)
@@ -64,7 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         DispatchQueue.main.async {
             controller.updateForeground()
             self.runLaunchHooks(model)
+            // Reads the saved release list; asks GitHub only when "update automatically" is on and a check
+            // is due (ADR-0051). Benchmarks measure Jit without it.
+            if LaunchProbe.current == nil, case .none = BenchmarkScenario.current {
+                Task { await model.updates.start() }
+            }
         }
+        observeAutomaticUpdates()
         // Discard recovery copies: 7 days / 500 MB, once per launch, off the main thread (ADR-0025).
         Task.detached(priority: .utility) { RecoveryStore(location: location).prune() }
         memoryPressure = MemoryPressureMonitor { [weak model] in model?.handleMemoryPressure() }
@@ -75,6 +83,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         model?.flush()
         // No Git child may outlive Jit.
         ProcessRunner.terminateAllRunning()
+        // Last: a downloaded update replaces this app bundle (ADR-0051).
+        model?.updates.applyStagedUpdate()
+        if relaunchAfterQuit { Self.reopen() }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        model?.updates.checkAutomaticallyIfDue()
+    }
+
+    // MARK: - Updates (ADR-0051)
+
+    private func makeUpdateService() -> UpdateService {
+        var version = AppVersion(ReleaseInfo().version)
+        #if DEBUG
+            // `-JitUpdateCurrentVersion <x.y.z>`: pretend to be another version (change-log screenshots).
+            if let fake = UserDefaults.standard.string(forKey: "JitUpdateCurrentVersion") {
+                version = AppVersion(fake)
+            }
+        #endif
+        let directory = UpdateService.defaultDirectory()
+        let updates = UpdateService(currentVersion: version, directory: directory)
+        updates.fetcher = UpdateNetwork.fetch
+        #if DEBUG
+            // `-JitUpdateFeedFile <json>`: read the release list from a file instead of GitHub (screenshots).
+            if let file = UserDefaults.standard.string(forKey: "JitUpdateFeedFile") {
+                updates.fetcher = { _ in try Data(contentsOf: URL(fileURLWithPath: file)) }
+            }
+        #endif
+        #if !DEBUG
+            // Only release builds replace themselves; a development build points at the release page.
+            if let version, let identifier = Bundle.main.bundleIdentifier {
+                updates.installer = DiskImageInstaller(
+                    target: Bundle.main.bundleURL, bundleIdentifier: identifier, currentVersion: version,
+                    directory: directory)
+            }
+        #endif
+        updates.relaunch = { [weak self] in
+            self?.relaunchAfterQuit = true
+            NSApp.terminate(nil)
+        }
+        return updates
+    }
+
+    /// Switching "update automatically" on checks right away (if a check is due).
+    private func observeAutomaticUpdates() {
+        withObservationTracking {
+            _ = preferences.updatesAutomatically
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.model?.updates.checkAutomaticallyIfDue()
+                self?.observeAutomaticUpdates()
+            }
+        }
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) { windowController?.presentUpdates(checkNow: true) }
+
+    /// A new instance of the app at this path (after an update: the new version).
+    private static func reopen() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-n", Bundle.main.bundleURL.path]
+        try? process.run()
     }
 
     /// Running writes (stage, discard, commit…) finish before Jit quits; Git processes are only killed after
@@ -91,7 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 + "\n\nQuitting cancels fetches, clones and pushes. Local operations (merge, rebase, commit) finish first."
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Quit Anyway")
-            guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+            guard alert.runModal() == .alertSecondButtonReturn else {
+                relaunchAfterQuit = false
+                return .terminateCancel
+            }
             model.cancelCancellableOperations()
         }
         let reply = TerminateReply()

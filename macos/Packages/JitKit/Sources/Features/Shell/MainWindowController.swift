@@ -24,6 +24,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     private var profilePopover: NSPopover?
     private var activityPopover: NSPopover?
     private weak var activityItem: NSToolbarItem?
+    private weak var updatesItem: NSToolbarItem?
     private weak var stripView: NSView?
     private weak var pendingSeparatorSplitView: NSSplitView?
     private static let trafficLightsWidth: CGFloat = 86
@@ -37,6 +38,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     static let stripIdentifier = NSToolbarItem.Identifier("jit.tabs")
     /// Operation activity (Phase 4): present only while the active tab has running or recent operations.
     static let activityIdentifier = NSToolbarItem.Identifier("jit.activity")
+    /// The bell at the trailing end: the change log and updates (ADR-0051).
+    static let updatesIdentifier = NSToolbarItem.Identifier("jit.updates")
     /// The sidebar toggle as the icon alone: the system item always draws a button platter around it.
     static let sidebarToggleIdentifier = NSToolbarItem.Identifier("jit.sidebar.toggle")
     /// Tracks the visible workbench's sidebar divider, so the sidebar toggle stays beside the window controls
@@ -254,7 +257,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     }
 
     /// The tab strip takes the toolbar space after the sidebar (or after the toggle when the sidebar is closed),
-    /// minus the activity item. The estimate is deliberately the larger of the two possible
+    /// minus the activity item and the bell. The estimate is deliberately the larger of the two possible
     /// origins plus the toggle: a strip that is too wide falls into the toolbar's overflow (the 0.0.3 "tabs
     /// gone" bug), one a little narrower only leaves a gap.
     func updateChromeWidth() {
@@ -274,7 +277,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             activityItem.map { _ in
                 max(Self.systemItemWidth, (activityItem?.view?.fittingSize.width ?? 0) + Space.s6)
             } ?? 0
-        let trailing = Self.trailingInset + activityWidth
+        let updatesWidth = max(Self.systemItemWidth, (updatesItem?.view?.fittingSize.width ?? 0) + Space.s6)
+        let trailing = Self.trailingInset + activityWidth + updatesWidth
         let strip = max(TabMetrics.minWidth + TabMetrics.newTabButton, width - origin - trailing)
         if abs((stripWidth?.constant ?? 0) - strip) > 0.5 { stripWidth?.constant = strip }
     }
@@ -282,7 +286,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     // MARK: - Toolbar
 
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.sidebarToggleIdentifier, Self.stripIdentifier]
+        [Self.sidebarToggleIdentifier, Self.stripIdentifier, Self.updatesIdentifier]
     }
 
     public func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -346,6 +350,15 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             item.toolTip = "Activity (⌥⌘A)"
             activityItem = item
             return item
+        case Self.updatesIdentifier:
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            item.view = NSHostingView(
+                rootView: UpdateBellView(updates: model.updates) { [weak self] in self?.presentUpdates() })
+            item.isBordered = false
+            item.label = "What's New"
+            item.visibilityPriority = .high
+            updatesItem = item
+            return item
         default:
             return nil
         }
@@ -372,7 +385,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         let hasActivity = !(model.activeTab?.session?.operations.records.isEmpty ?? true)
         let index = toolbar.items.firstIndex { $0.itemIdentifier == Self.activityIdentifier }
         if hasActivity, index == nil {
-            toolbar.insertItem(withItemIdentifier: Self.activityIdentifier, at: toolbar.items.count)
+            // Before the bell, which stays the last item.
+            let bell = toolbar.items.firstIndex { $0.itemIdentifier == Self.updatesIdentifier }
+            toolbar.insertItem(withItemIdentifier: Self.activityIdentifier, at: bell ?? toolbar.items.count)
             updateChromeWidth()
         } else if !hasActivity, let index {
             activityPopover?.performClose(nil)
@@ -690,6 +705,29 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         let controller = palette ?? CommandPaletteController(window: self)
         palette = controller
         controller.open(over: window)
+    }
+
+    /// The bell and Jit ▸ Check for Updates…: the change log as a standard sheet. `checkNow` also asks GitHub.
+    public func presentUpdates(checkNow: Bool = false) {
+        guard let window else { return }
+        if window.attachedSheet == nil {
+            let host = NSHostingController(rootView: AnyView(EmptyView()))
+            let sheet = NSWindow(contentViewController: host)
+            sheet.title = "What's New"
+            sheet.identifier = NSUserInterfaceItemIdentifier("updates")
+            host.rootView = AnyView(
+                UpdatesSheet(
+                    updates: model.updates, preferences: model.preferences,
+                    openPage: { NSWorkspace.shared.open($0) },
+                    close: { [weak window, weak sheet] in
+                        if let window, let sheet { window.endSheet(sheet) }
+                    }))
+            host.sizingOptions = .preferredContentSize
+            window.beginSheet(sheet)
+        } else if window.attachedSheet?.identifier?.rawValue != "updates" {
+            return
+        }
+        if checkNow { Task { await model.updates.check() } }
     }
 
     /// File ▸ Clone… (⇧⌘N) and the new-tab page: a standard sheet; the clone opens in a new tab.
