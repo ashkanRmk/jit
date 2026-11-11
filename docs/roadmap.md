@@ -1,7 +1,7 @@
 # Jit — Implementation Roadmap
 
-> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.4, a
-> test build ([notes](releases/v0.0.4.md)); the public 1.0.0 is not yet published.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
+> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.5, a
+> test build ([notes](releases/v0.0.5.md)); there is no 1.0 release yet.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
 >
 > | Phase | State | Report |
 > |---|---|---|
@@ -337,12 +337,13 @@ two-row header with its tools on the right, the uncommitted-work and commit pane
 sits at the sidebar's top, and new tabs take the saved panel widths. Details and what was verified:
 [`releases/v0.0.4.md`](releases/v0.0.4.md).
 
-**To publish 1.0.0 (owner)**
-- Set `MARKETING_VERSION` back to 1.0.0 in `macos/App/Config/Version.xcconfig`.
-- Make the GitHub repository (or a releases-only repository) public; it is private today.
-- Rebuild the DMG from the commit to be tagged — the existing one was built from `d3bd9b8`, before the CI fixes
-  and the MIT license landed — then update the SHA-256 in [`releases/v1.0.0.md`](releases/v1.0.0.md).
-- Create the `v1.0.0` tag and the GitHub Release (notes `releases/v1.0.0.md`, assets `build/release/1.0.0/publish/`).
+**Test build 0.0.5 (2026-11-11).** Updates from GitHub Releases with a change log behind a toolbar bell
+(ADR-0051), provider tabs with one-step connect and GitHub Enterprise in Settings ▸ Accounts, a steady inspector
+and diff when switching commits or files, Esc closing the diff from the file list, remembered diff options, and
+sideways scrolling in side-by-side diffs. Details and what was verified: [`releases/v0.0.5.md`](releases/v0.0.5.md).
+
+**Release (owner)**
+- Releases are 0.0.x test builds published as GitHub pre-releases; no 1.0 release is planned yet.
 - Get CI green on `main`: the latest run did not start (GitHub Actions billing / spending limit), and the run
   before it failed the advisory performance gate. The gate was relaxed to 4× in `e99efe6`; that is unverified in CI.
 

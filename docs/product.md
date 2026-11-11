@@ -4,7 +4,7 @@ A premium, ultra-lightweight native macOS Git client. Source requirements: `docs
 (§1–§12), amended by ADR-0002 (pure Swift core — no Rust/UniFFI) and ADR-0006 (macOS 26+, native
 Liquid Glass). Plan: `docs/roadmap.md`.
 
-**What exists today (V1, Phases 0–7 implemented; 1.0.0 built, not yet published):** one main window with
+**What exists today (V1, Phases 0–7 implemented; test builds 0.0.x published, no 1.0 release yet):** one main window with
 repository tabs in native Liquid Glass chrome, restored on relaunch with only the active tab loading; a new-tab
 page with recents and a remote repository browser; a virtualized commit graph with branch navigator, commit
 details, search/filter, file history and compare; native unified/split diff with syntax highlighting and

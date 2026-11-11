@@ -7,8 +7,8 @@ Glass design, driving the Git CLI. No Electron, web views, background daemons or
 
 ## Status
 
-**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.4, a test build that
-refines the action bar, diff header and side panels ([notes](docs/releases/v0.0.4.md)); the public 1.0.0 is not yet published.**
+**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.5, a test build with
+in-app updates, provider tabs in Settings ▸ Accounts and diff fixes ([notes](docs/releases/v0.0.5.md)).**
 
 | Phase | State | Report |
 |---|---|---|
@@ -47,13 +47,8 @@ Last full local run: 745 core tests passed, 0 failed; app tests and lint clean.
 Not in V1 by design: pull/merge request management, code review, CI dashboards, AI assistant.
 
 ## What remains
-**To publish 1.0.0**
-- Set `MARKETING_VERSION` back to 1.0.0 in `macos/App/Config/Version.xcconfig` (it is 0.0.4 for testing).
-- The GitHub repository is private, and there is no `v1.0.0` tag or GitHub Release yet. Notes are in
-  [`docs/releases/v1.0.0.md`](docs/releases/v1.0.0.md); assets are produced into `build/release/1.0.0/publish/`.
-- The existing 1.0.0 DMG was built from `d3bd9b8`; `main` has moved on since (CI fixes, MIT license). Rebuild with
-  `scripts/release/release.sh --version 1.0.0 --adhoc` before publishing so the artifact and its SHA-256 match the
-  tagged commit.
+**Release**
+- Releases are test builds (0.0.x) published as GitHub pre-releases; there is no 1.0 release yet.
 - CI on `main` is not green: the last run did not start (GitHub Actions billing/spending limit), and the run
   before it failed the advisory performance gate. The gate was relaxed afterwards but that change is unverified in CI.
 
@@ -79,7 +74,7 @@ history filters, worktrees, patches, advanced remotes, branch history manipulati
   2.56.0 and doesn't need Xcode, the Command Line Tools or Homebrew. SSH uses the system `/usr/bin/ssh`.
 - **Get the app:** there is no public download yet (see [What remains](#what-remains)). Build the DMG yourself
   with `scripts/release/release.sh --adhoc` (see [`docs/release.md`](docs/release.md)), open
-  `build/release/0.0.4/Jit-0.0.4.dmg` and drag **Jit** to **Applications**. A DMG built on your own Mac is not
+  `build/release/0.0.5/Jit-0.0.5.dmg` and drag **Jit** to **Applications**. A DMG built on your own Mac is not
   quarantined and opens without the step below.
 - **First launch — Jit is not notarized by Apple** (it's signed ad-hoc). A DMG downloaded from the internet
   makes macOS show "“Jit” Not Opened — Apple could not verify…". Click **Done** (not Move to Trash), then either:
