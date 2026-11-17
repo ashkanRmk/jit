@@ -9,7 +9,7 @@ A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + A
 Glass design, driving the Git CLI. No Electron, web views, background daemons or telemetry.
 
 **[Website](https://ashkanrmk.github.io/jit/)** · **[Download the latest test build](https://github.com/ashkanRmk/jit/releases)**
-(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.0.5.md)
+(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.0.6.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/graph-dark.webp">
@@ -24,8 +24,8 @@ Screenshots follow your GitHub light/dark appearance. They are real captures of 
 
 ## Status
 
-**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.5, a test build with
-in-app updates, provider tabs in Settings ▸ Accounts and diff fixes ([notes](docs/releases/v0.0.5.md)).**
+**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.6, a test build with
+in-app updates, provider tabs in Settings ▸ Accounts and diff fixes ([notes](docs/releases/v0.0.6.md)).**
 
 | Phase | State | Report |
 |---|---|---|
