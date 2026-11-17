@@ -7,6 +7,7 @@ import Services
 enum OperationSheet: Identifiable {
     case confirm(ConfirmationRequest)
     case error(PresentableError)
+    case newTag(commit: String, label: String, annotated: Bool, remotes: [String], expected: RepoStateToken)
     case newBranch(start: String, label: String)
     case rename(branch: String)
     case setUpstream(branch: String, remotes: [String])
@@ -28,6 +29,7 @@ enum OperationSheet: Identifiable {
         switch self {
         case .confirm(let request): "confirm-\(request.id)"
         case .error(let error): "error-\(error.title)"
+        case .newTag(let commit, _, _, _, _): "tag-\(commit)"
         case .newBranch(let start, _): "new-\(start)"
         case .rename(let branch): "rename-\(branch)"
         case .setUpstream(let branch, _): "upstream-\(branch)"
@@ -136,7 +138,9 @@ final class OperationsController {
                 remoteURLs: lastRemoteURLs)
         }
         if error.title == "You're offline." { model.accounts.connectivity.noteOfflineFailure() }
-        sheet = .error(error)
+        showToast(
+            title: error.title, message: error.technicalDetail.flatMap { $0.isEmpty ? nil : $0 } ?? error.explanation,
+            failed: true, error: error)
         NSAccessibility.post(
             element: NSApp.mainWindow as Any, notification: .announcementRequested,
             userInfo: [.announcement: error.title, .priority: NSAccessibilityPriorityLevel.high.rawValue])
@@ -269,9 +273,11 @@ final class OperationsController {
     }
 
     /// Push the current branch; no upstream → publish sheet (design §3.4).
-    func push() {
-        guard let branch = currentBranch,
-            !(session.status?.branch.isUnborn ?? true) || session.status?.branch.oid != nil
+    func push() { push(branch: currentBranch) }
+
+    func push(branch selected: String?) {
+        guard !session.isBusy else { return }
+        guard let branch = selected
         else {
             present(
                 PresentableError(

@@ -25,6 +25,10 @@ struct OperationSheetsHost: View {
             ErrorSheet(
                 error: error, perform: controller.perform, dismiss: controller.cancelSheet,
                 switchTo: controller.switchProfileAndRetry)
+        case .newTag(let commit, let label, let annotated, let remotes, let expected):
+            NewTagSheet(
+                controller: controller, commit: commit, label: label, annotated: annotated, remotes: remotes,
+                expected: expected)
         case .newBranch(let start, let label):
             NewBranchSheet(controller: controller, start: start, label: label)
         case .rename(let branch):
@@ -701,6 +705,74 @@ struct StashCreateSheet: View {
             }
             .keyboardShortcut(.defaultAction)
             .disabled(!controller.hasProfile)
+        }
+    }
+}
+
+struct NewTagSheet: View {
+    let controller: OperationsController
+    let commit: String
+    let label: String
+    let annotated: Bool
+    let remotes: [String]
+    let expected: RepoStateToken
+    @State private var name = ""
+    @State private var message = ""
+    @State private var push = false
+    @State private var remote = ""
+    @State private var validation: String?
+    @State private var valid = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        SheetScaffold(
+            title: annotated ? "Create Annotated Tag" : "Create Tag", subtitle: "At \(label) · \(commit.prefix(7))"
+        ) {
+            VStack(alignment: .leading, spacing: Space.s4) {
+                TextField("Tag name", text: $name).focused($focused)
+                if annotated { TextField("Tag message", text: $message, axis: .vertical).lineLimit(3...6) }
+                if let validation { Text(validation).foregroundStyle(.token(.statusDanger)).typeStyle(.caption) }
+                Toggle("Push tag after creation", isOn: $push).disabled(remotes.isEmpty)
+                if push, !remotes.isEmpty {
+                    Picker("Remote", selection: $remote) {
+                        ForEach(remotes, id: \.self) { Text($0).tag($0) }
+                    }
+                }
+                if remotes.isEmpty {
+                    Text("No remotes configured. The tag will be created locally.").typeStyle(.caption)
+                }
+            }
+        } buttons: {
+            Button("Cancel", action: controller.cancelSheet).keyboardShortcut(.cancelAction)
+            Button("Create Tag") {
+                controller.model.preferences.pushTagsAfterCreation = push
+                controller.cancelSheet()
+                controller.createTag(
+                    name, at: commit, message: annotated ? message : nil,
+                    remote: push ? remote : nil, expected: expected)
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(
+                !valid || (annotated && message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    || (push && remote.isEmpty))
+        }
+        .onAppear {
+            push = controller.model.preferences.pushTagsAfterCreation && !remotes.isEmpty
+            remote = remotes.first(where: { $0 == "origin" }) ?? remotes.first ?? ""
+            focused = true
+        }
+        .task(id: name) {
+            valid = false
+            guard !name.isEmpty, let repository = controller.session.repository else { validation = nil; return }
+            do {
+                try await repository.validateTagName(name)
+                guard !Task.isCancelled else { return }
+                validation = nil
+                valid = true
+            } catch {
+                guard !Task.isCancelled else { return }
+                validation = error.localizedDescription
+            }
         }
     }
 }

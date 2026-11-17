@@ -62,6 +62,73 @@ final class GraphViewController: NSViewController {
     private var observers: [any NSObjectProtocol] = []
     private var observationArmed = false
     private var lastQuery: HistoryQuery?
+    private var revealedInitialHead = false
+    private var pendingReveal: ObjectID?
+    /// The exact pill clicked, so keyboard actions do not choose another branch on the same commit.
+    private var selectedRefName: String?
+
+    var selectedRef: GitRef? {
+        guard let oid = viewModel.selection.last else { return nil }
+        let refs = history?.refs?.refs.filter { $0.commit == oid } ?? []
+        return refs.first { $0.fullName == selectedRefName }
+            ?? refs.first { $0.isHead } ?? refs.first { $0.kind == .local } ?? refs.first
+    }
+
+    var selectedOID: String? { viewModel.selection.last?.hex(snapshot.format) }
+
+    func createTagAtSelection(annotated: Bool = false) {
+        guard let oid = selectedOID else { return }
+        operations?.newTag(at: oid, label: selectedRef?.shortName ?? String(oid.prefix(7)), annotated: annotated)
+    }
+
+    var hasSelectedTag: Bool {
+        guard let oid = viewModel.selection.last else { return false }
+        return history?.refs?.tags.contains { $0.commit == oid } == true
+    }
+
+    func copySelectedTag() {
+        guard let oid = viewModel.selection.last else { return }
+        let tag =
+            selectedRef.flatMap { $0.kind == .tag ? $0 : nil }
+            ?? history?.refs?.refs.first { $0.kind == .tag && $0.commit == oid }
+        if let tag { Pasteboard.copy(tag.shortName) }
+    }
+
+    func clickedRef(row: Int, doubleClick: Bool) {
+        guard row >= 0, case .commit = displayRow(row) else { selectedRefName = nil; return }
+        selectedRefName = pillUnderClick(row: row)?.label?.fullName
+        guard doubleClick, let name = selectedRefName,
+            let ref = history?.refs?.ref(named: name), ref.kind == .local || ref.kind == .remote,
+            !session.isBusy
+        else { return }
+        operations?.checkout(ref: ref)
+    }
+
+    private func revealRequestedCommit() {
+        if !revealedInitialHead, let head = history?.refs?.head.commit,
+            viewModel.solo == nil, viewModel.fileHistory == nil, !viewModel.isSearching
+        {
+            revealedInitialHead = true
+            pendingReveal = head
+        }
+        if let hex = session.graphRevealCommit, let oid = ObjectID(hex: hex) {
+            pendingReveal = oid
+            session.graphRevealCommit = nil
+        }
+        guard let oid = pendingReveal else { return }
+        if let index = snapshot.row(for: oid), tableRow(forCommit: index) != nil {
+            pendingReveal = nil
+            select(oid: oid)
+        } else if snapshot.complete {
+            // A just-created commit may precede the history refresh. Wait for its new refs/snapshot.
+            if history?.refs?.head.commit == oid { pendingReveal = nil }
+        } else if history?.isLoading == false {
+            Task { [weak self] in
+                guard let self else { return }
+                await self.history?.loadRows(atLeast: self.snapshot.count + 1_000)
+            }
+        }
+    }
 
     /// `graph.firstPage`: history start → first rows on screen.
     private var firstPageSignpost: Signposts.Token?
@@ -207,14 +274,17 @@ final class GraphViewController: NSViewController {
         var fixed: [GraphColumnLayout.Column: CGFloat] = [:]
         if let graph = tableView.tableColumn(withIdentifier: Self.columnGraph) { fixed[.graph] = graph.width }
         let fitted = columns.fitted(available: available, fixed: fixed)
+        var changed = false
         for column in tableView.tableColumns {
             guard let kind = GraphColumnLayout.Column(rawValue: column.identifier.rawValue) else { continue }
             let hidden = columns.hidden.contains(kind) || fitted.autoHidden.contains(kind)
-            if column.isHidden != hidden { column.isHidden = hidden }
+            if column.isHidden != hidden { column.isHidden = hidden; changed = true }
             if kind != .graph, let width = fitted.widths[kind], abs(column.width - width) > 0.5 {
                 column.width = width
+                changed = true
             }
         }
+        if changed { invalidateCellDrawing() }
     }
 
     override func viewWillAppear() {
@@ -361,9 +431,11 @@ final class GraphViewController: NSViewController {
     private func observeStatus() {
         withObservationTracking {
             _ = session.status
+            _ = session.graphRevealCommit
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.updateWIP()
+                self?.revealRequestedCommit()
                 self?.observeStatus()
             }
         }
@@ -411,6 +483,7 @@ final class GraphViewController: NSViewController {
             redrawVisibleRows()
         }
         updatePaneState()
+        revealRequestedCommit()
         visibleRangeChanged()
         #if DEBUG
             applyDebugLaunchState()
@@ -459,6 +532,7 @@ final class GraphViewController: NSViewController {
     var isFlat: Bool { viewModel.filterMode == .onlyMatches && viewModel.isSearching }
 
     func displayRow(_ row: Int) -> DisplayRow? {
+        guard row >= 0 else { return nil }
         if isFlat {
             guard row < viewModel.matches.count else { return nil }
             let index = Int(viewModel.matches[row])
@@ -578,6 +652,8 @@ final class GraphViewController: NSViewController {
     /// Breaks the controller → view → hosting view → SwiftUI view → controller cycles of the command bar and the
     /// state overlay, and stops history work. Called once when the tab's workbench is removed for good.
     func tearDown() {
+        refsHover.hide(animated: false)
+        refsHover.removeFromSuperview()
         barHost?.removeFromSuperview()
         overlayHost?.removeFromSuperview()
         barHost = nil
@@ -1134,6 +1210,17 @@ final class GraphViewController: NSViewController {
         model.scheduleSave()
         updateGraphColumnWidth()
         fitSubjectColumn()
+        invalidateCellDrawing()
+    }
+
+    private func invalidateCellDrawing() {
+        tableView.needsLayout = true
+        tableView.enumerateAvailableRowViews { row, _ in
+            row.needsLayout = true
+            for cell in row.subviews { cell.needsDisplay = true }
+        }
+        tableView.needsDisplay = true
+        view.window?.invalidateCursorRects(for: tableView)
     }
 
     fileprivate func userMovedColumn() {
@@ -1157,7 +1244,9 @@ final class GraphViewController: NSViewController {
         }
         let cellFrame = tableView.frameOfCell(atColumn: column, row: row)
         let showing = refsHover.row == row && !refsHover.isHidden
-        guard cellFrame.contains(point) || (showing && refsHover.frame.contains(point)) else {
+        guard
+            cellFrame.contains(point) || (showing && refsHover.convert(refsHover.bounds, to: tableView).contains(point))
+        else {
             refsHover.hide()
             return
         }
@@ -1394,10 +1483,13 @@ extension GraphViewController: NSMenuDelegate {
             return
         }
         menu.removeAllItems()
+        menu.minimumWidth = 360
+        guard !session.isBusy else { return }
         let row = tableView.clickedRow
         guard row >= 0, let kind = displayRow(row) else { return }
         guard case .commit(let index) = kind else { return }  // WIP row: no copy actions
         let previousSelection = viewModel.selection
+        let pill = pillUnderClick(row: row)
         if !tableView.selectedRowIndexes.contains(row) {
             tableView.selectRowIndexes([row], byExtendingSelection: false)
         }
@@ -1406,10 +1498,10 @@ extension GraphViewController: NSMenuDelegate {
             menu.addItem(ClosureMenuItem(title: title, action: action))
         }
         // A ref label under the cursor adds label actions first.
-        let pill = pillUnderClick(row: row)
+        selectedRefName = pill?.label?.fullName
         if let label = pill?.label, let fullName = label.fullName {
             labelItems(label, fullName: fullName).forEach(menu.addItem)
-            menu.addItem(.separator())
+            return
         } else if pill?.isOverflow == true {
             // `+N`: every ref on this commit, each with its own actions.
             for label in cache.labels(for: commit.oid) {
@@ -1466,6 +1558,14 @@ extension GraphViewController: NSMenuDelegate {
         var items: [NSMenuItem] = [.separator()]
         items.append(ClosureMenuItem(title: "Check Out \(short)…") { operations.switchTo(.detach(hex)) })
         items.append(ClosureMenuItem(title: "New Branch Here…") { operations.newBranch(at: hex, label: short) })
+        items.append(ClosureMenuItem(title: "Create Tag Here…") { operations.newTag(at: hex, label: short) })
+        items.append(
+            ClosureMenuItem(title: "Create Annotated Tag Here…") {
+                operations.newTag(at: hex, label: short, annotated: true)
+            })
+        items.append(ClosureMenuItem(title: "Create Patch from Commit…") { operations.exportPatch(hex) })
+        items.append(ClosureMenuItem(title: "Create Worktree from Commit…") { operations.createWorktree(at: hex) })
+        items.append(operations.resetMenu(at: hex))
         items.append(.separator())
         if !isHead {
             items.append(
@@ -1520,7 +1620,9 @@ extension GraphViewController: NSMenuDelegate {
             write = NavigatorViewController.branchWriteItems(ref, operations: operations) + [.separator()]
         }
         return write + [
-            ClosureMenuItem(title: "Copy Name") { Pasteboard.copy(label.text) },
+            ClosureMenuItem(title: fullName.hasPrefix("refs/tags/") ? "Copy Tag Name" : "Copy Branch Name") {
+                Pasteboard.copy(label.text)
+            },
             ClosureMenuItem(title: pinned ? "Unpin" : "Pin to Left") { [weak self] in self?.togglePin(fullName) },
             ClosureMenuItem(title: "Solo \(label.text)") { [weak self] in self?.solo(fullName) },
             ClosureMenuItem(title: "Show in Navigator") { [weak self] in self?.actions.showInNavigator(fullName) },
@@ -1587,6 +1689,56 @@ final class GraphTableView: NSTableView, @MainActor NSAccessibilityCustomRotorIt
         return NSAccessibilityCustomRotor.ItemResult(targetElement: view)
     }
     private var tracking: NSTrackingArea?
+    private var resizingColumn: NSTableColumn?
+    private var resizeStart: (x: CGFloat, width: CGFloat)?
+
+    func boundary(at point: NSPoint) -> NSTableColumn? {
+        tableColumns.filter { !$0.isHidden }.dropLast().first { column in
+            let index = self.column(withIdentifier: column.identifier)
+            return abs(rect(ofColumn: index).maxX - point.x) <= 4
+        }
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(visibleRect, cursor: .pointingHand)
+        for column in tableColumns.filter({ !$0.isHidden }).dropLast() {
+            let x = rect(ofColumn: self.column(withIdentifier: column.identifier)).maxX
+            addCursorRect(
+                NSRect(x: x - 4, y: visibleRect.minY, width: 8, height: visibleRect.height), cursor: .resizeLeftRight)
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard controller?.session.isBusy != true else { return }
+        if let column = boundary(at: point) {
+            resizingColumn = column
+            resizeStart = (point.x, column.width)
+            return
+        }
+        controller?.clickedRef(row: row(at: point), doubleClick: event.clickCount == 2)
+        super.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let column = resizingColumn, let start = resizeStart else {
+            super.mouseDragged(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        column.width = max(column.minWidth, start.width + point.x - start.x)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if resizingColumn != nil {
+            resizingColumn = nil
+            resizeStart = nil
+            window?.invalidateCursorRects(for: self)
+        } else {
+            super.mouseUp(with: event)
+        }
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

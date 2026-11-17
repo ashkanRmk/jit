@@ -191,8 +191,12 @@ public final class AppModel {
 
     // MARK: - Tabs
 
+    var toast: OperationToast?
+
+    public var isBusy: Bool { tabs.contains { $0.session?.isBusy == true } }
+
     public func select(_ id: UUID) {
-        guard id != activeTabID, tabs.contains(where: { $0.id == id }) else { return }
+        guard !isBusy, id != activeTabID, tabs.contains(where: { $0.id == id }) else { return }
         let interval = Signposts.begin(Signposts.tabSwitch)
         activeTab?.session?.deactivate()
         activeTabID = id
@@ -205,6 +209,7 @@ public final class AppModel {
 
     @discardableResult
     public func newTab() -> TabModel {
+        if isBusy, let tab = activeTab { return tab }
         let tab = TabModel(kind: .newTab, title: TabModel.newTabTitle)
         insert(tab, after: activeIndex)
         return tab
@@ -221,6 +226,7 @@ public final class AppModel {
     /// Closes a tab. Closing the active tab activates its right neighbor, else its left one; closing the
     /// last tab leaves a new-tab page (the window stays open).
     public func closeTab(_ id: UUID) {
+        guard !isBusy else { return }
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[index]
         if tab.isRepository {

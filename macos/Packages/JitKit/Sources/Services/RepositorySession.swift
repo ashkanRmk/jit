@@ -54,6 +54,7 @@ public final class RepositorySession {
     public private(set) var error: GitCoreError?
     /// Number of completed status refreshes (diagnostics: churn measurements, tests).
     public private(set) var refreshCount = 0
+    public var graphRevealCommit: String?
     /// The tab's history view state; created with the handle, started by the graph view (so it can apply
     /// the tab's persisted scope first).
     public private(set) var history: HistoryController?
@@ -80,6 +81,9 @@ public final class RepositorySession {
     @ObservationIgnored private let watchesFileSystem: Bool
     @ObservationIgnored private(set) var handle: RepositoryHandle?
     @ObservationIgnored private var watcher: RepositoryWatcher?
+    @ObservationIgnored private var watcherStartTask: Task<Void, Never>?
+    /// A startup seam for exercising delayed FSEvents registration without blocking the UI executor.
+    @ObservationIgnored var watcherStarter: @Sendable (RepositoryWatcher) -> Bool = { $0.start() }
     @ObservationIgnored private var loadTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingInvalidation: Set<InvalidationKind> = []
@@ -219,9 +223,12 @@ public final class RepositorySession {
     /// Commits (P3.10). Refreshes status and history afterwards (refs moved).
     public func commit(_ request: CommitRequest) async throws(GitCoreError) -> CommitOutcome {
         defer { history?.refsMayHaveChanged() }
-        return try await write("Commit", refresh: Set(InvalidationKind.allCases)) { handle throws(GitCoreError) in
+        let outcome = try await write("Commit", refresh: Set(InvalidationKind.allCases)) {
+            handle throws(GitCoreError) in
             try await handle.commit(request)
         }
+        graphRevealCommit = (try? await handle?.captureState())?.head
+        return outcome
     }
 
     /// Facts the composer shows (read-only).
@@ -250,7 +257,7 @@ public final class RepositorySession {
     @discardableResult
     func write<T: Sendable>(
         _ description: String, refresh: Set<InvalidationKind> = [.index, .worktree],
-        _ body: @Sendable (RepositoryHandle) async throws(GitCoreError) -> T
+        _ body: @escaping @Sendable (RepositoryHandle) async throws(GitCoreError) -> T
     ) async throws(GitCoreError) -> T {
         guard let handle, lifecycle != .closed else { throw .cancelled }
         writeSequence &+= 1
@@ -261,7 +268,10 @@ public final class RepositorySession {
             // Refresh whether or not Git succeeded: a failed command may still have changed something.
             scheduleRefresh(refresh, reason: .user)
         }
-        return try await body(handle)
+        return try await operations.runThrowing(description, summarize: { _ in OperationSummary("Done.") }) {
+            () throws(GitCoreError) in
+            try await body(handle)
+        }
     }
 
     // MARK: - Loading and refreshing
@@ -279,8 +289,8 @@ public final class RepositorySession {
                 self.info = handle.info
                 if self.history == nil { self.history = HistoryController(handle: handle) }
                 self.onChange?(self)
-                // Watch before the first status so nothing changed during it is missed (events arriving
-                // meanwhile queue a refresh that coalesces with this one).
+                // Request watching before the first status. When registration finishes, reconcile once
+                // more to include changes made while macOS was registering the stream.
                 self.startWatching()
                 let status = try await handle.status()
                 guard !Task.isCancelled else { return }
@@ -370,10 +380,32 @@ public final class RepositorySession {
         let watcher = RepositoryWatcher(layout: RepositoryLayout(info)) { [weak self] batch in
             Task { @MainActor in self?.handle(batch) }
         }
-        if watcher.start() { self.watcher = watcher }
+        self.watcher = watcher
+        let start = watcherStarter
+        watcherStartTask = Task.detached(priority: .utility) { [weak self] in
+            // FSEventStreamCreate opens all watched parents and can stall in macOS. Never do it on main.
+            let running = start(watcher)
+            guard !Task.isCancelled else { watcher.stop(); return }
+            await self?.watcherStarted(watcher, running: running)
+        }
+    }
+
+    private func watcherStarted(_ candidate: RepositoryWatcher, running: Bool) {
+        guard watcher === candidate, lifecycle == .active || lifecycle == .loading else {
+            Task.detached(priority: .utility) { candidate.stop() }
+            return
+        }
+        watcherStartTask = nil
+        if running {
+            scheduleRefresh(InvalidationKind.allCases, reason: .activation)
+        } else {
+            watcher = nil
+        }
     }
 
     private func stopWatching() {
+        watcherStartTask?.cancel()
+        watcherStartTask = nil
         watcher?.stop()
         watcher = nil
     }

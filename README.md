@@ -52,7 +52,9 @@ Last full local run: 745 core tests passed, 0 failed; app tests and lint clean.
   stage, unstage and discard by file, hunk or line; blame; commit and amend with the profile's identity.
 - **Everyday workflows** — fetch, pull (fast-forward only by default), push (force-with-lease only, never plain
   `--force`), clone, branch create/switch/rename/delete/upstream, merge, rebase, cherry-pick, revert with
-  continue/skip/abort, stash, activity history.
+  continue/skip/abort, stash, activity history. Lightweight/annotated tags with optional immediate push,
+  selected-branch push/pull, confirmed resets, detached worktrees and patch export are covered by the
+  [graph workflow update](docs/phases/08-post-v1/specs/P8.ux.4-graph-workflows.md).
 - **Conflicts** — three-way resolver with explicit ours/theirs labels and non-text fallbacks.
 - **Profiles & providers** — global profiles applied per invocation (never touches `~/.gitconfig` or
   `~/.ssh/config`); SSH, PAT and OAuth with secrets only in the Keychain; GitHub and GitLab including

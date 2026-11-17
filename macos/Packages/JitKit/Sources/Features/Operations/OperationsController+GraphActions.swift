@@ -1,0 +1,205 @@
+import AppKit
+import GitCore
+import Services
+
+extension OperationsController {
+    func newTag(at commit: String, label: String, annotated: Bool = false) {
+        guard !session.isBusy else { return }
+        Task {
+            guard let expected = await session.captureState() else { return }
+            let remotes = ((try? await session.repository?.remotes()) ?? []).map(\.name)
+            sheet = .newTag(commit: commit, label: label, annotated: annotated, remotes: remotes, expected: expected)
+        }
+    }
+
+    func createTag(_ name: String, at commit: String, message: String?, remote: String?, expected: RepoStateToken) {
+        guard !session.isBusy else { return }
+        let context = execContext
+        Task {
+            switch await session.createTag(name, at: commit, message: message, context: context, expected: expected) {
+            case .failure(let error): present(error)
+            case .success:
+                if let remote, case .failure(let error) = await session.pushTag(name, remote: remote, context: context)
+                {
+                    var error = error
+                    error.title = "Tag “\(name)” Created — Push Failed"
+                    error.explanation = "Tag “\(name)” was created locally. Pushing it failed.\n\n" + error.explanation
+                    present(error)
+                }
+            }
+        }
+    }
+
+    func push(ref: GitRef) {
+        guard !session.isBusy else { return }
+        if ref.kind == .tag {
+            Task {
+                let remotes = ((try? await session.repository?.remotes()) ?? []).map(\.name)
+                guard let remote = remotes.first(where: { $0 == "origin" }) ?? remotes.first else {
+                    present(
+                        PresentableError(
+                            title: "No remote configured", explanation: "Add a remote before pushing this tag."))
+                    return
+                }
+                if case .failure(let error) = await session.pushTag(ref.shortName, remote: remote, context: execContext)
+                {
+                    present(error)
+                }
+            }
+        } else if ref.kind == .local {
+            push(branch: ref.shortName)
+        } else if ref.kind == .remote, let local = ref.remoteBranchName, let remote = ref.remoteName {
+            guard refs?.ref(named: "refs/heads/\(local)") != nil else {
+                present(
+                    PresentableError(
+                        title: "No local branch to push",
+                        explanation: "Check out “\(ref.shortName)” to create its local branch first."))
+                return
+            }
+            run(PushRequest(remote: remote, localBranch: local, remoteBranch: local))
+        }
+    }
+
+    func pull(ref: GitRef) {
+        guard !session.isBusy else { return }
+        let branch = ref.kind == .local ? ref.shortName : ref.remoteBranchName
+        guard let branch else { return }
+        if ref.kind == .local, branch == currentBranch { pull(.fastForwardOnly); return }
+        Task {
+            let expected = await session.captureState()
+            if case .failure(let error) = await session.pullBranch(
+                branch, remote: ref.remoteName,
+                remoteBranch: ref.remoteBranchName, context: execContext, expected: expected)
+            {
+                present(error)
+            }
+        }
+    }
+
+    func fastForward(_ ref: GitRef) {
+        guard !session.isBusy, let commit = session.status?.branch.oid else { return }
+        Task {
+            let expected = await session.captureState()
+            if case .failure(let error) = await session.fastForwardBranch(ref.shortName, to: commit, expected: expected)
+            {
+                present(error)
+            }
+        }
+    }
+
+    func resetMenu(at commit: String) -> NSMenuItem {
+        let parent = NSMenuItem(
+            title: "Reset \(currentBranch ?? "HEAD") to This Commit", action: nil, keyEquivalent: "")
+        let menu = NSMenu()
+        for (mode, title) in [
+            ("soft", "Soft — Keep Index and Files"), ("mixed", "Mixed — Keep Files"),
+            ("hard", "Hard — Discard Tracked Changes…"),
+        ] {
+            menu.addItem(ClosureMenuItem(title: title) { [weak self] in self?.confirmReset(to: commit, mode: mode) })
+        }
+        parent.submenu = menu
+        return parent
+    }
+
+    private func confirmReset(to commit: String, mode: String) {
+        Task { [self] in
+            guard let expected = await session.captureState() else { return }
+            let request = ConfirmationRequest(
+                action: .reset(commit: commit, mode: mode),
+                title: "Reset \(currentBranch ?? "HEAD") to \(commit.prefix(7))?", context: contextLine,
+                changes: "Move the current branch to this commit (\(mode) reset).",
+                losses: mode == "hard"
+                    ? [
+                        "Uncommitted changes to tracked files will be discarded.",
+                        "Untracked files or folders blocking tracked paths may also be removed.",
+                    ] : [],
+                recoverability:
+                    "Committed history can be recovered using the old HEAD. Uncommitted changes discarded by a hard reset cannot be recovered by Git.",
+                recoveryValue: expected.head, verb: "Reset", isHighRisk: mode == "hard")
+            confirm(request) { [weak self] token in
+                guard let self = self else { return }
+                Task {
+                    if case .failure(let error) = await self.session.reset(
+                        to: commit, mode: mode, token: token, expected: expected)
+                    {
+                        self.present(error)
+                    }
+                }
+            }
+        }
+    }
+
+    func createWorktree(at commit: String) {
+        let panel = NSSavePanel()
+        panel.title = "Create Worktree"
+        panel.nameFieldStringValue = repositoryName + "-worktree"
+        panel.prompt = "Create"
+        guard let window = NSApp.mainWindow else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self, let path = panel.url?.path else { return }
+            Task { @MainActor in
+                let expected = await self.session.captureState()
+                if case .failure(let error) = await self.session.createWorktree(
+                    at: path, commit: commit, expected: expected)
+                {
+                    self.present(error)
+                }
+            }
+        }
+    }
+
+    func exportPatch(_ commit: String) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(commit.prefix(7)).patch"
+        guard let window = NSApp.mainWindow else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let self, let url = panel.url else { return }
+            Task { @MainActor in
+                do {
+                    guard let repository = self.session.repository else { return }
+                    let bytes = try await repository.commitPatch(commit)
+                    guard !bytes.isEmpty else {
+                        self.showToast(title: "No Patch to Export", message: "This commit has no file changes.")
+                        return
+                    }
+                    try await Task.detached { try Data(bytes).write(to: url, options: .atomic) }.value
+                    self.showToast(title: "Patch Saved", message: url.lastPathComponent)
+                } catch {
+                    self.present(
+                        PresentableError(title: "Couldn't Save Patch", explanation: error.localizedDescription))
+                }
+            }
+        }
+    }
+}
+
+extension OperationsController {
+    func deleteBoth(local: GitRef, remote: GitRef) {
+        guard let remoteName = remote.remoteName, let remoteBranch = remote.remoteBranchName,
+            let tip = remote.commit?.hex(refs?.format ?? .sha1)
+        else { return }
+        Task { [self] in
+            guard let expected = await session.captureState() else { return }
+            let request = ConfirmationRequest(
+                action: .deleteLocalAndRemoteBranch(
+                    branch: local.shortName, remote: remoteName, remoteBranch: remoteBranch),
+                title: "Delete \(local.shortName) and \(remote.shortName)?", context: contextLine,
+                changes:
+                    "Remove the local branch and delete its upstream on the remote for everyone. Unmerged local branches are kept.",
+                recoverability: "The remote can only be recovered by pushing its old tip again. Remote tip:",
+                recoveryValue: tip, verb: "Delete Both Branches", isHighRisk: true)
+            confirm(request) { [weak self] token in
+                guard let self = self else { return }
+                Task {
+                    if case .failure(let error) = await self.session.deleteLocalAndRemoteBranch(
+                        local.shortName,
+                        remote: remoteName, remoteBranch: remoteBranch, remoteTip: tip, token: token,
+                        context: self.execContext, expected: expected)
+                    {
+                        self.present(error)
+                    }
+                }
+            }
+        }
+    }
+}

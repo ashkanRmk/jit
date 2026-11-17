@@ -79,6 +79,25 @@ public final class OperationCenter {
         summarize: @escaping @Sendable (T) -> OperationSummary,
         _ body: @escaping @Sendable (AsyncStream<OperationProgress>.Continuation) async throws(GitCoreError) -> T
     ) async -> Result<T, PresentableError> {
+        await runCore(title, cancellation: cancellation, summarize: summarize, body).mapError {
+            PresentableError.make($0)
+        }
+    }
+
+    public func runThrowing<T: Sendable>(
+        _ title: String, summarize: @escaping @Sendable (T) -> OperationSummary,
+        _ body: @escaping @Sendable () async throws(GitCoreError) -> T
+    ) async throws(GitCoreError) -> T {
+        try await runCore(title, cancellation: .notCancellable, summarize: summarize) { _ throws(GitCoreError) in
+            try await body()
+        }.get()
+    }
+
+    private func runCore<T: Sendable>(
+        _ title: String, cancellation: OperationCancellation,
+        summarize: @escaping @Sendable (T) -> OperationSummary,
+        _ body: @escaping @Sendable (AsyncStream<OperationProgress>.Continuation) async throws(GitCoreError) -> T
+    ) async -> Result<T, GitCoreError> {
         // No detail: operation titles can contain branch names.
         let interval = Signposts.begin(Signposts.operation)
         defer { Signposts.end(interval) }
@@ -117,7 +136,7 @@ public final class OperationCenter {
         case .failure(let error):
             let presentable = PresentableError.make(error)
             finish(id, presentable.isCancellation ? .cancelled("Cancelled") : .failed(presentable))
-            return .failure(presentable)
+            return .failure(error)
         }
     }
 

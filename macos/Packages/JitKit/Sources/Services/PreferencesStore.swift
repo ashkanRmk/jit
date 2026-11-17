@@ -89,6 +89,10 @@ public final class PreferencesStore {
     }
 
     /// The graph columns as last arranged in any tab (JSON); new tabs start from it.
+    public var pushTagsAfterCreation: Bool {
+        didSet { defaults.set(pushTagsAfterCreation, forKey: "pushTagsAfterCreation") }
+    }
+
     public var graphColumns: Data? {
         didSet { defaults.set(graphColumns, forKey: Self.graphColumnsKey) }
     }
@@ -105,6 +109,7 @@ public final class PreferencesStore {
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        pushTagsAfterCreation = defaults.bool(forKey: "pushTagsAfterCreation")
         appearance = defaults.string(forKey: Self.appearanceKey).flatMap(Appearance.init(rawValue:)) ?? .system
         restoreTabsOnLaunch = defaults.object(forKey: Self.restoreTabsKey) as? Bool ?? true
         codeTextSize = CodeTextSize(rawValue: defaults.integer(forKey: Self.codeTextSizeKey)) ?? .medium

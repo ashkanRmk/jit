@@ -31,6 +31,9 @@ extension RepositorySession {
             progress throws(GitCoreError) in
             try await body(handle, progress)
         }
+        if case .success = result, let state = try? await handle.captureState() {
+            graphRevealCommit = state.head
+        }
         afterOperation(refresh)
         return result
     }

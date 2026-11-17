@@ -195,6 +195,37 @@ import Testing
         #expect(hover.isHidden)
     }
 
+    @MainActor @Test func hoverOverlayStaysAboveTableRowsAfterReuseAndScroll() throws {
+        let style = try Self.style()
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 120))
+        let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        scroll.documentView = table
+        let hover = RefsHoverView()
+        let labels = [
+            RefLabel(
+                kind: .remote, text: "origin/feat/machine-client-guard",
+                fullName: "refs/remotes/origin/feat/machine-client-guard"),
+            RefLabel(kind: .tag, text: "7.12.0", fullName: "refs/tags/7.12.0"),
+        ]
+        let cell = NSRect(x: 0, y: 64, width: 150, height: 32)
+        hover.show(
+            row: 2, labels: labels, slot: 0, isSelected: false, style: style,
+            cellFrame: cell, maxWidth: 600, in: table)
+        // NSTableView adds/reorders its row views during scrolling and reuse. None may cover the overlay.
+        table.addSubview(NSView(frame: cell))
+        #expect(hover.superview === scroll.contentView)
+        #expect(scroll.contentView.subviews.last === hover)
+        #expect(
+            hover.convert(hover.bounds, to: table)
+                == NSRect(
+                    x: cell.minX, y: cell.minY,
+                    width: RefsHoverView.naturalWidth(labels, style: style, slot: 0), height: cell.height))
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 32))
+        #expect(hover.convert(hover.bounds, to: table).minY == cell.minY)
+        let tag = try #require(hover.pillFrames.last)
+        #expect(hover.label(at: NSPoint(x: tag.1.midX, y: tag.1.midY)) == labels.last)
+    }
+
     @MainActor @Test func hoverViewNeverGrowsPastTheTable() throws {
         let style = try Self.style()
         style.reduceMotion = true

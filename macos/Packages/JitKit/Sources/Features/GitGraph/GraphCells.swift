@@ -143,7 +143,23 @@ enum GraphCellContent {
 
 /// Draws one row's lanes and node with Core Graphics (P2.13). Fully determined by its row, so rows are
 /// reusable and drawable in isolation. Decorative for accessibility (the row carries the label).
-final class GraphCellView: NSView {
+class GraphDrawingCellView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize
+        super.setFrameSize(newSize)
+        if changed { needsDisplay = true }
+    }
+}
+
+final class GraphCellView: GraphDrawingCellView {
     var style: GraphStyle?
     var content: GraphCellContent = .empty {
         didSet {
@@ -196,7 +212,7 @@ final class GraphCellView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     @available(*, unavailable)
@@ -340,7 +356,7 @@ extension GraphCellView: @MainActor NSViewToolTipOwner {
 }
 
 /// The subject (and WIP counts / footer), drawn in one view.
-final class SubjectCellView: NSView {
+final class SubjectCellView: GraphDrawingCellView {
     struct Content {
         var subject = ""
         var trailing = ""
@@ -360,7 +376,7 @@ final class SubjectCellView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     @available(*, unavailable)
@@ -411,7 +427,7 @@ final class SubjectCellView: NSView {
 /// The "Branch / Tag" column (P2.13): the row's first ref as a pill, `+N` for the rest, and a connector
 /// towards the node. One view, no subview per pill (design §4.5). Hovering the cell shows every label in
 /// full in `RefsHoverView`, which also owns the tooltips.
-final class RefsCellView: NSView {
+final class RefsCellView: GraphDrawingCellView {
     struct Content {
         var labels: [RefLabel] = []
         var labelColor: UInt8 = 0
@@ -439,7 +455,7 @@ final class RefsCellView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     @available(*, unavailable)
@@ -550,11 +566,13 @@ struct PillRegion {
         switch label.kind {
         case .current:
             result.font = style.pillBoldFont
+            result.stroke = colors.laneOutlines[Int(slot) % max(1, colors.laneOutlines.count)]
             result.glyphs = [check, local]
             result.toolTip = "\(label.text) — current branch, local only"
         case .localWithUpstream(let remote, let isCurrent):
             if isCurrent {
                 result.font = style.pillBoldFont
+                result.stroke = colors.laneOutlines[Int(slot) % max(1, colors.laneOutlines.count)]
                 result.glyphs = [check]
             }
             let upstream = label.upstream ?? "\(remote)/\(label.text)"
@@ -641,7 +659,11 @@ struct PillRegion {
                     rect: NSRect(x: nameStart, y: top, width: x + width - nameStart, height: metrics.pillHeight),
                     toolTip: layout.toolTip))
         }
-        return result
+        let bounds = NSRect(x: x, y: top, width: max(0, width), height: metrics.pillHeight)
+        return result.compactMap { region in
+            let rect = region.rect.intersection(bounds)
+            return rect.isEmpty ? nil : PillRegion(rect: rect, toolTip: region.toolTip)
+        }
     }
 
     /// Draws `label` no wider than `maxWidth` (the name truncates in the middle); returns its width.
@@ -654,7 +676,11 @@ struct PillRegion {
         let attributes: [NSAttributedString.Key: Any] = [.font: layout.font, .foregroundColor: layout.textColor]
         let measured = ceil((layout.text as NSString).size(withAttributes: attributes).width)
         let textWidth = max(0, min(measured, maxWidth - metrics.pillPadding * 2 - glyphWidth))
-        let width = metrics.pillPadding * 2 + glyphWidth + textWidth
+        let width = max(0, min(maxWidth, metrics.pillPadding * 2 + glyphWidth + textWidth))
+        guard width > 0 else { return 0 }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.clip(to: CGRect(x: x, y: mid - metrics.pillHeight / 2, width: width, height: metrics.pillHeight))
         let rect = CGRect(x: x, y: (mid - metrics.pillHeight / 2).rounded(), width: width, height: metrics.pillHeight)
         let path = CGPath(roundedRect: rect, cornerWidth: Radius.xs, cornerHeight: Radius.xs, transform: nil)
         if let fill = layout.fill {
@@ -712,17 +738,16 @@ final class RefsHoverView: NSView {
     private var isSelectedRow = false
     private var style: GraphStyle?
     private weak var table: NSTableView?
-    private var generation = 0
+    private var tracking: NSTrackingArea?
 
     override var isFlipped: Bool { true }
+    override var isOpaque: Bool { true }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         clipsToBounds = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
-        // Redraws are not needed while the width animates: the content keeps its place, the clip grows.
-        layer?.contentsGravity = .topLeft
+        layerContentsRedrawPolicy = .duringViewResize
         layer?.isOpaque = true
         setAccessibilityElement(false)
         isHidden = true
@@ -744,7 +769,6 @@ final class RefsHoverView: NSView {
         row: Int, labels: [RefLabel], slot: UInt8, isSelected: Bool, style: GraphStyle, cellFrame: NSRect,
         maxWidth: CGFloat, in table: NSTableView
     ) {
-        generation += 1
         self.row = row
         self.labels = labels
         self.slot = slot
@@ -753,7 +777,10 @@ final class RefsHoverView: NSView {
         isSelectedRow = isSelected
         let width = min(max(cellFrame.width, Self.naturalWidth(labels, style: style, slot: slot)), maxWidth)
         layoutPills(width: width, height: cellFrame.height)
-        if superview !== table { table.addSubview(self) }
+        // NSTableView owns the stacking of its row views and may put recycled/layer-backed cells above
+        // arbitrary children. Keep the opaque strip outside the table, above its entire document view.
+        let host = table.enclosingScrollView?.contentView ?? table.superview ?? table
+        host.addSubview(self, positioned: .above, relativeTo: nil)
         // Nothing may show through: no fade is ever left running, and the layer has the canvas behind it.
         layer?.removeAllAnimations()
         layer?.backgroundColor = style.colors.canvas
@@ -761,17 +788,10 @@ final class RefsHoverView: NSView {
         alphaValue = 1
         isHidden = false
         let target = NSRect(x: cellFrame.minX, y: cellFrame.minY, width: width, height: cellFrame.height)
-        // Draw at the final size first, then reveal it from the cell's width.
-        frame = target
+        // Apply geometry and content together. Resizing the cached layer stretched old glyphs over new ones.
+        frame = table.convert(target, to: host)
         needsDisplay = true
         displayIfNeeded()
-        guard !style.reduceMotion, width > cellFrame.width + 0.5 else { return }
-        frame = cellFrame
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = MotionToken.select.duration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            self.animator().frame = target
-        }
     }
 
     /// Hides at once. (It used to fade out; a fade interrupted by the next hover could leave the strip
@@ -779,7 +799,6 @@ final class RefsHoverView: NSView {
     func hide(animated: Bool = true) {
         guard !isHidden else { return }
         row = -1
-        generation += 1
         removeAllToolTips()
         layer?.removeAllAnimations()
         isHidden = true
@@ -800,7 +819,8 @@ final class RefsHoverView: NSView {
             let later = labels[(index + 1)...].reduce(CGFloat(0)) {
                 $0 + min(painter.width($1), 60) + metrics.pillSpacing
             }
-            let pillWidth = max(metrics.pillHeight, min(painter.width(label), remaining - later))
+            guard remaining > 0 else { break }
+            let pillWidth = min(remaining, max(metrics.pillHeight, min(painter.width(label), remaining - later)))
             let frame = NSRect(x: x, y: mid - metrics.pillHeight / 2, width: pillWidth, height: metrics.pillHeight)
             pillFrames.append((label, frame))
             regions += painter.regions(label, at: x, mid: mid, width: pillWidth)
@@ -834,6 +854,24 @@ final class RefsHoverView: NSView {
 
     // MARK: Events go to the table (selection, context menus, double-click)
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: nil)
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func mouseMoved(with event: NSEvent) { table?.mouseMoved(with: event) }
+    override func mouseExited(with event: NSEvent) { table?.mouseMoved(with: event) }
     override func mouseDown(with event: NSEvent) { table?.mouseDown(with: event) }
     override func rightMouseDown(with event: NSEvent) { table?.rightMouseDown(with: event) }
     override func menu(for event: NSEvent) -> NSMenu? { table?.menu(for: event) }
@@ -863,7 +901,7 @@ extension NSImage {
 }
 
 /// Author name (the avatar is on the graph node, P2.13).
-final class AuthorCellView: NSView {
+final class AuthorCellView: GraphDrawingCellView {
     var style: GraphStyle?
     var name = "" {
         didSet { needsDisplay = true }
@@ -875,7 +913,7 @@ final class AuthorCellView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     @available(*, unavailable)
@@ -899,7 +937,7 @@ final class AuthorCellView: NSView {
 }
 
 /// A single line of secondary text (date, short SHA).
-final class TextCellView: NSView {
+final class TextCellView: GraphDrawingCellView {
     var style: GraphStyle?
     var text = "" {
         didSet { needsDisplay = true }
@@ -912,7 +950,7 @@ final class TextCellView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         setAccessibilityElement(false)
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     @available(*, unavailable)
@@ -1047,7 +1085,7 @@ final class TimeTagView: NSView {
         super.init(frame: frame)
         isHidden = true
         setAccessibilityElement(false)
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsRedrawPolicy = .duringViewResize
     }
 
     @available(*, unavailable)

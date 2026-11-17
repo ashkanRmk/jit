@@ -2,6 +2,7 @@ import CoreServices
 import Foundation
 import GitCore
 import GitTestKit
+import Synchronization
 import Testing
 
 @testable import Services
@@ -110,7 +111,7 @@ import Testing
         session.activate()
         #expect(session.lifecycle == .loading)
         #expect(try await waitUntil { session.lifecycle == .active && session.status != nil })
-        #expect(session.isWatching)
+        #expect(try await waitUntil { session.isWatching })
         #expect(session.statusDot == .clean)
         session.deactivate()
         #expect(session.lifecycle == .inactive)
@@ -121,11 +122,11 @@ import Testing
         let before = session.refreshCount
         session.activate()
         #expect(session.lifecycle == .active)
-        #expect(session.isWatching)
-        // Exactly one revalidation on re-activation.
-        #expect(try await waitUntil { session.refreshCount == before + 1 })
+        #expect(try await waitUntil { session.isWatching })
+        // Revalidate immediately and reconcile once registration completes (the two may coalesce).
+        #expect(try await waitUntil { session.refreshCount > before })
         try await Task.sleep(for: .milliseconds(300))
-        #expect(session.refreshCount == before + 1)
+        #expect((before + 1...before + 2).contains(session.refreshCount))
         session.close()
         #expect(session.lifecycle == .closed)
         #expect(!session.isWatching && !session.hasHandle)
@@ -183,6 +184,34 @@ import Testing
         try await Task.sleep(for: .seconds(2.5))
         #expect(!FileManager.default.fileExists(atPath: marker), "status process outlived deactivate")
         #expect(session.status == nil)
+    }
+
+    @Test func delayedWatcherStartupDoesNotBlockStatusAndStopsAfterDeactivation() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await repository(sandbox)
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine)
+        let release = DispatchSemaphore(value: 0)
+        let candidate = Mutex<RepositoryWatcher?>(nil)
+        let completed = Atomic<Bool>(false)
+        session.watcherStarter = { watcher in
+            candidate.withLock { $0 = watcher }
+            release.wait()
+            let running = watcher.start()
+            completed.store(true, ordering: .releasing)
+            return running
+        }
+        defer { release.signal(); session.close() }
+        session.activate()
+        #expect(try await waitUntil { candidate.withLock { $0 != nil } && session.status != nil })
+        #expect(session.lifecycle == .active)
+        #expect(!session.isWatching)
+        session.deactivate()
+        release.signal()
+        #expect(
+            try await waitUntil {
+                completed.load(ordering: .acquiring) && candidate.withLock { $0?.isRunning == false }
+            })
+        #expect(!session.isWatching)
     }
 
     @Test func testExternalEditUpdatesStatusWithinOneSecond() async throws {

@@ -149,7 +149,9 @@ public enum CommandRegistry {
                 "app.quit", "Quit Jit", .app, #selector(NSApplication.terminate(_:)), key: "q", group: 4,
                 inPalette: false),
             // File
-            C("file.newTab", "New Tab", .file, #selector(W.newTab(_:)), key: "t", symbol: "plus.square"),
+            C(
+                "file.newTab", "New Tab", .file, #selector(W.newTab(_:)), key: "n", [.command, .option],
+                symbol: "plus.square"),
             C("file.open", "Open Repository…", .file, #selector(W.openRepository(_:)), key: "o", symbol: "folder"),
             C(
                 "file.clone", "Clone Repository…", .file, #selector(W.cloneRepository(_:)), key: "N",
@@ -161,7 +163,8 @@ public enum CommandRegistry {
                 "file.closeTab", "Close Tab", .file, #selector(W.closeTab(_:)), key: "w", group: 1,
                 symbol: "xmark.square"),
             C(
-                "file.reopenTab", "Reopen Closed Tab", .file, #selector(W.reopenClosedTab(_:)), key: "T", group: 1,
+                "file.reopenTab", "Reopen Closed Tab", .file, #selector(W.reopenClosedTab(_:)), key: "T",
+                [.command, .option], group: 1,
                 symbol: "arrow.uturn.backward.square"),
             C(
                 "file.closeWindow", "Close Window", .file, #selector(NSWindow.performClose(_:)), key: "W", group: 1,
@@ -259,6 +262,12 @@ public enum CommandRegistry {
             C(
                 "view.fullScreen", "Enter Full Screen", .view, #selector(NSWindow.toggleFullScreen(_:)), key: "f",
                 [.command, .control], group: 5, inPalette: false),
+            C(
+                "branch.createTag", "Create Tag at Selection…", .branch, #selector(W.createTagAtSelection(_:)),
+                key: "t", symbol: "tag"),
+            C(
+                "branch.copyTag", "Copy Selected Tag Name", .branch, #selector(W.copySelectedTag(_:)), key: "T",
+                symbol: "doc.on.doc"),
             // Repository
             C(
                 "repo.refresh", "Refresh", .repository, #selector(W.refreshRepository(_:)), key: "r",
@@ -269,14 +278,18 @@ public enum CommandRegistry {
             C(
                 "repo.fetchAll", "Fetch All Remotes", .repository, #selector(W.fetchAllRemotes(_:)), group: 1,
                 symbol: "arrow.down.circle"),
-            C("repo.pull", "Pull", .repository, #selector(W.pullRepository(_:)), group: 1, symbol: "arrow.down"),
+            C(
+                "repo.pull", "Pull", .repository, #selector(W.pullRepository(_:)), key: "P", group: 1,
+                symbol: "arrow.down"),
             C(
                 "repo.pullMerge", "Pull with Merge", .repository, #selector(W.pullWithMerge(_:)), group: 1,
                 symbol: "arrow.triangle.merge"),
             C(
                 "repo.pullRebase", "Pull with Rebase", .repository, #selector(W.pullWithRebase(_:)), group: 1,
                 symbol: "arrow.triangle.branch"),
-            C("repo.push", "Push", .repository, #selector(W.pushRepository(_:)), group: 1, symbol: "arrow.up"),
+            C(
+                "repo.push", "Push", .repository, #selector(W.pushRepository(_:)), key: "p", group: 1,
+                symbol: "arrow.up"),
             C(
                 "repo.stash", "Stash Changes…", .repository, #selector(W.stashChanges(_:)), key: "s",
                 [.command, .option], group: 2, symbol: "tray.and.arrow.down"),

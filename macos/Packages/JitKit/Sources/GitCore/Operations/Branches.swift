@@ -193,3 +193,59 @@ extension RepositoryHandle {
         }
     }
 }
+
+extension RepositoryHandle {
+    /// Remote deletion is leased to the displayed tip. Preflight local reachability/worktrees before
+    /// touching the remote; if an external process later prevents local deletion, report that partial result.
+    public func deleteLocalAndRemoteBranch(
+        _ branch: String, remote: String, remoteBranch: String,
+        remoteTip: String, token: ConfirmationToken, context: ExecContext, expected: RepoStateToken
+    ) async throws(GitCoreError) {
+        try token.verify(.deleteLocalAndRemoteBranch(branch: branch, remote: remote, remoteBranch: remoteBranch))
+        try Self.requireSafeName(branch, what: "branch")
+        try Self.requireSafeName(remote, what: "remote")
+        try await requireValidBranchRef(remoteBranch)
+        try Self.requireObjectID(remoteTip)
+        guard let remoteInfo = try await remotes().first(where: { $0.name == remote }) else {
+            throw .refused(summary: "Remote “\(remote)” no longer exists.")
+        }
+        let upstream = try await upstream(of: branch)
+        let (engine, directory, gitDirectory) = (gitEngine, workingDirectory, info.gitDirectory)
+        try await performExclusive("Delete \(branch) locally and on \(remote)", invalidating: [.refs, .config]) {
+            () throws(GitCoreError) in
+            try await Self.ensureCurrent(expected, engine: engine, in: directory, gitDirectory: gitDirectory)
+            let worktrees = try await engine.run(
+                GitCommand(["worktree", "list", "--porcelain"], in: directory, kind: .read))
+            guard !worktrees.stdoutText.split(separator: "\n").contains(Substring("branch refs/heads/\(branch)")) else {
+                throw .refused(summary: "“\(branch)” is checked out in a worktree. Neither branch was deleted.")
+            }
+            let merged = try await engine.run(
+                GitCommand(
+                    ["merge-base", "--is-ancestor", "refs/heads/\(branch)", upstream?.ref ?? "HEAD"],
+                    in: directory, kind: .read, acceptedExitCodes: [0, 1]))
+            guard merged.exitCode == 0 else {
+                throw .refused(
+                    summary:
+                        "“\(branch)” has unmerged commits. Neither branch was deleted; review it before deleting locally."
+                )
+            }
+            let lease = try await context.prepareAccess(for: remoteInfo.pushURLs, purpose: .push)
+            defer { lease?.release() }
+            _ = try await Self.runClassified(
+                GitEnvironment.remoteCommand(
+                    [
+                        "push", "--porcelain", "--force-with-lease=refs/heads/\(remoteBranch):\(remoteTip)", remote,
+                        ":refs/heads/\(remoteBranch)",
+                    ], in: directory, context: context, access: lease?.access),
+                engine: engine, gitDirectory: gitDirectory)
+            do throws(GitCoreError) {
+                _ = try await Self.runClassified(
+                    GitCommand(["branch", "-d", "--", branch], in: directory, kind: .write),
+                    engine: engine, gitDirectory: gitDirectory)
+            } catch {
+                throw .refused(
+                    summary: "Deleted \(remote)/\(remoteBranch), but kept local branch “\(branch)”: \(error.summary)")
+            }
+        }
+    }
+}

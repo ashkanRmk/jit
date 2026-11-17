@@ -50,6 +50,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
 
     public init(model: AppModel) {
         self.model = model
+        container.toastModel = model
         RecentlyDiscardedMenu.shared.repositoryPath = { [weak model] in
             guard let tab = model?.activeTab else { return nil }
             return tab.session?.info?.topLevel ?? tab.path
@@ -72,7 +73,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         window.contentViewController = container
         window.setFrame(frame, display: false)
 
-        let toolbar = NSToolbar(identifier: "jit.main")
+        // Tracking separators belong to this window's split view. A shared identifier makes AppKit
+        // mirror insertions into other windows, where a separator may already exist.
+        let toolbar = NSToolbar(identifier: NSToolbar.Identifier("jit.main.\(UUID().uuidString)"))
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
@@ -647,10 +650,27 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     @objc public func showActivity(_ sender: Any?) { toggleActivityPopover() }
     @objc public func fetchRepository(_ sender: Any?) { activeOperations?.fetch() }
     @objc public func fetchAllRemotes(_ sender: Any?) { activeOperations?.fetchAll() }
-    @objc public func pullRepository(_ sender: Any?) { activeOperations?.pull(.fastForwardOnly) }
+    @objc public func pullRepository(_ sender: Any?) {
+        guard !model.isBusy else { return }
+        if let ref = activeGraph?.selectedRef {
+            activeOperations?.pull(ref: ref)
+        } else {
+            activeOperations?.pull(.fastForwardOnly)
+        }
+    }
+
+    @objc public func createTagAtSelection(_ sender: Any?) {
+        guard !model.isBusy else { return }
+        activeGraph?.createTagAtSelection()
+    }
+
+    @objc public func copySelectedTag(_ sender: Any?) { activeGraph?.copySelectedTag() }
     @objc public func pullWithMerge(_ sender: Any?) { activeOperations?.pull(.merge) }
     @objc public func pullWithRebase(_ sender: Any?) { activeOperations?.pull(.rebase) }
-    @objc public func pushRepository(_ sender: Any?) { activeOperations?.push() }
+    @objc public func pushRepository(_ sender: Any?) {
+        guard !model.isBusy else { return }
+        if let ref = activeGraph?.selectedRef { activeOperations?.push(ref: ref) } else { activeOperations?.push() }
+    }
     @objc public func showRemotes(_ sender: Any?) { activeOperations?.showRemotes() }
     @objc public func stashChanges(_ sender: Any?) { activeOperations?.createStash() }
     @objc public func popStash(_ sender: Any?) { activeOperations?.popLatest() }
@@ -749,7 +769,16 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let isRepository = model.activeTab?.isRepository == true
+        if model.isBusy, let action = menuItem.action,
+            CommandRegistry.all.contains(where: {
+                $0.action == action && [.repository, .branch, .file, .window].contains($0.menu)
+            }), action != #selector(showActivity(_:))
+        {
+            return false
+        }
         switch menuItem.action {
+        case #selector(createTagAtSelection(_:)): return activeGraph?.selectedOID != nil
+        case #selector(copySelectedTag(_:)): return activeGraph?.hasSelectedTag == true
         case #selector(reopenClosedTab(_:)): return model.canReopenClosedTab
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)): return model.tabs.count > 1
         case #selector(moveTabLeft(_:)): return (model.activeIndex ?? 0) > 0
@@ -772,10 +801,15 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         case #selector(fetchRepository(_:)), #selector(fetchAllRemotes(_:)), #selector(showRemotes(_:)),
             #selector(showActivity(_:)), #selector(newBranch(_:)):
             return activeOperations != nil
-        case #selector(pullRepository(_:)), #selector(pullWithMerge(_:)), #selector(pullWithRebase(_:)):
+        case #selector(pullWithMerge(_:)), #selector(pullWithRebase(_:)):
+            return activeOperations?.session.status?.branch.upstream != nil
+        case #selector(pullRepository(_:)):
+            if let ref = activeGraph?.selectedRef {
+                return ref.kind == .local ? ref.upstream != nil : ref.kind == .remote
+            }
             return activeOperations?.session.status?.branch.upstream != nil
         case #selector(pushRepository(_:)):
-            return activeOperations.map { !$0.headIsDetached } ?? false
+            return activeGraph?.selectedRef != nil || (activeOperations.map { !$0.headIsDetached } ?? false)
         case #selector(stashChanges(_:)):
             return !(activeOperations?.session.status?.summary?.isClean ?? true)
         case #selector(popStash(_:)):
@@ -832,6 +866,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     #endif
 
     public func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        if model.isBusy, item.itemIdentifier != Self.activityIdentifier { return false }
         if item.itemIdentifier == Self.sidebarToggleIdentifier {
             return container.current is WorkbenchController
         }
@@ -844,11 +879,22 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
 final class ContentContainerViewController: NSViewController {
     private(set) var current: NSViewController?
     var onDropFolder: ((URL) -> Void)?
+    var toastModel: AppModel?
 
     override func loadView() {
         let view = DropTargetView()
         view.onDrop = { [weak self] url in self?.onDropFolder?(url) }
         self.view = view
+        if let toastModel {
+            let toast = NSHostingView(rootView: OperationToasts(model: toastModel))
+            toast.translatesAutoresizingMaskIntoConstraints = false
+            toast.sizingOptions = [.intrinsicContentSize]
+            view.addSubview(toast)
+            NSLayoutConstraint.activate([
+                toast.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Space.s5),
+                toast.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Space.s5),
+            ])
+        }
     }
 
     func show(_ controller: NSViewController) {

@@ -61,6 +61,19 @@ final class InspectorModel {
         diff?.open(target)
     }
 
+    func moveFile(from path: String, forward: Bool) {
+        let visible: [ChangedFile]
+        if showsTree {
+            visible = FileTree.rows(paths: files.map(\.path), expanded: expandedFolders).compactMap {
+                $0.fileIndex.map { files[$0] }
+            }
+        } else {
+            visible = files
+        }
+        guard let index = visible.firstIndex(where: { $0.path == path }), !visible.isEmpty else { return }
+        openDiff(visible[max(0, min(visible.count - 1, index + (forward ? 1 : -1)))])
+    }
+
     /// The diff was closed from the centre pane (Esc, its close button): the file row drops its highlight.
     func closeDiff() {
         openedFilePath = nil
@@ -570,23 +583,29 @@ private struct FilesSection: View {
                     .typeStyle(.callout)
                     .foregroundStyle(.token(.textTertiary))
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if model.showsTree {
-                            ForEach(tree) { row in
-                                if let index = row.fileIndex, model.files.indices.contains(index) {
-                                    FileRow(file: model.files[index], model: model, nameOnly: true)
-                                        .padding(.leading, CGFloat(row.depth) * Space.s6)
-                                } else if let path = row.folderPath {
-                                    FolderRow(row: row) { model.toggleFolder(path) }
-                                        .padding(.leading, CGFloat(row.depth) * Space.s6)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            if model.showsTree {
+                                ForEach(tree) { row in
+                                    if let index = row.fileIndex, model.files.indices.contains(index) {
+                                        FileRow(file: model.files[index], model: model, nameOnly: true)
+                                            .id(model.files[index].path)
+                                            .padding(.leading, CGFloat(row.depth) * Space.s6)
+                                    } else if let path = row.folderPath {
+                                        FolderRow(row: row) { model.toggleFolder(path) }
+                                            .padding(.leading, CGFloat(row.depth) * Space.s6)
+                                    }
+                                }
+                            } else {
+                                ForEach(model.files, id: \.self) { file in
+                                    FileRow(file: file, model: model, nameOnly: false).id(file.path)
                                 }
                             }
-                        } else {
-                            ForEach(model.files, id: \.self) { file in
-                                FileRow(file: file, model: model, nameOnly: false)
-                            }
                         }
+                    }
+                    .onChange(of: model.openedFilePath) { _, path in
+                        if let path { proxy.scrollTo(path) }
                     }
                 }
             }
@@ -744,6 +763,7 @@ private struct FileRow: View {
     let model: InspectorModel
     let nameOnly: Bool
     @State private var isHovered = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: Space.s4) {
@@ -763,7 +783,21 @@ private struct FileRow: View {
         .padding(.horizontal, Space.s3)
         .background(RowBackground(model.openedFilePath == file.path ? .selected : isHovered ? .hover : .rest))
         .contentShape(Rectangle())
-        .onTapGesture { model.openDiff(file) }
+        .focusable()
+        .focused($isFocused)
+        .onTapGesture {
+            isFocused = true
+            model.openDiff(file)
+        }
+        .onKeyPress(.upArrow) {
+            model.moveFile(from: model.openedFilePath ?? file.path, forward: false); return .handled
+        }
+        .onKeyPress(.downArrow) {
+            model.moveFile(from: model.openedFilePath ?? file.path, forward: true); return .handled
+        }
+        .onChange(of: model.openedFilePath, initial: true) { _, path in
+            if path == file.path { isFocused = true }
+        }
         .onHover { isHovered = $0 }
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Shows the diff")

@@ -18,21 +18,7 @@ struct ActivityToolbarView: View {
     var body: some View {
         Button(action: toggle) {
             HStack(spacing: Space.s3) {
-                if let center, let running = center.current {
-                    if let fraction = running.progress?.fraction {
-                        ProgressView(value: fraction)
-                            .progressViewStyle(.circular)
-                            .controlSize(.mini)
-                    } else {
-                        ProgressView()
-                            .controlSize(.mini)
-                    }
-                    Text(label(running))
-                        .typeStyle(.caption)
-                        .foregroundStyle(.token(.textSecondary))
-                        .lineLimit(1)
-                        .frame(maxWidth: 220, alignment: .leading)
-                } else if flash, let last = center?.lastFinished {
+                if flash, let last = center?.lastFinished {
                     Image(systemName: icon(last.state))
                         .foregroundStyle(.token(color(last.state)))
                         .transition(.opacity)

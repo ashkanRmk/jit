@@ -394,42 +394,13 @@ final class WorkbenchController: NSSplitViewController {
         }
     }
 
-    /// Opens or closes the inspector with the system animation (instant with Reduce Motion).
+    /// Open at the saved width in one layout pass; animating the graph's width caused visible stalls.
     func setInspectorCollapsed(_ collapsed: Bool) {
         guard let inspectorItem, inspectorItem.isCollapsed != collapsed else { return }
-        if collapsed {
-            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || view.window == nil {
-                isAnimatingPanel = true
-                inspectorItem.isCollapsed = true
-                isAnimatingPanel = false
-            } else {
-                isAnimatingPanel = true
-                NSAnimationContext.runAnimationGroup { _ in
-                    inspectorItem.animator().isCollapsed = true
-                } completionHandler: { [weak self] in
-                    MainActor.assumeIsolated { self?.isAnimatingPanel = false }
-                }
-            }
-        } else if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || view.window == nil {
-            // Open at the shared inspector width (a collapsed split item does not reliably keep it).
-            isAnimatingPanel = true
-            inspectorItem.isCollapsed = false
-            isAnimatingPanel = false
-            applyWidths()
-        } else {
-            // Slide in with the system animation, then settle on the shared width.
-            isAnimatingPanel = true
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = MotionToken.panel.duration
-                context.allowsImplicitAnimation = true
-                inspectorItem.animator().isCollapsed = false
-            } completionHandler: { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.isAnimatingPanel = false
-                    self?.applyWidths()
-                }
-            }
-        }
+        isAnimatingPanel = true
+        inspectorItem.isCollapsed = collapsed
+        if !collapsed { applyWidths() }
+        isAnimatingPanel = false
     }
 
     /// Esc anywhere in the workbench that nothing closer handled (search fields, sheets and the graph's own

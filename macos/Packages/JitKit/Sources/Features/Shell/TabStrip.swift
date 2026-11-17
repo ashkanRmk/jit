@@ -55,6 +55,7 @@ struct TabStripView: View {
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Tabs")
+            .disabled(model.isBusy)
         }
     }
 
@@ -211,7 +212,7 @@ private struct NewTabButton: View {
         .buttonStyle(.plain)
         .glassTab(isSelected: false, isHovered: isHovered, id: "new-tab", in: namespace)
         .onHover { isHovered = $0 }
-        .help("New Tab (⌘T)")
+        .help("New Tab (⌥⌘N)")
         .accessibilityLabel("New Tab")
     }
 }

@@ -377,6 +377,7 @@ extension NavigatorViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
 extension NavigatorViewController: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        menu.minimumWidth = 360
         let row = outline.clickedRow
         func item(_ title: String, _ action: @escaping () -> Void) {
             menu.addItem(ClosureMenuItem(title: title, action: action))
@@ -438,6 +439,7 @@ extension NavigatorViewController: NSMenuDelegate {
 extension NavigatorViewController {
     /// Branch write actions shared by the navigator and graph label menus (design §3.6).
     static func branchWriteItems(_ ref: GitRef, operations: OperationsController) -> [NSMenuItem] {
+        guard !operations.session.isBusy else { return [] }
         let current = operations.currentBranch ?? "HEAD"
         // Git writes the argument into its merge message ("Merge branch 'feature/x'"), so pass the short name
         // unless a tag or other ref makes it ambiguous.
@@ -446,10 +448,20 @@ extension NavigatorViewController {
         func add(_ title: String, _ action: @escaping () -> Void) {
             items.append(ClosureMenuItem(title: title, action: action))
         }
+        if let oid = ref.commit?.hex(operations.refs?.format ?? .sha1) {
+            let checkout = NSMenuItem(title: "Checkout", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            let branch = ClosureMenuItem(title: "Check Out \(ref.shortName)") { operations.checkout(ref: ref) }
+            branch.state = ref.isHead ? .on : .off
+            submenu.addItem(branch)
+            submenu.addItem(
+                ClosureMenuItem(title: "Detach HEAD at \(oid.prefix(7))…") { operations.switchTo(.detach(oid)) })
+            checkout.submenu = submenu
+            items.append(checkout)
+        }
         switch ref.kind {
         case .local:
             let name = ref.shortName
-            if !ref.isHead { add("Switch to \(name)") { operations.checkout(ref: ref) } }
             add("New Branch from \(name)…") { operations.newBranch(at: ref.fullName, label: name) }
             if !ref.isHead {
                 items.append(.separator())
@@ -457,19 +469,32 @@ extension NavigatorViewController {
                 add("Rebase \(current) onto \(name)…") { operations.rebase(onto: source, label: name) }
             }
             items.append(.separator())
-            if ref.isHead { add("Push…") { operations.push() } }
+            add("Pull \(name) (Fast-Forward Only)") { operations.pull(ref: ref) }
+            add("Push \(name)") { operations.push(ref: ref) }
+            if !ref.isHead {
+                add("Fast-forward \(name) to \(current)") { operations.fastForward(ref) }
+            }
             add("Rename \(name)…") { operations.rename(name) }
             if ref.upstream != nil || ref.upstreamGone {
                 add("Unset Upstream") { operations.setUpstream(name, to: nil) }
             }
             add(ref.upstream == nil ? "Set Upstream…" : "Change Upstream…") { operations.setUpstream(for: name) }
             if !ref.isHead { add("Delete \(name)…") { operations.delete(branch: name) } }
+            if let upstream = ref.upstream,
+                let remote = operations.refs?.ref(named: "refs/remotes/\(upstream)")
+            {
+                add("Delete \(upstream) on Remote…") { operations.deleteRemote(ref: remote) }
+                if !ref.isHead {
+                    add("Delete \(name) and \(upstream)…") { operations.deleteBoth(local: ref, remote: remote) }
+                }
+            }
             if let remote = operations.webRemoteURL, let url = WebLink.map(remoteURL: remote, target: .branch(name)) {
                 add("Copy Link to Branch") { Pasteboard.copy(url.absoluteString) }
             }
         case .remote:
             guard let branch = ref.remoteBranchName else { return [] }
-            add("Check Out \(branch)") { operations.checkout(ref: ref) }
+            add("Pull \(ref.shortName) (Fast-Forward Only)") { operations.pull(ref: ref) }
+            add("Push to \(ref.shortName)") { operations.push(ref: ref) }
             add("New Branch from \(ref.shortName)…") { operations.newBranch(at: ref.fullName, label: ref.shortName) }
             items.append(.separator())
             add("Merge \(ref.shortName) into \(current)…") {
@@ -486,6 +511,23 @@ extension NavigatorViewController {
         case .tag, .other:
             break
         }
+        if let oid = ref.commit?.hex(operations.refs?.format ?? .sha1) {
+            items.append(.separator())
+            add("Create Tag at \(ref.shortName)…") { operations.newTag(at: oid, label: ref.shortName) }
+            add("Create Annotated Tag at \(ref.shortName)…") {
+                operations.newTag(at: oid, label: ref.shortName, annotated: true)
+            }
+            add("Create Worktree from \(ref.shortName)…") { operations.createWorktree(at: oid) }
+            add("Cherry-pick Commit") { operations.cherryPick([oid]) }
+            items.append(operations.resetMenu(at: oid))
+            add("Revert Commit") { operations.revert(oid) }
+            add("Copy Commit SHA") { Pasteboard.copy(oid) }
+            if let remote = operations.webRemoteURL, let url = WebLink.map(remoteURL: remote, target: .commit(oid)) {
+                add("Copy Link to Commit") { Pasteboard.copy(url.absoluteString) }
+            }
+            add("Create Patch from Commit…") { operations.exportPatch(oid) }
+        }
+        for item in items { item.isEnabled = !operations.session.isBusy }
         return items
     }
 }

@@ -31,17 +31,13 @@ struct GraphBar: View {
                             expandSearch()
                         }
                         .environment(\.barShowsTitles, layout.showsLabels)
+                        .environment(\.barRunningAction, controller.isSlow || isDeepRunning ? "Search" : nil)
                     }
                 }
                 .fixedSize()
                 // Transient things keep the trailing end: progress, chips, the open search field.
                 HStack(spacing: Space.s2) {
                     Spacer(minLength: 0)
-                    if controller.isSlow || isDeepRunning {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityLabel(isDeepRunning ? "Searching all history" : "Loading history")
-                    }
                     ForEach(chips, id: \.id) { chip in
                         ChipView(chip: chip)
                             .transition(RevealTransition.transition(reduceMotion: reduceMotion))
@@ -52,6 +48,7 @@ struct GraphBar: View {
                     }
                 }
             }
+            .disabled(controller.session.isBusy)
             .padding(.horizontal, Space.s4)
             .frame(maxWidth: .infinity)
             if let operations = controller.operations {

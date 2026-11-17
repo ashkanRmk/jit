@@ -6,6 +6,8 @@ public enum DestructiveAction: Sendable, Hashable {
     case deleteBranch(name: String, force: Bool)
     case deleteRemoteBranch(remote: String, branch: String)
     case forcePush(remote: String, remoteRef: String, expected: String)
+    case deleteLocalAndRemoteBranch(branch: String, remote: String, remoteBranch: String)
+    case reset(commit: String, mode: String)
     case skipCurrent
     case abortOperation
     case resolveConflict(path: String, choice: String)

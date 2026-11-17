@@ -26,11 +26,26 @@ struct CommandBarActions: View {
                 default: EmptyView()
                 }
             }
+            if controller.session.isBusy, needsBusyFallback {
+                BarAction(
+                    title: "Working", symbol: "clock", help: controller.session.operations.current?.title ?? "Working"
+                ) {}
+            }
             if !layout.overflow.isEmpty { overflowMenu }
         }
         .environment(\.barShowsTitles, layout.showsLabels)
+        .environment(\.barRunningAction, controller.session.operations.current?.title)
+        .disabled(controller.session.isBusy)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Repository actions")
+    }
+
+    private var needsBusyFallback: Bool {
+        guard let title = controller.session.operations.current?.title.lowercased() else { return false }
+        if ["fetch", "pull", "push", "force push"].contains(where: { title.hasPrefix($0) }) { return false }
+        let group: CommandBarGroup =
+            ["stash", "pop", "apply stash"].contains(where: { title.hasPrefix($0) }) ? .stash : .branch
+        return !layout.visible.contains(group)
     }
 
     private var repositoryPath: String { controller.session.info?.topLevel ?? controller.session.path }
@@ -93,6 +108,7 @@ enum BarMetrics {
 extension EnvironmentValues {
     /// View ▸ Command Bar ▸ Show Labels, or the bar is too narrow for titles.
     @Entry var barShowsTitles = true
+    @Entry var barRunningAction: String? = nil
 }
 
 /// One command of the action bar: an icon with its title underneath. Plain content with a hover wash — no
@@ -105,14 +121,42 @@ struct BarAction: View {
     @State private var isHovered = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.barShowsTitles) private var showsTitles
+    @Environment(\.barRunningAction) private var runningAction
+
+    private var isRunning: Bool {
+        guard let running = runningAction?.lowercased() else { return false }
+        let slot: String
+        if running.hasPrefix("search") {
+            slot = "Search"
+        } else if running.hasPrefix("fetch") {
+            slot = "Fetch"
+        } else if running.hasPrefix("pull") {
+            slot = "Pull"
+        } else if running.hasPrefix("push") || running.hasPrefix("force push") {
+            slot = title == "Publish" ? "Publish" : "Push"
+        } else if running.hasPrefix("pop") {
+            slot = "Pop"
+        } else if running.hasPrefix("stash") || running.hasPrefix("apply stash") {
+            slot = "Stash"
+        } else {
+            slot = "Branch"
+        }
+        if title == "Working" { return true }
+        return title == slot || title.hasPrefix(slot + " ")
+    }
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: Space.s1) {
-                Image(systemName: symbol)
-                    .symbolSize(IconSize.md - 2, weight: .medium)
-                    .frame(width: BarMetrics.iconBox, height: BarMetrics.iconBox)
-                    .accessibilityHidden(true)
+                Group {
+                    if isRunning {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: symbol).symbolSize(IconSize.md - 2, weight: .medium)
+                    }
+                }
+                .frame(width: BarMetrics.iconBox, height: BarMetrics.iconBox)
+                .accessibilityHidden(true)
                 if showsTitles {
                     Text(title)
                         .typeStyle(.caption)

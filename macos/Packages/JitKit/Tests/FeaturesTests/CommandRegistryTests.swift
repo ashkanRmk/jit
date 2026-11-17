@@ -72,7 +72,7 @@ import Testing
     }
 
     @Test func shortcutGlyphs() {
-        #expect(CommandRegistry.command("file.reopenTab")?.shortcutGlyphs == "⇧⌘T")
+        #expect(CommandRegistry.command("file.reopenTab")?.shortcutGlyphs == "⌥⇧⌘T")
         #expect(CommandRegistry.command("view.inspector")?.shortcutGlyphs == "⌥⌘0")
         #expect(CommandRegistry.command("window.nextTab")?.shortcutGlyphs == "⌃⇥")
         #expect(CommandRegistry.command("repo.fetch")?.shortcutGlyphs == "")

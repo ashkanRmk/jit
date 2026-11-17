@@ -43,10 +43,10 @@ import Testing
         let model = Self.model(sandbox)
         model.setForeground(true)
         let a = try await Self.open(model, try await Self.repo(sandbox, "a"))
-        #expect(a.session?.isWatching == true)
+        #expect(await ClosedTabDeallocatesTests.waitUntil { a.session?.isWatching == true })
         let b = try await Self.open(model, try await Self.repo(sandbox, "b"))
         #expect(a.session?.isWatching == false)  // hidden tab: no FSEvents stream
-        #expect(b.session?.isWatching == true)
+        #expect(await ClosedTabDeallocatesTests.waitUntil { b.session?.isWatching == true })
     }
 
     @Test func occludedWindowPausesRefresh() async throws {
@@ -54,11 +54,11 @@ import Testing
         let model = Self.model(sandbox)
         model.setForeground(true)
         let tab = try await Self.open(model, try await Self.repo(sandbox, "occluded"))
-        #expect(tab.session?.isWatching == true)
+        #expect(await ClosedTabDeallocatesTests.waitUntil { tab.session?.isWatching == true })
         model.setForeground(false)  // minimized, covered, other Space or app inactive
         #expect(tab.session?.isWatching == false)
         model.setForeground(true)
-        #expect(tab.session?.isWatching == true)
+        #expect(await ClosedTabDeallocatesTests.waitUntil { tab.session?.isWatching == true })
     }
 
     @Test func suspendedTabReconcilesExternalEdits() async throws {
@@ -80,7 +80,7 @@ import Testing
             await ClosedTabDeallocatesTests.waitUntil {
                 a.session?.status?.summary?.untracked == 1 && a.session?.status?.summary?.staged == 1
             })
-        #expect(a.session?.isWatching == true)
+        #expect(await ClosedTabDeallocatesTests.waitUntil { a.session?.isWatching == true })
     }
 
     // MARK: Cache limits (ADR-0043)

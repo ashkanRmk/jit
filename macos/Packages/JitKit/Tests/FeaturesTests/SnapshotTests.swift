@@ -138,6 +138,15 @@ struct SnapshotTests {
 
     @Test(arguments: [V.light, .dark, .lightHighContrast])
     func repositoryGraph(_ variant: V) async throws {
+        try await renderRepositoryGraph(variant, hovering: false)
+    }
+
+    @Test(arguments: [V.light, .dark])
+    func hoveredRepositoryGraph(_ variant: V) async throws {
+        try await renderRepositoryGraph(variant, hovering: true)
+    }
+
+    private func renderRepositoryGraph(_ variant: V, hovering: Bool) async throws {
         _ = NSApplication.shared
         let sandbox = try GitSandbox()
         let repo = try await sandbox.makeRepository("snapshot-graph")
@@ -153,6 +162,11 @@ struct SnapshotTests {
         try await repo.commit("Fix toolbar layout")
         try await repo.git("merge", "-q", "--no-ff", "feature/search", "-m", "Merge branch 'feature/search'")
         try await repo.git("tag", "v1.0")
+        if hovering {
+            try await repo.git("update-ref", "refs/remotes/origin/feat/machine-client-guard", "HEAD")
+            try await repo.git("update-ref", "refs/remotes/origin/feat/machine-client-guard-7.12", "HEAD")
+            try await repo.git("tag", "7.12.0")
+        }
         let model = Self.appModel(sandbox)
         model.restore(nil)
         let window = MainWindowController(model: model)
@@ -165,7 +179,14 @@ struct SnapshotTests {
         let graph = try #require(window.activeGraph)
         graph.view.removeFromSuperview()
         hideGlassChrome(in: graph.view)
-        check(graph.view, "graph", variant, size: NSSize(width: 900, height: 420))
+        if hovering {
+            graph.view.frame.size = NSSize(width: 900, height: 420)
+            graph.view.layoutSubtreeIfNeeded()
+            let column = graph.tableView.column(withIdentifier: GraphViewController.columnRefs)
+            let cell = graph.tableView.frameOfCell(atColumn: column, row: 0)
+            graph.mouseMoved(toRow: 0, at: NSPoint(x: cell.midX, y: cell.midY))
+        }
+        check(graph.view, hovering ? "graph-hover" : "graph", variant, size: NSSize(width: 900, height: 420))
         window.close()
     }
 
