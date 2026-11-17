@@ -1,6 +1,6 @@
 # Phase 8 — Post-V1: implementation backlog
 
-> Status: **planned**. Epics are independent units of work, each on branch `epic/<name>` with its own
+> Status (2026-11-18): **reflog/recovery implemented locally, unreleased** ([report](progress-reflog.md)); remaining epics planned. Epics are independent units of work, each on branch `epic/<name>` with its own
 > report `progress-<epic>.md` in this folder (template: [`../README.md`](../README.md)). Specs go in
 > `specs/P8.<epic>.<k>-<slug>.md`. Read [`design.md`](design.md) first.
 
@@ -48,10 +48,10 @@ Implemented as Phase 4 milestones P4.15 (core) and P4.16 (UI); see that phase's 
 
 **P8.reflog.1 — Core reflog + recovery points**
 - Tasks:
-  - [ ] `GitCore/Reflog/ReflogReader.swift`: paged reader, action classification from `%gs`.
-  - [ ] On-demand reachability for a page; `findUnreachable` (fsck) with cancel + progress.
-  - [ ] `RecoveryPoint` recorded by every rewrite/destructive op in the session op log (bounded 50).
-  - [ ] ADR-0050.
+  - [x] `GitCore/Reflog/ReflogReader.swift`: paged reader, action classification from `%gs`.
+  - [x] On-demand reachability for a page; `findUnreachable` (fsck) with cancel + progress.
+  - [x] `RecoveryPoint` captures changed/deleted refs and removed stashes through the existing writer; private journal bounded to 50.
+  - [x] ADR-0052 (0050 is occupied by author pictures).
 - Tests: `reflogPageClassifiesActions`, `reflogMarksUnreachableAfterReset`,
   `findUnreachableListsDroppedStash`, `findUnreachableCancelsAndKillsProcess`,
   `recoveryPointRecordedForAmend`.
@@ -59,10 +59,10 @@ Implemented as Phase 4 milestones P4.15 (core) and P4.16 (UI); see that phase's 
 
 **P8.reflog.2 — Reflog explorer UI**
 - Tasks:
-  - [ ] Workbench mode + ref picker; virtualized entry list.
-  - [ ] Graph integration: temporary tip lane for an unreachable selection (dashed style token).
-  - [ ] Actions: create branch here, cherry-pick, compare, copy SHA; "Reset here" appears when `reset` exists.
-  - [ ] "Undo last operation" for session-recorded ops (through reset sheet once `reset` exists; until
+  - [x] Workbench mode + ref picker; virtualized entry list.
+  - [x] Graph integration: temporary tip lane for an unreachable selection (dashed style token).
+  - [x] Actions: create branch here, cherry-pick, compare, copy SHA; "Reset here" appears when `reset` exists.
+  - [x] "Undo last operation" for session-recorded ops (through reset sheet once `reset` exists; until
         then offer "Create branch at previous state").
 - Tests: UI `testRecoverCommitAfterHardResetViaBranch`; snapshot light/dark.
 - Done when: demo — amend a commit, find the pre-amend commit in reflog, create a branch at it.
@@ -101,10 +101,10 @@ Implemented as Phase 4 milestones P4.15 (core) and P4.16 (UI); see that phase's 
 
 ### Epic `rebase-interactive` — Interactive rebase
 
-**P8.rebase-interactive.1 — Spike + ADR-0051/0052**
+**P8.rebase-interactive.1 — Spike + ADR-0059/0060**
 - Tasks:
   - [ ] Prototype helper-as-editor vs `exec` lines on a 50-commit fixture; record results.
-  - [ ] Decide empty-commit policy and `--update-refs` default; write ADR-0051, ADR-0052.
+  - [ ] Decide empty-commit policy and `--update-refs` default; write ADR-0059, ADR-0060.
 - Done when: ADRs merged with measured/observed evidence.
 
 **P8.rebase-interactive.2 — Plan, validation, helper**

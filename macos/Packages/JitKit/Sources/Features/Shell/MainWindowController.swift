@@ -647,6 +647,8 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
 
     private var activeOperations: OperationsController? { (container.current as? WorkbenchController)?.operations }
 
+    @objc public func showReflog(_ sender: Any?) { activeOperations?.showReflog() }
+
     @objc public func showActivity(_ sender: Any?) { toggleActivityPopover() }
     @objc public func fetchRepository(_ sender: Any?) { activeOperations?.fetch() }
     @objc public func fetchAllRemotes(_ sender: Any?) { activeOperations?.fetchAll() }
@@ -799,7 +801,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             return isRepository
         case #selector(clearRecentRepositories(_:)): return !model.recents.entries.isEmpty
         case #selector(fetchRepository(_:)), #selector(fetchAllRemotes(_:)), #selector(showRemotes(_:)),
-            #selector(showActivity(_:)), #selector(newBranch(_:)):
+            #selector(showActivity(_:)), #selector(showReflog(_:)), #selector(newBranch(_:)):
             return activeOperations != nil
         case #selector(pullWithMerge(_:)), #selector(pullWithRebase(_:)):
             return activeOperations?.session.status?.branch.upstream != nil

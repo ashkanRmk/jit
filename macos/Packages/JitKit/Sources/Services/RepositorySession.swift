@@ -74,6 +74,11 @@ public final class RepositorySession {
     @ObservationIgnored var operationStateTask: Task<Void, Never>?
     @ObservationIgnored var stashTask: Task<Void, Never>?
 
+    public internal(set) var recoveryPoints: [RecoveryPoint] = []
+    public internal(set) var savedRecoveryPoints: [RecoveryPoint] = []
+    public internal(set) var recoveryJournalError: String?
+    @ObservationIgnored let recoveryJournal: RecoveryJournal
+
     /// Called on the main actor after `info`, `status` or `error` change (tab title/dot, recents).
     @ObservationIgnored public var onChange: (@MainActor (RepositorySession) -> Void)?
 
@@ -93,7 +98,11 @@ public final class RepositorySession {
     private static let log = Logger(subsystem: "jit.app", category: "session")
 
     /// - Parameter handle: an already opened handle (the open flow discovers once, not twice).
-    public init(path: String, engine: GitEngine, handle: RepositoryHandle? = nil, watchesFileSystem: Bool = true) {
+    public init(
+        path: String, engine: GitEngine, handle: RepositoryHandle? = nil, watchesFileSystem: Bool = true,
+        recoveryLocation: StoreLocation = .applicationSupport()
+    ) {
+        self.recoveryJournal = RecoveryJournal(repository: path, location: recoveryLocation)
         self.path = path
         self.engine = engine
         self.watchesFileSystem = watchesFileSystem
@@ -268,10 +277,15 @@ public final class RepositorySession {
             // Refresh whether or not Git succeeded: a failed command may still have changed something.
             scheduleRefresh(refresh, reason: .user)
         }
-        return try await operations.runThrowing(description, summarize: { _ in OperationSummary("Done.") }) {
-            () throws(GitCoreError) in
-            try await body(handle)
-        }
+        let outcome: Result<T, GitCoreError>
+        do throws(GitCoreError) {
+            outcome = .success(
+                try await operations.runThrowing(description, summarize: { _ in OperationSummary("Done.") }) {
+                    () throws(GitCoreError) in try await body(handle)
+                })
+        } catch { outcome = .failure(error) }
+        if !refresh.isDisjoint(with: [.refs, .head]) { await synchronizeRecoveryPoints() }
+        return try outcome.get()
     }
 
     // MARK: - Loading and refreshing

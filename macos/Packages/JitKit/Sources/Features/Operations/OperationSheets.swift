@@ -31,6 +31,10 @@ struct OperationSheetsHost: View {
                 expected: expected)
         case .newBranch(let start, let label):
             NewBranchSheet(controller: controller, start: start, label: label)
+        case .recoverBranch(let commit, let expected):
+            NewBranchSheet(
+                controller: controller, start: commit, label: String(commit.prefix(7)),
+                defaultSwitchTo: false, expected: expected)
         case .rename(let branch):
             RenameBranchSheet(controller: controller, branch: branch)
         case .setUpstream(let branch, let remotes):
@@ -133,7 +137,16 @@ struct NewBranchSheet: View {
     let start: String
     let label: String
     @State private var name = ""
-    @State private var switchTo = true
+    @State private var switchTo: Bool
+    let expected: RepoStateToken?
+
+    init(
+        controller: OperationsController, start: String, label: String, defaultSwitchTo: Bool = true,
+        expected: RepoStateToken? = nil
+    ) {
+        self.controller = controller; self.start = start; self.label = label; self.expected = expected
+        _switchTo = State(initialValue: defaultSwitchTo)
+    }
     @State private var validation: String?
     @State private var isValid = false
 
@@ -177,7 +190,7 @@ struct NewBranchSheet: View {
     private func create() {
         guard isValid else { return }
         controller.cancelSheet()
-        controller.createBranch(name, at: start, switchTo: switchTo)
+        controller.createBranch(name, at: start, switchTo: switchTo, expected: expected)
     }
 }
 

@@ -40,3 +40,18 @@ How Jit is tested, and how to run, record and re-baseline each suite. Rules: rea
   `signposts.py <trace>` (intervals) and `hotspots.py <trace> [--under F | --callers-of F]` (Time Profiler).
 - Updating the baseline: run `run-all.sh` on the reference Mac under the recorded conditions, review the
   summary, copy the JSON to `scripts/benchmarks/baseline/reference.json` with the reason in the commit message.
+
+## Reflog and recovery (Phase 8)
+
+- Run `swift test --package-path macos/Packages/JitKit --filter 'Reflog|RecoveryJournalTests'` with
+  `JIT_APP_SUPPORT` pointing to a temporary directory. Core cases use real SHA-1/SHA-256 repositories,
+  compare safety fingerprints, expire reflogs, drop older stashes and check cancellation process cleanup.
+- `ReflogFeatureTests` exercises a real window, lost-tip graph queries, branch recovery and stale-state
+  refusal. `ReflogSnapshotTests` covers reflog/lost-commit/recovery-point lists in light/dark, plus opaque
+  chrome variants. Snapshot journal dates are normalized; commits and targets come from real Git.
+- Native QA: amend, open Repository ▸ Reflog, inspect the old commit, Create Branch (Switch to it off),
+  and verify the old SHA is preserved while HEAD/index/worktree stay unchanged. See the
+  [evidence](phases/08-post-v1/screenshots/reflog/README.md).
+- Read-only release benchmark: `JitBench reflog <fixture> <output-directory>` (three warm-ups, 15 reads).
+  Do not run timing-sensitive suites alongside builds or benchmark generation. `JIT_TEST_SERIAL=1`
+  is available for the package suite.

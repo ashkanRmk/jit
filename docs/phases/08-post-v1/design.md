@@ -1,6 +1,6 @@
 # Phase 8 — Post-V1: design
 
-> Status: **planned**. Phase 8 is not one linear phase. It is a set of independent **epics** that
+> Status (2026-11-18): **reflog/recovery implemented locally, unreleased** ([report](progress-reflog.md)); remaining epics planned. Phase 8 is not one linear phase. It is a set of independent **epics** that
 > extend V1 (§9.2, §22 Phase 8). Each epic starts only after V1 has shipped (Phase 7 exit gate) and
 > runs on its own branch `epic/<name>` with its own progress report. None of this may delay V1.
 
@@ -260,13 +260,14 @@ Phase 8 adds: interactive rebase (`rebase-merge/interactive`), stopped-for-edit,
 exposes `continue`, `skip` (where Git supports it), `abort`, and a human summary ("Rebasing feature:
 step 3 of 7, stopped for edit at a1b2c3").
 
-**Recovery points (ADR-0050).** Before a rewrite or destructive op, the core records a
-`RecoveryPoint { opID, refName, oldOID, newOID, reflogSelector, timestamp }` in the per-session
-operation log (memory + the session JSON, bounded to the last 50). Recovery relies on Git's own reflog
-and `ORIG_HEAD`; Jit does **not** write extra refs into the user's repository by default. An opt-in
-setting "Keep backup refs under refs/jit/backup/" may be evaluated in the ADR.
+**Recovery points ([ADR-0052](../../adr/0052-reflog-and-recovery-points.md)).** Ref-affecting operations
+capture previous state inside the writer, then record changed/deleted targets (including removed older
+stashes) as `RecoveryPoint { operationID, operation, refName, oldOID, newOID, timestamp }`. Keep 50 in the
+handle and a private, bounded Services journal outside the repository. Earlier sessions' points are
+informative; the current-session recovery shortcut uses live-handle points only. No backup refs are
+written. These points preserve exact OIDs as metadata, not objects already pruned by Git.
 
-**Rewrite safety (ADR-0052).** `publishedCommits(in range:) -> [ObjectID]` = the commits of the range minus
+**Rewrite safety (planned ADR-0060).** `publishedCommits(in range:) -> [ObjectID]` = the commits of the range minus
 `git rev-list <range> --not --remotes` (the unpublished ones), one process per plan. Result drives the rewrite banner and the force-push-with-
 lease requirement. Force push is only ever `--force-with-lease=<ref>:<sha>`; plain `--force` is never
 emitted.
@@ -316,11 +317,11 @@ ADR-0005; `IdentitySnapshot`, `RepoRevision`, `OpOutcome` and `RecoveryPoint` ar
 
 **Stash.** Moved to Phase 4 §4.15.
 
-**Reflog.** `git reflog show --format=%H%x00%gd%x00%gs%x00%ct -z <ref>` paged with `--skip`/`-n` (reflogs
-are short; acceptable). The "unreachable" marker is computed on demand for the visible page only
-(≤ 50 entries) with `git for-each-ref --count=1 --contains <oid>`; never for the whole reflog, never a
-full `rev-list --all` walk. The spike in §7 measures this. Fsck runs as a cancellable `Read`
-operation with process-group kill.
+**Reflog.** See ADR-0052 for the implemented API. Read NUL-delimited pages (maximum 50), using
+`%gD --date=raw` for the reflog event time rather than `%ct` (commit time). Cursors validate both the log
+file stamp and repository state. Check page reachability only, including detached HEAD; first prove the
+all-HEAD-ancestors case using `merge-base --independent`, otherwise run exact ancestor/ref-containment
+checks with at most four in flight. Fsck is an explicit cancellable read, never a background scan.
 
 **Reset.** `git reset --soft|--mixed|--keep|--hard <oid>`; preview combines `status` (files lost) and
 `git rev-list --count <HEAD> ^<target>` + `--max-count=5` subjects. "Stash first" chains `StashPush`
@@ -330,7 +331,7 @@ then `Reset` inside one serialized writer job, aborting the reset if the stash f
 permissions). Annotated tagger identity from the profile snapshot via `GIT_COMMITTER_NAME/EMAIL` env.
 Push `git push <remote> refs/tags/<name>`; remote delete `git push <remote> --delete refs/tags/<name>`.
 
-**Interactive rebase (ADR-0051).** Jit generates and validates the todo itself, then drives Git:
+**Interactive rebase (planned ADR-0059).** Jit generates and validates the todo itself, then drives Git:
 1. `rebasePlan` lists `git rev-list --reverse --parents <base>..<head>`; any merge commit → unsupported.
 2. The editor UI edits the plan; `validate(_:)` checks: first non-drop action is not squash/fixup, all OIDs
    exist and belong to the range, no duplicates, messages non-empty for reword/squash.
@@ -443,7 +444,7 @@ Locks: `git lfs locks --json`, `lock`, `unlock` with credentials from the P5 hel
 | Rebase | Commits already pushed | Rewrite banner; completing requires force-with-lease to publish. |
 | Rebase | Hook rejects (`pre-rebase`) | Operation fails cleanly; hook output shown sanitized. |
 | Rebase | App quits mid-rebase | On relaunch the state machine detects `rebase-merge`, shows Continue/Abort. |
-| Rebase | Empty commit after reorder | Surface Git's prompt as "Keep empty / Skip" choice (`--empty` behavior decided in ADR-0051). |
+| Rebase | Empty commit after reorder | Surface Git's prompt as "Keep empty / Skip" choice (`--empty` behavior to be decided in ADR-0059). |
 | Rebase | `--update-refs` moves other branches | Plan preview lists other branches that will move. |
 | Worktree | Path already exists / not empty | Validation error before running Git. |
 | Worktree | Worktree folder deleted externally | Listed as prunable; Prune offered. |
@@ -463,9 +464,9 @@ Locks: `git lfs locks --json`, `lock`, `unlock` with credentials from the P5 hel
 
 | ADR | Topic | Epic |
 |---|---|---|
-| 0050 | Recovery points: rely on reflog/ORIG_HEAD + session op log; optional backup refs under `refs/jit/` opt-in only | reflog / reset |
-| 0051 | Interactive rebase driving mechanism (helper as sequence/message editor vs `exec` lines), empty-commit policy, `--update-refs` | rebase-interactive |
-| 0052 | History rewrite safety: published-commit detection, force-with-lease only, `--force-if-includes` | rebase-interactive / branch-history |
+| 0052 | Recovery points: rely on reflog/ORIG_HEAD + session op log; optional backup refs under `refs/jit/` opt-in only | reflog / reset |
+| 0059 | Interactive rebase driving mechanism (helper as sequence/message editor vs `exec` lines), empty-commit policy, `--update-refs` | rebase-interactive |
+| 0060 | History rewrite safety: published-commit detection, force-with-lease only, `--force-if-includes` | rebase-interactive / branch-history |
 | 0053 | Worktree session model: per-worktree sessions grouped by common dir, shared invalidation, ref-write lock | worktrees |
 | 0054 | Patch sharing extension point (`PatchSharingProvider`), no Cloud Patch backend | patches |
 | 0055 | Commit/tag signing integration and verification scope | signing |
@@ -473,6 +474,7 @@ Locks: `git lfs locks --json`, `lock`, `unlock` with credentials from the P5 hel
 | 0057 | Git LFS: bundle vs detect, filter policy exception | lfs |
 | 0058 | Filtered history graph semantics (parent rewriting, layout cache keys) | history-filters |
 
+ADR-0051 already belongs to update checks; 0059/0060 replace the old rebase/safety reservations.
 The helper binary gaining editor subcommands amends ADR-0016 (note it there).
 
 ## 7. Open questions / spikes
@@ -484,5 +486,5 @@ The helper binary gaining editor subcommands amends ADR-0016 (note it there).
 | Reachability check cost for "unreachable" reflog markers and published-commit detection | Benchmark on 100k-commit repo with 500 remote refs | < 100 ms for a visible page / a 50-commit plan. |
 | Bundle git-lfs or detect only | Size, signing, notarization, update cadence | Adds < 15 MB, signs/notarizes cleanly, security updates manageable — else detect-only. |
 | Show stashes in the graph by default? | Design review with screenshots | Adds information without clutter in compact density. |
-| Backup refs (`refs/jit/backup/*`) | Discuss in ADR-0050 | Only if reflog-based recovery proves insufficient in testing; always opt-in, visible, prunable. |
+| Backup refs (`refs/jit/backup/*`) | Discuss in ADR-0052 | Only if reflog-based recovery proves insufficient in testing; always opt-in, visible, prunable. |
 | Merge-preserving interactive rebase (`--rebase-merges`) | Later iteration | Only after linear editor is stable and resolver handles merge replays. |

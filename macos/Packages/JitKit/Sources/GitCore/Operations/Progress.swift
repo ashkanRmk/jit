@@ -77,7 +77,7 @@ public struct ProgressParser: Sendable {
     static let phases = [
         "Enumerating objects", "Counting objects", "Compressing objects", "Receiving objects", "Resolving deltas",
         "Writing objects", "Updating files", "Checking out files", "Unpacking objects", "Finding sources",
-        "Updating index flags", "Checking connectivity", "Total",
+        "Updating index flags", "Checking connectivity", "Checking object directories", "Checking objects", "Total",
     ]
 
     static func parse(_ line: [UInt8]) -> ProgressEvent? {

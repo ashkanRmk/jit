@@ -76,3 +76,9 @@ public enum Density: String, CaseIterable, Sendable {
 
     public var rowHeight: CGFloat { self == .compact ? 22 : 26 }
 }
+
+/// Geometry of the reflog's reference chooser and action column.
+public enum ReflogMetrics {
+    public static let refPickerWidth: CGFloat = 280
+    public static let actionWidth: CGFloat = 96
+}

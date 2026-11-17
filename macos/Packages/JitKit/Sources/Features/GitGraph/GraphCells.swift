@@ -129,6 +129,7 @@ struct NodeDecor: Equatable {
     var hasRefs = false
     var wipAbove = false
     var dimmed = false
+    var isRecoveryTip = false
 }
 
 /// What a graph cell draws for one row.
@@ -271,10 +272,15 @@ final class GraphCellView: GraphDrawingCellView {
                 let to = Int(segment.toLane)
                 context.setStrokeColor(
                     colors.lane(segment.color).copy(alpha: alpha(max(from, to))) ?? colors.lane(segment.color))
+                context.setLineDash(
+                    phase: 0,
+                    lengths: decor.isRecoveryTip && (from == lane || to == lane)
+                        ? GraphMetrics.recoveryDash : [])
                 context.addPath(
                     GraphEdgeGeometry.path(x0: x(from), x1: x(to), half: segment.half, mid: mid, height: height))
                 context.strokePath()
             }
+            context.setLineDash(phase: 0, lengths: [])
             if decor.wipAbove {
                 context.setStrokeColor(colors.lane(row.nodeColor))
                 context.setLineDash(phase: 0, lengths: [3, 3])

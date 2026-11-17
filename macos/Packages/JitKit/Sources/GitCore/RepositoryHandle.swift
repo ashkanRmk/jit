@@ -36,6 +36,9 @@ public actor RepositoryHandle {
     /// changed something).
     public private(set) var repoRevision = RepoRevision(0)
 
+    public static let recoveryPointLimit = 50
+    public internal(set) var recoveryPoints: [RecoveryPoint] = []
+
     struct Computed: Sendable {
         let status: RepositoryStatus
         let snapshot: StatusSnapshot?

@@ -84,14 +84,19 @@ Not in V1 by design: pull/merge request management, code review, CI dashboards, 
 - Tab switch is 17.4 ms median against a 16 ms target.
 - In a short window with a diff open, the inspector gives the file list too little height.
 
-**Post-V1 (Phase 8, all unstarted)** — reflog explorer, reset, tags, interactive rebase, commit surgery,
-history filters, worktrees, patches, advanced remotes, branch history manipulation, signing, submodules, LFS.
+**Next build (unreleased)** — [Reflog explorer and recovery](docs/phases/08-post-v1/progress-reflog.md):
+inspect HEAD/local-branch reflogs, find lost commits and dropped stashes on demand, and recover a committed
+state into a branch or through a confirmed reset. Available from Repository ▸ Reflog, the action bar or ⌘K.
+
+**Remaining Phase 8 work** — complete reset previews/keep/stash-first and tag management, then interactive
+rebase, commit surgery, history filters, worktree management, patch workflows, advanced remotes, branch
+history manipulation, signing, submodules and LFS. Basic reset/tag/worktree/export actions already exist.
 
 ## Install
 - **System requirements:** macOS 26 or later on Apple silicon (arm64; ADR-0049). Nothing else: Jit bundles Git
   2.56.0 and doesn't need Xcode, the Command Line Tools or Homebrew. SSH uses the system `/usr/bin/ssh`.
 - **Get the app:** download `Jit-<version>.dmg` from the newest test build on
-  [GitHub Releases](https://github.com/ashkanRmk/jit/releases) (pre-releases; currently 0.0.5), open it and drag
+  [GitHub Releases](https://github.com/ashkanRmk/jit/releases) (pre-releases), open it and drag
   **Jit** to **Applications**. Or build the DMG yourself with `scripts/release/release.sh --adhoc` (see
   [`docs/release.md`](docs/release.md)); a DMG built on your own Mac is not quarantined and opens without the
   step below.

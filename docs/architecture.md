@@ -220,3 +220,12 @@ cloneRepository(_:engine:) — free function (no repository yet)
   `JitSourceCommit` is stamped by `scripts/release/01-build-app.sh`, and `ReleaseInfo` (Features/About) feeds
   the About panel and Acknowledgements.
 - **Release pipeline**: `scripts/release/01…09` + `release.sh` (`docs/release.md`).
+
+## Reflog and committed-state recovery (Phase 8)
+
+`GitCore/Reflog` reads bounded, validated pages and performs explicit cancellable fsck scans.
+`RepositoryHandle.performExclusive` records old HEAD/changed refs while holding the existing writer;
+`Services/RecoveryJournal` persists at most 50 points outside the repository. `Features/Reflog` provides
+the workbench list, commit inspection and recovery through existing branch/cherry-pick/reset workflows.
+Temporary graph tips are query-only; the feature never writes backup refs. See
+[ADR-0052](adr/0052-reflog-and-recovery-points.md) and the [report](phases/08-post-v1/progress-reflog.md).

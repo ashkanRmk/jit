@@ -312,3 +312,12 @@ JIT_APP_SUPPORT=<tmp> scripts/benchmarks/run-all.sh`. Results: `benchmarks/resul
 
 Verdict: no release regression beyond Phase 6 thresholds. The two `compare.sh` flags didn't reproduce in
 isolated reruns. The bundled Git (2.56, system libcurl) costs nothing measurable against Homebrew 2.54.
+
+## Reflog explorer (2026-11-18)
+
+Release `JitBench reflog` on Mac17,9, macOS 27.2.1 / Apple Git 2.54.0: a 50-entry HEAD-ancestor page
+(including reachability and cursor validation) measured **42.75 ms p50 / 43.90 ms p90**, 15 reads after
+three warm-ups on the 100k-commit synthetic fixture with 702 refs and 55 appended reflog events. This
+meets the 100 ms target for that case; pages of unrelated/lost histories were not benchmarked. No global
+app performance claim is made. Method, limitations and raw JSON are in the
+[reflog report](phases/08-post-v1/progress-reflog.md#performance-release-build).

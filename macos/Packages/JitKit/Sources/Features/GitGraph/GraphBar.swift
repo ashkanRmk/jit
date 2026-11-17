@@ -109,7 +109,7 @@ struct GraphBar: View {
     /// Titles drop first, then groups move into `⋯` (`CommandBarLayout`). Widths are measured from the titles
     /// with the bar's font; the trailing side keeps what it needs.
     private func commandLayout(reservingTrailing: Bool = true) -> CommandBarLayout {
-        let groups: [CommandBarGroup] = [.branch, .sync, .stash, .terminal]
+        let groups: [CommandBarGroup] = [.branch, .sync, .stash, .history, .terminal]
         func item(_ title: String) -> CommandBarLayout.GroupWidth {
             .init(labelled: BarMetrics.itemWidth(title), iconOnly: BarMetrics.itemWidth(nil))
         }
@@ -121,7 +121,7 @@ struct GraphBar: View {
         }
         let widths: [CommandBarGroup: CommandBarLayout.GroupWidth] = [
             .sync: sum(["Pull ↓99", "Publish", "Fetch"]), .branch: item("Branch"), .stash: sum(["Stash", "Pop"]),
-            .terminal: item("Terminal"),
+            .terminal: item("Terminal"), .history: item("Reflog"),
         ]
         // In the centred row with the commands: the Search item.
         let extras = showsSearchField ? 0 : BarMetrics.itemWidth("Search") + Space.s2
@@ -271,6 +271,15 @@ struct GraphBar: View {
 
     private var chips: [Chip] {
         var result: [Chip] = []
+        if let tip = model.recoveryTip {
+            result.append(
+                Chip(
+                    id: "recovery", title: "Recovery: \(tip.prefix(7))",
+                    tooltip: "Temporary commit; no branch was created."
+                ) {
+                    controller.clearRecoveryTip()
+                })
+        }
         if let solo = model.solo {
             result.append(
                 Chip(id: "solo", title: "Solo: \(Self.shortName(solo))", tooltip: nil) {

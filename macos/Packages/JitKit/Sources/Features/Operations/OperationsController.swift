@@ -9,6 +9,7 @@ enum OperationSheet: Identifiable {
     case error(PresentableError)
     case newTag(commit: String, label: String, annotated: Bool, remotes: [String], expected: RepoStateToken)
     case newBranch(start: String, label: String)
+    case recoverBranch(commit: String, expected: RepoStateToken)
     case rename(branch: String)
     case setUpstream(branch: String, remotes: [String])
     case publish(branch: String, remotes: [String])
@@ -31,6 +32,7 @@ enum OperationSheet: Identifiable {
         case .error(let error): "error-\(error.title)"
         case .newTag(let commit, _, _, _, _): "tag-\(commit)"
         case .newBranch(let start, _): "new-\(start)"
+        case .recoverBranch(let commit, _): "recover-\(commit)"
         case .rename(let branch): "rename-\(branch)"
         case .setUpstream(let branch, _): "upstream-\(branch)"
         case .publish(let branch, _): "publish-\(branch)"
@@ -74,6 +76,7 @@ final class OperationsController {
     /// The remote URL web links map from (upstream's remote, else `origin`), cached for synchronous menus.
     @ObservationIgnored private(set) var webRemoteURL: String?
     @ObservationIgnored var selectCommit: (ObjectID) -> Void = { _ in }
+    @ObservationIgnored var showReflog: () -> Void = {}
     @ObservationIgnored var showWorkingDirectory: () -> Void = {}
     /// Shows any commit (a stash) in the inspector, even when the graph doesn't list it.
     @ObservationIgnored var inspectCommit: (ObjectID) -> Void = { _ in }
@@ -391,9 +394,10 @@ final class OperationsController {
         sheet = .newBranch(start: start, label: label)
     }
 
-    func createBranch(_ name: String, at start: String, switchTo: Bool) {
+    func createBranch(_ name: String, at start: String, switchTo: Bool, expected: RepoStateToken? = nil) {
         Task {
-            let token = await session.captureState()
+            let token: RepoStateToken?
+            if let expected { token = expected } else { token = await session.captureState() }
             handle(await session.createBranch(name, at: start, switchTo: switchTo, expected: token)) {
                 [weak self] outcome in
                 if case .wouldOverwrite(let paths, let untracked) = outcome {

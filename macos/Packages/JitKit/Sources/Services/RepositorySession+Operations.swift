@@ -34,6 +34,7 @@ extension RepositorySession {
         if case .success = result, let state = try? await handle.captureState() {
             graphRevealCommit = state.head
         }
+        if !refresh.isDisjoint(with: [.refs, .head]) { await synchronizeRecoveryPoints() }
         afterOperation(refresh)
         return result
     }

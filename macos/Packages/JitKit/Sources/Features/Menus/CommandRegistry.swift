@@ -310,6 +310,9 @@ public enum CommandRegistry {
                 "repo.profileSwitcher", "Show Profile Switcher", .repository, #selector(W.showProfileSwitcher(_:)),
                 key: "p", [.command, .control], group: 4, symbol: "person.crop.circle", keywords: "identity account"),
             C(
+                "repo.reflog", "Reflog", .repository, #selector(W.showReflog(_:)), group: 4,
+                symbol: "clock.arrow.circlepath", keywords: "recover lost commits undo reflog"),
+            C(
                 "repo.activity", "Show Activity", .repository, #selector(W.showActivity(_:)), key: "a",
                 [.command, .option], group: 4, symbol: "list.bullet.rectangle", keywords: "operations log progress"),
             C(

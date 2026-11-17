@@ -25,10 +25,10 @@ import Testing
             labelsAllowed: labels)
     }
 
-    @Test func phaseFourShipsSyncBranchAndStash() {
-        #expect(CommandBarGroup.shipped == [.location, .changes, .sync, .branch, .stash, .terminal, .find])
-        // Undo/redo is absent until Phase 8 builds it.
-        #expect(!CommandBarGroup.shipped.contains(.history))
+    @Test func shipsReflogAlongsideWorkflowActions() {
+        #expect(CommandBarGroup.shipped == [.location, .changes, .sync, .branch, .stash, .history, .terminal, .find])
+        // Reflog is the recovery entry point in Phase 8.
+        #expect(CommandBarGroup.shipped.contains(.history))
     }
 
     @Test func labelsShowWhenEverythingFits() {

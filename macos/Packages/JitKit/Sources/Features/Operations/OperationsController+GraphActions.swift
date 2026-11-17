@@ -3,6 +3,14 @@ import GitCore
 import Services
 
 extension OperationsController {
+    func recoverBranch(at commit: String) {
+        guard !session.isBusy else { return }
+        Task { [weak self] in
+            guard let self, let expected = await session.captureState() else { return }
+            sheet = .recoverBranch(commit: commit, expected: expected)
+        }
+    }
+
     func newTag(at commit: String, label: String, annotated: Bool = false) {
         guard !session.isBusy else { return }
         Task {
@@ -101,7 +109,8 @@ extension OperationsController {
         return parent
     }
 
-    private func confirmReset(to commit: String, mode: String) {
+    func confirmReset(to commit: String, mode: String) {
+        guard !session.isBusy else { return }
         Task { [self] in
             guard let expected = await session.captureState() else { return }
             let request = ConfirmationRequest(

@@ -17,6 +17,8 @@ public enum HistoryScope: Sendable, Hashable, Codable {
 
 public struct HistoryQuery: Sendable, Hashable {
     public var scope: HistoryScope
+    /// An unreferenced commit shown temporarily for recovery; never creates or persists a Git ref.
+    public var temporaryTip: String?
     /// Path filter (file history). Passed after `--`.
     public var path: String?
     /// `--follow` (only honoured for a single file path).
@@ -24,7 +26,11 @@ public struct HistoryQuery: Sendable, Hashable {
     /// Full ref names pinned to the leftmost lanes, in order.
     public var pinned: [String]
 
-    public init(scope: HistoryScope = .all, path: String? = nil, follow: Bool = false, pinned: [String] = []) {
+    public init(
+        scope: HistoryScope = .all, path: String? = nil, follow: Bool = false, pinned: [String] = [],
+        temporaryTip: String? = nil
+    ) {
+        self.temporaryTip = temporaryTip
         self.scope = scope
         self.path = path
         self.follow = follow
@@ -51,7 +57,8 @@ public struct HistoryQuery: Sendable, Hashable {
 
     /// The full `git` argument list (ADR-0023: display-only reads neutralise program-executing config).
     func arguments(refs: RefSnapshot, skip: Int) -> [String]? {
-        let revisions = revisions(refs: refs)
+        var revisions = revisions(refs: refs)
+        if let temporaryTip, ObjectID(hex: temporaryTip) != nil { revisions.append(temporaryTip) }
         let options = revisions.filter { $0.hasPrefix("--") }
         let names = revisions.filter { !$0.hasPrefix("--") }
         guard !revisions.isEmpty else { return nil }

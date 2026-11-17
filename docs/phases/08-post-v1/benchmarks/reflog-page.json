@@ -1,0 +1,12 @@
+{
+  "benchmark" : "reflog-page",
+  "git" : "\/Applications\/Xcode.app\/Contents\/Developer\/usr\/bin\/git 2.54.0 (Apple Git-157)",
+  "iterations" : 15,
+  "machine" : "Mac17,9",
+  "maxMilliseconds" : 44.07275,
+  "minMilliseconds" : 40.077875,
+  "osVersion" : "Version 27.2.1 (Build 26B131)",
+  "p50Milliseconds" : 42.749791,
+  "p90Milliseconds" : 43.89825,
+  "timestamp" : "2026-11-17T22:54:45Z"
+}

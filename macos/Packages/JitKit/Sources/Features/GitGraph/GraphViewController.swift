@@ -484,6 +484,10 @@ final class GraphViewController: NSViewController {
             redrawVisibleRows()
         }
         updatePaneState()
+        if let oid = recoverySelection, snapshot.row(for: oid) != nil {
+            recoverySelection = nil
+            select(oid: oid)
+        }
         revealRequestedCommit()
         visibleRangeChanged()
         #if DEBUG
@@ -1070,7 +1074,30 @@ final class GraphViewController: NSViewController {
     }
 
     /// Selects a commit by id, loading pages until it appears (asks first beyond 50k rows).
+    private var recoverySelection: ObjectID?
+
+    func revealRecoveryCommit(_ oid: ObjectID, unreachable: Bool) {
+        viewModel.searchText = ""
+        viewModel.filterMode = .highlight
+        recomputeMatches(scroll: false)
+        if unreachable {
+            recoverySelection = oid
+            viewModel.recoveryTip = oid.hex(snapshot.format)
+            applyQuery()
+        } else {
+            select(oid: oid)
+        }
+    }
+
+    func clearRecoveryTip() {
+        recoverySelection = nil
+        guard viewModel.recoveryTip != nil else { return }
+        viewModel.recoveryTip = nil
+        applyQuery()
+    }
+
     func select(oid: ObjectID) {
+        if let tip = viewModel.recoveryTip, tip != oid.hex(snapshot.format) { clearRecoveryTip() }
         if let index = snapshot.row(for: oid), let row = tableRow(forCommit: index) {
             viewModel.select(oid, extending: false)
             isSyncingSelection = true
@@ -1111,7 +1138,9 @@ final class GraphViewController: NSViewController {
 
     func clearModes() {
         // Esc: search, then solo, then compare (design §3.7).
-        if viewModel.isSearching {
+        if viewModel.recoveryTip != nil {
+            clearRecoveryTip()
+        } else if viewModel.isSearching {
             viewModel.searchText = ""
             searchTextChanged()
         } else if viewModel.solo != nil {
@@ -1326,6 +1355,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
             case .commit(let index):
                 let commit = snapshot.row(index)
                 var decor = NodeDecor()
+                decor.isRecoveryTip = viewModel.recoveryTip == commit.oid.hex(snapshot.format)
                 if let display = cache.display(index) {
                     decor.initials = display.initials
                     decor.email = display.authorEmail
@@ -1465,6 +1495,9 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
         }
         viewModel.selection = ordered
         viewModel.wipSelected = wip
+        if let tip = viewModel.recoveryTip, !ordered.contains(where: { $0.hex(snapshot.format) == tip }) {
+            clearRecoveryTip()
+        }
         actions.selectionChanged(viewModel)
     }
 

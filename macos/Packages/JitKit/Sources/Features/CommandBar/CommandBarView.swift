@@ -22,6 +22,13 @@ struct CommandBarActions: View {
                 case .sync: if let operations = controller.operations { SyncActions(operations: operations) }
                 case .branch: if let operations = controller.operations { newBranchAction(operations) }
                 case .stash: if let operations = controller.operations { StashActions(operations: operations) }
+                case .history:
+                    BarAction(
+                        title: "Reflog", symbol: "clock.arrow.circlepath",
+                        help: "Explore reflog and recover lost commits"
+                    ) {
+                        controller.operations?.showReflog()
+                    }
                 case .terminal: terminalAction
                 default: EmptyView()
                 }
@@ -66,6 +73,8 @@ struct CommandBarActions: View {
         Menu {
             ForEach(layout.overflow, id: \.self) { group in
                 switch group {
+                case .history:
+                    Button("Reflog") { controller.operations?.showReflog() }
                 case .terminal:
                     Button("Open in Terminal") { RepositoryActions.openInTerminal(repositoryPath) }
                 case .branch:

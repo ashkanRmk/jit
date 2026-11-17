@@ -163,7 +163,8 @@ extension RepositoryHandle {
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         try Self.requireObjectID(oid)
         return try await performExclusive(
-            pop ? "Pop stash@{\(index)}" : "Apply stash@{\(index)}", invalidating: [.index, .worktree, .refs]
+            pop ? "Pop stash@{\(index)}" : "Apply stash@{\(index)}", invalidating: [.index, .worktree, .refs],
+            includingStashRecovery: pop
         ) { () throws(GitCoreError) -> StashApplyOutcome in
             try Self.refuseIfIndexLocked(gitDirectory: gitDirectory)
             try await Self.requireStash(index: index, oid: oid, engine: engine, in: topLevel)
@@ -215,7 +216,8 @@ extension RepositoryHandle {
         let topLevel = try requireWorkingTree()
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         try token.verify(.dropStash(index: index, oid: oid))
-        _ = try await performExclusive("Drop stash@{\(index)}", invalidating: [.refs]) { () throws(GitCoreError) in
+        _ = try await performExclusive("Drop stash@{\(index)}", invalidating: [.refs], includingStashRecovery: true) {
+            () throws(GitCoreError) in
             try await Self.requireStash(index: index, oid: oid, engine: engine, in: topLevel)
             _ = try await Self.runClassified(
                 GitCommand(["stash", "drop", "--quiet", "stash@{\(index)}"], in: topLevel, kind: .write),
@@ -228,7 +230,8 @@ extension RepositoryHandle {
         let topLevel = try requireWorkingTree()
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         try token.verify(.clearStashes)
-        _ = try await performExclusive("Clear stashes", invalidating: [.refs]) { () throws(GitCoreError) in
+        _ = try await performExclusive("Clear stashes", invalidating: [.refs], includingStashRecovery: true) {
+            () throws(GitCoreError) in
             _ = try await Self.runClassified(
                 GitCommand(["stash", "clear"], in: topLevel, kind: .write), engine: engine, gitDirectory: gitDirectory)
         }

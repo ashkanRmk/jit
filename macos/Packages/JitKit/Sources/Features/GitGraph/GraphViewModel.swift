@@ -43,6 +43,8 @@ final class GraphViewModel {
     /// File history mode (chip `History: path ✕`).
     var fileHistory: (path: String, follow: Bool)?
 
+    var recoveryTip: String?
+
     var searchText = ""
     var filterMode: FilterMode = .highlight
     /// Matching rows in the loaded history, in row order.
@@ -72,6 +74,7 @@ final class GraphViewModel {
     var isSearching: Bool { !HistorySearchQuery(searchText).isEmpty }
 
     var query: HistoryQuery {
+        if let recoveryTip { return HistoryQuery(pinned: pinned, temporaryTip: recoveryTip) }
         var query = HistoryQuery(pinned: pinned)
         if let solo {
             query.scope = .solo(solo)

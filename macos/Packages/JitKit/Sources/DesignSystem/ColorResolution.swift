@@ -60,3 +60,8 @@ extension ShapeStyle where Self == Color {
     /// `.foregroundStyle(.token(.textSecondary))`
     @MainActor public static func token(_ token: ColorToken) -> Color { token.color }
 }
+
+/// System selection text follows the user's accent and the active/inactive native list selection.
+public enum ReflogStyle {
+    public static var selectedText: Color { Color(nsColor: .alternateSelectedControlTextColor) }
+}

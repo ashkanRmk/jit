@@ -63,8 +63,9 @@ workbench modes.
 Pull/merge request creation or management, code review workflows, provider CI/CD dashboards and
 pipeline management, hosted collaboration services, an AI coding assistant, a general-purpose IDE.
 Provider APIs are used only for authentication, repository discovery, client metadata and clone URLs.
-Post-V1 epics (interactive rebase, worktree management, reflog, reset UI, tags, patches, LFS,
-submodules…) are parked in `docs/phases/08-post-v1`.
+Reflog explorer/recovery is implemented in the unreleased development branch ([report](phases/08-post-v1/progress-reflog.md)).
+It provides paged HEAD/local-branch logs, explicit lost-commit scans, saved recovery points and recovery
+through existing branch/reset/cherry-pick workflows. Other Phase 8 epics remain in `docs/phases/08-post-v1`.
 
 ## Product principles
 Native-first, performance-first (near-zero idle cost), correctness-first (protect the user's data),

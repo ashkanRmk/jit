@@ -12,6 +12,7 @@ extension RepositoryHandle {
     public func performExclusive<T: Sendable>(
         _ description: String,
         invalidating kinds: Set<InvalidationKind> = [.index, .worktree],
+        includingStashRecovery: Bool = false,
         _ body: @Sendable () async throws(GitCoreError) -> T
     ) async throws(GitCoreError) -> T {
         try await acquireGate(description)
@@ -20,7 +21,22 @@ extension RepositoryHandle {
             gate.release()
         }
         if Task.isCancelled { throw .cancelled }
-        return try await body()
+        // File-only operations need no ref snapshot. Ref-changing mutations capture recovery inside
+        // this gate, before another queued mutation can advance HEAD or remove a ref.
+        let tracksRefs = !kinds.isDisjoint(with: [.refs, .head])
+        let before = tracksRefs ? try await recoverySnapshot(includeStashes: includingStashRecovery) : nil
+        let result: Result<T, GitCoreError>
+        do throws(GitCoreError) { result = .success(try await body()) } catch { result = .failure(error) }
+        if let before {
+            // A cancelled/failed mutation may already have changed refs. Read its final state in a
+            // bounded cleanup task that does not inherit cancellation; never turn success into failure
+            // merely because its recovery metadata could not be read.
+            let after = await Task.detached { [self] in
+                try? await recoverySnapshot(includeStashes: includingStashRecovery)
+            }.value
+            recordRecovery(before, after: after, operation: description)
+        }
+        return try result.get()
     }
 
     private func acquireGate(_ description: String) async throws(GitCoreError) {

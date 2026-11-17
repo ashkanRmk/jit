@@ -1,7 +1,7 @@
 # Jit — Implementation Roadmap
 
-> Status (2026-11-10): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.5, a
-> test build ([notes](releases/v0.0.5.md)); there is no 1.0 release yet.** Phase 8 is a plan; no epic has started. What is still open is in [§10](#10-current-state-and-what-remains).
+> Status (2026-11-18): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.6, a
+> test build ([notes](releases/v0.0.6.md)); there is no 1.0 release yet.** Phase 8 reflog/recovery is implemented locally (unreleased) on `codex/reflog-recovery`; see its [report](phases/08-post-v1/progress-reflog.md). What is still open is in [§10](#10-current-state-and-what-remains).
 >
 > | Phase | State | Report |
 > |---|---|---|
@@ -13,7 +13,7 @@
 > | 5 Profiles & providers | implemented | [`progress.md`](phases/05-profiles-and-providers/progress.md) |
 > | 6 Polish & performance | implemented with carry-overs | [`progress.md`](phases/06-polish-and-performance/progress.md) |
 > | 7 Packaging & release | implemented with carry-overs — ad-hoc signed, not notarized (owner decision 2026-11-10, ADR-0049 addendum) | [`progress.md`](phases/07-packaging-and-release/progress.md) |
-> | 8 Post-V1 | planned | [`design.md`](phases/08-post-v1/design.md) |
+> | 8 Post-V1 | reflog/recovery implemented locally, unreleased; other epics planned | [`design.md`](phases/08-post-v1/design.md) |
 >
 > Each phase folder under [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
@@ -365,6 +365,10 @@ sideways scrolling in side-by-side diffs. Details and what was verified: [`relea
 - In a short window with a diff open, the inspector split gives the file list little height.
 - Light-mode Finder screenshot of the DMG not taken.
 
-**Next: Phase 8.** Independent epics, each on `epic/<name>`, in the suggested order reflog → reset → tags →
+**Phase 8:** Reflog explorer/recovery is implemented locally and unreleased ([report](phases/08-post-v1/progress-reflog.md)).
+Reset soft/mixed/hard, tag creation, detached worktree creation and patch export already have basic graph
+actions from 0.0.6; their fuller epic specifications still contain unfinished work. After reflog, finish
+reset previews, keep mode and stash-first recovery, then remaining tag management before interactive rebase.
+The original suggested order for the independent epics was reflog → reset → tags →
 interactive rebase → commit surgery → history filters → worktrees → patches → remotes → branch history →
-signing → submodules → LFS. An opt-in updater (ADR-0020) is also a Phase 8 candidate.
+signing → submodules → LFS. Update checks and the change-log sheet shipped in 0.0.5 (ADR-0051).

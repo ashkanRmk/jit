@@ -106,7 +106,11 @@ import Testing
         }
         while center.running.isEmpty { await Task.yield() }
         let second = Task {
-            await center.run("Push", summarize: { (_: Void) in OperationSummary("") }) { _ throws(GitCoreError) in }
+            await center.run("Push", summarize: { (_: Void) in OperationSummary("") }) { _ throws(GitCoreError) in
+                // Keep the record running until its waiting label is inspected. An immediately
+                // completed body clears waitingFor before the test task necessarily resumes.
+                while !release.withLock({ $0 }) { try? await Task.sleep(for: .milliseconds(5)) }
+            }
         }
         while center.records.count < 2 { await Task.yield() }
         #expect(center.records.first { $0.title == "Push" }?.waitingFor == "Fetch origin")

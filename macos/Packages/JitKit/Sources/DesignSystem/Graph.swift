@@ -31,6 +31,8 @@ public struct GraphMetrics: Sendable, Equatable {
         pillSpacing: 4, maxGraphShare: 0.4)
 
     /// The lane-coloured bar at the graph column's trailing edge of each commit row.
+    public static let recoveryDash: [CGFloat] = [3, 3]
+
     public static let laneBarWidth: CGFloat = 2
 
     public static func forDensity(_ density: Density) -> GraphMetrics {

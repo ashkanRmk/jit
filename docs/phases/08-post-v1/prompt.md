@@ -53,7 +53,7 @@ You are the principal macOS / Swift / Git engineer for Jit — a 100% Swift, mac
 
 5. Epic-wide emphases:
    - Every mutating/destructive request carries the RepoRevision it was prepared against and fails with StaleState instead of running on changed state.
-   - Destructive operations use the §16.3 confirmation sheet (what changes, what may be lost, recoverable and how, which repo/branch) with a specific primary button label, and record a RecoveryPoint (ADR-0050).
+   - Destructive operations use the §16.3 confirmation sheet (what changes, what may be lost, recoverable and how, which repo/branch) with a specific primary button label, and record a RecoveryPoint (ADR-0052).
    - Rewrites of commits reachable from remote-tracking refs show the published-commits warning; the only force push is --force-with-lease with an explicit expected SHA. Never emit plain --force.
    - Git runs with argv arrays, fixed cwd, `--` separators, GIT_TERMINAL_PROMPT=0 and the sanitized environment. Editor/sequence-editor/askpass hooks point to the bundled jit-git-helper (JitGitHelper Swift target) with data passed via files/env, never interpolated into a command string. Temp files live in a per-operation 0700 directory and are removed afterwards.
    - Identity (committer, tagger, signing key reference) comes from the profile snapshot taken at operation start. Never modify ~/.gitconfig or ~/.ssh/config.

@@ -69,6 +69,16 @@ func measure(
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 
+// `JitBench reflog <fixture> <output-directory>`: on-demand page plus reachability.
+if arguments.first == "reflog" {
+    guard arguments.count == 3 else {
+        print("usage: JitBench reflog <fixture> <output-directory>")
+        exit(2)
+    }
+    try await ReflogBench.run(path: arguments[1], out: arguments[2])
+    exit(0)
+}
+
 // `JitBench renderer-spike`: spike S1 for ADR-0011 (TextKit 2 vs CodeLinesView).
 if arguments.first == "phase3" {
     try await Phase3Bench.run()

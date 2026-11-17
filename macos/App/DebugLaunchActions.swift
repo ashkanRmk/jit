@@ -88,6 +88,9 @@
                     if let query = defaults.string(forKey: "JitPaletteQuery") { controller?.setPaletteQuery(query) }
                 }
             }
+            if defaults.bool(forKey: "JitShowReflog") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { controller?.showReflog(nil) }
+            }
             if defaults.bool(forKey: "JitShowUpdates") {
                 // `-JitShowUpdates YES` (+ `-JitUpdateCheck YES` to ask GitHub, `-JitUpdateCurrentVersion <v>`).
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {

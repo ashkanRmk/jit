@@ -31,6 +31,7 @@ final class WorkbenchController: NSSplitViewController {
     lazy var blameModel = BlameModel(session: session)
     lazy var blameController = BlameViewController(model: blameModel)
     lazy var operations = OperationsController(session: session, model: model)
+    lazy var reflogModel = ReflogModel(session: session)
     private var needsWidthRestore = true
     private var isApplyingWidths = false
     /// An open/close animation of a panel is running: its frames are not user choices.
@@ -77,7 +78,8 @@ final class WorkbenchController: NSSplitViewController {
             viewController: MainPaneController(
                 graph: graph, session: session, tab: tab, actions: actions, diffModel: diffModel,
                 diffController: diffController, blameModel: blameModel, blameController: blameController,
-                operations: operations))
+                operations: operations, reflogModel: reflogModel, inspectorModel: inspectorModel,
+                showInspector: { [weak self] in self?.setInspectorCollapsed(false) }))
         main.minimumThickness = PanelMetrics.contentColumnMax - 160
 
         let inspector = NSSplitViewItem(
@@ -161,6 +163,19 @@ final class WorkbenchController: NSSplitViewController {
         inspector.openBlame = { [weak blame] path, oid in blame?.open(path: path, revision: oid) }
         diff.onBlame = { [weak blame] path, oid in blame?.open(path: path, revision: oid) }
         let operations = self.operations
+        operations.showReflog = { [weak self] in
+            guard let self else { return }
+            self.diffModel.close()
+            self.blameModel.close()
+            guard self.operations.resolver == nil else { return }
+            self.reflogModel.open()
+        }
+        reflogModel.onSelect = { [weak self, weak inspector] oid in
+            guard let self else { return }
+            inspector?.handle = self.session.repository
+            inspector?.show(selection: [oid], wip: false)
+            self.setInspectorCollapsed(false)
+        }
         graph.operations = operations
         navigator.operations = operations
         operations.selectCommit = { [weak graph] oid in graph?.select(oid: oid) }
@@ -341,6 +356,7 @@ final class WorkbenchController: NSSplitViewController {
 
     /// The tab closed (or was suspended): detach hosted views that capture their controllers (P6.6).
     func tearDown() {
+        reflogModel.close()
         graph?.tearDown()
         navigator?.tearDown()
         diffController.tearDown()
@@ -411,6 +427,7 @@ final class WorkbenchController: NSSplitViewController {
             diffModel.requestClose()
             return
         }
+        if reflogModel.isOpen { reflogModel.close(); return }
         if graph?.clearSelection() == true { return }
         setInspectorCollapsed(true)
     }
@@ -434,6 +451,12 @@ final class MainPaneController: NSViewController {
     let blameModel: BlameModel
     let blameController: BlameViewController
     let operations: OperationsController
+    let reflogModel: ReflogModel
+    let inspectorModel: InspectorModel
+    let showInspector: () -> Void
+    private let reflogContainer = NSView()
+    private var reflogController: NSHostingController<ReflogView>?
+    private var reflogWasInactive = false
     private let focusContainer = NSView()
     private let blameContainer = NSView()
     private let resolverContainer = NSView()
@@ -443,9 +466,13 @@ final class MainPaneController: NSViewController {
     init(
         graph: GraphViewController, session: RepositorySession, tab: TabModel, actions: WorkbenchActions,
         diffModel: DiffViewModel, diffController: DiffViewController, blameModel: BlameModel,
-        blameController: BlameViewController, operations: OperationsController
+        blameController: BlameViewController, operations: OperationsController, reflogModel: ReflogModel,
+        inspectorModel: InspectorModel, showInspector: @escaping () -> Void
     ) {
         self.operations = operations
+        self.reflogModel = reflogModel
+        self.inspectorModel = inspectorModel
+        self.showInspector = showInspector
         self.blameModel = blameModel
         self.blameController = blameController
         self.graph = graph
@@ -455,6 +482,35 @@ final class MainPaneController: NSViewController {
         self.diffModel = diffModel
         self.diffController = diffController
         super.init(nibName: nil, bundle: nil)
+    }
+
+    private func observeReflog() {
+        withObservationTracking {
+            _ = reflogModel.isOpen
+            _ = session.lifecycle
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.session.lifecycle != .active {
+                    self.reflogModel.cancelReads()
+                    self.reflogWasInactive = true
+                } else if self.reflogWasInactive {
+                    self.reflogWasInactive = false
+                    if self.reflogModel.isOpen { self.reflogModel.reload() }
+                }
+                let open = self.reflogModel.isOpen
+                let wasOpen = !self.reflogContainer.isHidden
+                self.reflogContainer.isHidden = !open
+                self.graph.view.isHidden = open
+                if wasOpen && !open { self.graph.actions.selectionChanged(self.graph.viewModel) }
+                if !open, let window = self.view.window, let responder = window.firstResponder as? NSView,
+                    responder.isDescendant(of: self.reflogContainer)
+                {
+                    window.makeFirstResponder(self.graph.tableView)
+                }
+                self.observeReflog()
+            }
+        }
     }
 
     /// The error / first-load overlay is hidden once the repository is open, so it never intercepts clicks
@@ -593,6 +649,31 @@ final class MainPaneController: NSViewController {
         let overlay = NSHostingView(rootView: SessionStateOverlay(session: session, tab: tab, actions: actions))
         overlay.translatesAutoresizingMaskIntoConstraints = false
         overlay.sizingOptions = []
+        let reflog = ReflogView(
+            model: reflogModel, operations: operations,
+            showInGraph: { [weak self] row in
+                guard let self else { return }
+                self.reflogModel.close()
+                self.graph.revealRecoveryCommit(row.oid, unreachable: row.isUnreachable)
+            },
+            compareWithCurrent: { [weak self] oid in
+                guard let self, let hex = self.session.status?.branch.oid, let head = ObjectID(hex: hex) else { return }
+                self.inspectorModel.handle = self.session.repository
+                self.inspectorModel.compareMode = .direct
+                self.inspectorModel.show(selection: [oid, head], wip: false)
+                self.showInspector()
+            })
+        let reflogHost = NSHostingController(rootView: reflog)
+        reflogHost.sizingOptions = []
+        addChild(reflogHost)
+        reflogController = reflogHost
+        reflogContainer.translatesAutoresizingMaskIntoConstraints = false
+        reflogContainer.isHidden = !reflogModel.isOpen
+        root.addSubview(reflogContainer)
+        reflogHost.view.frame = reflogContainer.bounds
+        reflogHost.view.autoresizingMask = [.width, .height]
+        reflogContainer.addSubview(reflogHost.view)
+        observeReflog()
         root.addSubview(overlay)
         stateOverlay = overlay
         observeOverlay()
@@ -637,6 +718,12 @@ final class MainPaneController: NSViewController {
             // Below the window toolbar: the diff's own glass chrome must not sit under it.
             focusContainer.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
             focusContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        NSLayoutConstraint.activate([
+            reflogContainer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            reflogContainer.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            reflogContainer.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            reflogContainer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
         ])
         for view in [graph.view, overlay] {
             NSLayoutConstraint.activate([
