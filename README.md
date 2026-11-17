@@ -84,7 +84,7 @@ Not in V1 by design: pull/merge request management, code review, CI dashboards, 
 - Tab switch is 17.4 ms median against a 16 ms target.
 - In a short window with a diff open, the inspector gives the file list too little height.
 
-**Next build (unreleased)** — [Reflog explorer and recovery](docs/phases/08-post-v1/progress-reflog.md):
+**Reflog explorer and recovery (0.0.7)** — [Feature report](docs/phases/08-post-v1/progress-reflog.md):
 inspect HEAD/local-branch reflogs, find lost commits and dropped stashes on demand, and recover a committed
 state into a branch or through a confirmed reset. Available from Repository ▸ Reflog, the action bar or ⌘K.
 

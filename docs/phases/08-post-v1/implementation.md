@@ -1,6 +1,6 @@
 # Phase 8 — Post-V1: implementation backlog
 
-> Status (2026-11-18): **reflog/recovery implemented locally, unreleased** ([report](progress-reflog.md)); remaining epics planned. Epics are independent units of work, each on branch `epic/<name>` with its own
+> Status (2026-11-18): **reflog/recovery implemented in 0.0.7** ([report](progress-reflog.md)); remaining epics planned. Epics are independent units of work, each on branch `epic/<name>` with its own
 > report `progress-<epic>.md` in this folder (template: [`../README.md`](../README.md)). Specs go in
 > `specs/P8.<epic>.<k>-<slug>.md`. Read [`design.md`](design.md) first.
 

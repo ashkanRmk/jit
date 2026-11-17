@@ -1,7 +1,7 @@
 # Phase 8 — Reflog explorer & recovery: progress report
 
-Status: **implemented locally, unreleased** (2026-11-18)
-Branch: `codex/reflog-recovery`; no remote publication or release performed.
+Status: **implemented, merged to main for 0.0.7** (2026-11-18)
+Implementation branch: `codex/reflog-recovery`, fast-forward merged to `main`. Release notes: [0.0.7](../../releases/v0.0.7.md).
 Environment: MacBook Pro `Mac17,9`, macOS 27.2.1 (26B131), Xcode 27.2 (27B52), Swift 6.4.2.
 Release benchmark Git: Apple Git 2.54.0 (Git-157). Bundled runtime: Git 2.56.0.
 
@@ -110,5 +110,5 @@ bundled 2.56.0 runtime was verified separately by integration tests.
 
 ## Next
 
-Review and merge this local feature, then finish the reset epic's missing previews, keep mode and
+Finish the reset epic's missing previews, keep mode and
 stash-first chain. Basic soft/mixed/hard reset actions already exist; do not reimplement them.
