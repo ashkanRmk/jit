@@ -21,30 +21,19 @@ struct GraphBar: View {
     var body: some View {
         let layout = commandLayout()
         VStack(spacing: Space.s3) {
-            // The tools sit in the middle; chips and the open search field keep the trailing end.
-            ZStack {
-                // One centred row: the commands, then Search (the working directory is the graph's WIP row).
-                HStack(spacing: Space.s2) {
-                    CommandBarActions(controller: controller, layout: layout)
-                    if !showsSearchField {
-                        BarAction(title: "Search", symbol: "magnifyingglass", help: "Search Commits (⌘F)") {
-                            expandSearch()
-                        }
-                        .environment(\.barShowsTitles, layout.showsLabels)
-                        .environment(\.barRunningAction, controller.isSlow || isDeepRunning ? "Search" : nil)
+            // Commands and search share layout space, so expanding the field cannot cover an action.
+            Group {
+                if wrapsSearch {
+                    VStack(spacing: Space.s3) {
+                        commandItems(layout: commandLayout(reservingTrailing: false))
+                        HStack(spacing: Space.s2) { trailingItems }
                     }
-                }
-                .fixedSize()
-                // Transient things keep the trailing end: progress, chips, the open search field.
-                HStack(spacing: Space.s2) {
-                    Spacer(minLength: 0)
-                    ForEach(chips, id: \.id) { chip in
-                        ChipView(chip: chip)
-                            .transition(RevealTransition.transition(reduceMotion: reduceMotion))
-                    }
-                    if showsSearchField {
-                        searchField
-                        if model.isSearching { matchControls }
+                } else {
+                    HStack(spacing: Space.s2) {
+                        Spacer(minLength: 0)
+                        commandItems(layout: layout)
+                        trailingItems
+                        Spacer(minLength: 0)
                     }
                 }
             }
@@ -82,16 +71,51 @@ struct GraphBar: View {
 
     // MARK: Layout
 
+    /// Sync remains visible alongside the overflow button. Give search its own row when even that
+    /// compact arrangement cannot fit. An explicit choice also gives NSHostingView the correct height.
+    private var wrapsSearch: Bool {
+        let commands = 4 * BarMetrics.itemWidth(nil) + 3 * Space.s2
+        let field = 140 + 2 * Space.s4 + 2 * Space.s3 + 2 * IconSize.md
+        let controls: CGFloat = model.isSearching ? 150 : 0
+        let chipsWidth = CGFloat(chips.count) * 160
+        return showsSearchField && barWidth < commands + field + controls + chipsWidth + 2 * Space.s4 + Space.s2
+    }
+
+    private func commandItems(layout: CommandBarLayout) -> some View {
+        HStack(spacing: Space.s2) {
+            CommandBarActions(controller: controller, layout: layout)
+            if !showsSearchField {
+                BarAction(title: "Search", symbol: "magnifyingglass", help: "Search Commits (⌘F)") {
+                    expandSearch()
+                }
+                .environment(\.barShowsTitles, layout.showsLabels)
+                .environment(\.barRunningAction, controller.isSlow || isDeepRunning ? "Search" : nil)
+            }
+        }
+        .fixedSize()
+    }
+
+    @ViewBuilder private var trailingItems: some View {
+        ForEach(chips, id: \.id) { chip in
+            ChipView(chip: chip)
+                .transition(RevealTransition.transition(reduceMotion: reduceMotion))
+        }
+        if showsSearchField {
+            searchField
+            if model.isSearching { matchControls.fixedSize() }
+        }
+    }
+
     /// Titles drop first, then groups move into `⋯` (`CommandBarLayout`). Widths are measured from the titles
     /// with the bar's font; the trailing side keeps what it needs.
-    private func commandLayout() -> CommandBarLayout {
+    private func commandLayout(reservingTrailing: Bool = true) -> CommandBarLayout {
         let groups: [CommandBarGroup] = [.branch, .sync, .stash, .terminal]
         func item(_ title: String) -> CommandBarLayout.GroupWidth {
             .init(labelled: BarMetrics.itemWidth(title), iconOnly: BarMetrics.itemWidth(nil))
         }
         func sum(_ titles: [String]) -> CommandBarLayout.GroupWidth {
             let widths = titles.map(item)
-            let gaps = Space.s1 * CGFloat(titles.count - 1)
+            let gaps = Space.s2 * CGFloat(titles.count - 1)
             return .init(
                 labelled: widths.reduce(gaps) { $0 + $1.labelled }, iconOnly: widths.reduce(gaps) { $0 + $1.iconOnly })
         }
@@ -101,13 +125,13 @@ struct GraphBar: View {
         ]
         // In the centred row with the commands: the Search item.
         let extras = showsSearchField ? 0 : BarMetrics.itemWidth("Search") + Space.s2
-        // At the trailing end; the centred row must stay clear of it, so it counts on both sides.
-        var trailing: CGFloat = showsSearchField ? 140 + 3 * Space.s5 + IconSize.md : 0
+        // Reserve the field at its preferred width, including padding, glyphs and the clear button.
+        var trailing: CGFloat = showsSearchField ? 220 + 2 * Space.s4 + 2 * Space.s3 + 2 * IconSize.md : 0
         if model.isSearching { trailing += 150 }
         trailing += CGFloat(chips.count) * 160
-        let available = max(barWidth - 2 * Space.s4 - extras - 2 * trailing, 0)
+        let available = max(barWidth - 2 * Space.s4 - extras - (reservingTrailing ? trailing + Space.s2 : 0), 0)
         return CommandBarLayout.make(
-            available: available, groups: groups, widths: widths, spacing: Space.s1,
+            available: available, groups: groups, widths: widths, spacing: Space.s2,
             overflowButton: BarMetrics.itemWidth(nil), labelsAllowed: controller.model.preferences.commandBarShowsLabels
         )
     }

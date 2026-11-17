@@ -169,6 +169,37 @@ import Testing
             painter.regions(remote, at: 0, mid: 10, width: painter.width(remote)).first?.toolTip == "origin/feature/x")
     }
 
+    @MainActor @Test func narrowCurrentBranchPillKeepsItsNameBeforeItsIcons() throws {
+        let style = try Self.style()
+        let painter = PillPainter(style: style, slot: 0)
+        let label = RefLabel(
+            kind: .localWithUpstream(remote: "origin", isCurrent: true), text: "master",
+            fullName: "refs/heads/master", upstream: "origin/master")
+        // At the refs column's minimum width, +N leaves only this much room for the first pill.
+        let regions = painter.regions(label, at: 4, mid: 16, width: 52)
+        #expect(regions.count == 1)
+        #expect(regions.first?.toolTip == "master — local and origin/master")
+        #expect(regions.first?.rect.width == 52)
+        // Full-width expansion retains the original checkmark, laptop and cloud tooltips.
+        #expect(
+            painter.regions(label, at: 4, mid: 16, width: painter.width(label)).map(\.toolTip)
+                == ["Checked out", "Local branch master", "origin/master", "master — local and origin/master"])
+    }
+
+    @MainActor @Test func relatedBranchKeepsExistingTagInItsOriginalPosition() throws {
+        let style = try Self.style()
+        let cell = RefsCellView(frame: NSRect(x: 0, y: 0, width: 150, height: 32))
+        cell.style = style
+        let tag = RefLabel(kind: .tag, text: "v1.0", fullName: "refs/tags/v1.0")
+        let branch = RefLabel(kind: .historical, text: "feature/topic", fullName: nil)
+        cell.content = .init(labels: [tag], ghost: branch, ghostStrength: RefsCellView.ghostHovered)
+        let image = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
+        cell.cacheDisplay(in: cell.bounds, to: image)
+        #expect(cell.pillFrames.first?.0 == tag)
+        #expect(cell.pillFrames.count == 2)
+        #expect(cell.content.labels == [tag])
+    }
+
     @MainActor @Test func hoverViewShowsEveryLabelInFull() throws {
         let style = try Self.style()
         let table = NSTableView(frame: NSRect(x: 0, y: 0, width: 900, height: 200))

@@ -434,7 +434,7 @@ final class RefsCellView: GraphDrawingCellView {
         var dimmed = false
         /// The graph column is the next column: the connector runs to the trailing edge.
         var connects = true
-        /// A row without labels of its own, hovered or selected: the branch of the line it sits on, dimmed.
+        /// Related branch information on a hovered or selected row, after its actual refs.
         var ghost: RefLabel?
         var ghostStrength: CGFloat = 0
     }
@@ -464,16 +464,8 @@ final class RefsCellView: GraphDrawingCellView {
     override func draw(_ dirtyRect: NSRect) {
         pillFrames.removeAll(keepingCapacity: true)
         guard let style, let context = NSGraphicsContext.current?.cgContext else { return }
-        guard let first = content.labels.first else {
-            if let ghost = content.ghost {
-                context.setAlpha(content.ghostStrength)
-                let painter = PillPainter(style: style, slot: content.labelColor)
-                _ = painter.draw(
-                    ghost, at: Space.s2, mid: (bounds.height / 2).rounded(),
-                    maxWidth: max(style.metrics.pillHeight, bounds.width - Space.s2 - Space.s3), context: context)
-            }
-            return
-        }
+        let labels = content.labels + (content.ghost.map { [$0] } ?? [])
+        guard let first = labels.first else { return }
         let metrics = style.metrics
         let colors = style.colors
         if content.dimmed { context.setAlpha(0.45) }
@@ -483,15 +475,18 @@ final class RefsCellView: GraphDrawingCellView {
         let leading = Space.s2
         var overflow: RefLabel?
         var overflowWidth: CGFloat = 0
-        if content.labels.count > 1 {
-            let more = RefLabel(kind: .tag, text: "+\(content.labels.count - 1)", fullName: nil)
+        if labels.count > 1 {
+            let more = RefLabel(kind: .tag, text: "+\(labels.count - 1)", fullName: nil)
             overflow = more
             overflowWidth = painter.width(more, neutral: true) + metrics.pillSpacing
         }
         // Keep a short stub of connector visible after the pills.
         let maxFirst = max(metrics.pillHeight, bounds.width - leading - overflowWidth - Space.s3)
         var x = leading
+        context.saveGState()
+        if content.labels.isEmpty, content.ghost != nil { context.setAlpha(content.ghostStrength) }
         let width = painter.draw(first, at: x, mid: mid, maxWidth: maxFirst, context: context)
+        context.restoreGState()
         pillFrames.append(
             (first, NSRect(x: x, y: mid - metrics.pillHeight / 2, width: width, height: metrics.pillHeight)))
         x += width
@@ -555,7 +550,7 @@ struct PillRegion {
         var toolTip: String
     }
 
-    private func layout(_ label: RefLabel, neutral: Bool) -> Layout {
+    private func layout(_ label: RefLabel, neutral: Bool, maxWidth: CGFloat? = nil) -> Layout {
         let colors = style.colors
         let laneText = NSColor(cgColor: colors.lane(slot)) ?? colors.textSecondary
         var result = Layout(
@@ -583,6 +578,9 @@ struct PillRegion {
         case .local:
             result.glyphs = [local]
             result.toolTip = "\(label.text) — local only"
+        case .historical:
+            result.glyphs = [Glyph(name: "arrow.triangle.branch", color: laneText, width: 13, toolTip: nil)]
+            result.toolTip = "\(label.text) — branch name recorded in merge history"
         case .remote:
             result.fill = nil
             result.stroke = colors.laneOutlines[Int(slot) % max(1, colors.laneOutlines.count)]
@@ -617,6 +615,18 @@ struct PillRegion {
             result.textColor = colors.textSecondary
             result.glyphs = []
         }
+        if let maxWidth {
+            let name = ceil((result.text as NSString).size(withAttributes: [.font: result.font]).width)
+            let shortened = String(result.text.prefix(3)) + "…"
+            let minimumName = min(name, ceil((shortened as NSString).size(withAttributes: [.font: result.font]).width))
+            // A narrow pill keeps a readable name before location/checkmark icons. The hover expansion
+            // still shows every glyph and its tooltip at the pill's natural width.
+            while !result.glyphs.isEmpty,
+                style.metrics.pillPadding * 2 + glyphsWidth(result) + minimumName > maxWidth
+            {
+                result.glyphs.removeLast()
+            }
+        }
         return result
     }
 
@@ -633,7 +643,7 @@ struct PillRegion {
     /// The tooltip regions of `label` drawn at `x` with `width` (as returned by `draw`).
     func regions(_ label: RefLabel, at x: CGFloat, mid: CGFloat, width: CGFloat) -> [PillRegion] {
         let metrics = style.metrics
-        let layout = layout(label, neutral: false)
+        let layout = layout(label, neutral: false, maxWidth: width)
         let top = (mid - metrics.pillHeight / 2).rounded()
         var result: [PillRegion] = []
         var glyphX = x + metrics.pillPadding
@@ -671,7 +681,7 @@ struct PillRegion {
         _ label: RefLabel, at x: CGFloat, mid: CGFloat, maxWidth: CGFloat, context: CGContext, neutral: Bool = false
     ) -> CGFloat {
         let metrics = style.metrics
-        let layout = layout(label, neutral: neutral)
+        let layout = layout(label, neutral: neutral, maxWidth: maxWidth)
         let glyphWidth = glyphsWidth(layout)
         let attributes: [NSAttributedString.Key: Any] = [.font: layout.font, .foregroundColor: layout.textColor]
         let measured = ceil((layout.text as NSString).size(withAttributes: attributes).width)

@@ -147,6 +147,7 @@ final class GraphViewController: NSViewController {
         self.model = model
         style = GraphStyle(density: model.preferences.graphDensity == .compact ? .compact : .comfortable)
         super.init(nibName: nil, bundle: nil)
+        cache.onLineLabelsChanged = { [weak self] in self?.refreshGhosts() }
         viewModel.restore(from: tab.ui)
         if let saved = tab.ui[Self.columnsKey] {
             columns = GraphColumnLayout(json: saved)
@@ -745,12 +746,13 @@ final class GraphViewController: NSViewController {
 
     // MARK: - Branch of the line (hovered and selected rows)
 
-    /// The dimmed label a row without labels of its own shows while hovered or selected: the branch whose
-    /// line the commit sits on.
+    /// Additional branch information while hovered or selected. Actual branch and tag labels keep
+    /// their original position and ordering.
     private func ghostLabel(forRow row: Int) -> (label: RefLabel, strength: CGFloat)? {
         let selected = tableView.selectedRowIndexes.contains(row)
-        guard selected || row == hoveredRow, !isFlat, case .commit(let index) = displayRow(row),
-            let display = cache.display(index), display.labels.isEmpty, let label = cache.lineLabel(above: index)
+        guard selected || row == hoveredRow, case .commit(let index) = displayRow(row),
+            let display = cache.display(index), !display.labels.contains(where: \.isBranch),
+            let label = cache.lineLabel(above: index), !display.labels.contains(label)
         else { return nil }
         return (label, selected ? RefsCellView.ghostSelected : RefsCellView.ghostHovered)
     }
@@ -910,14 +912,17 @@ final class GraphViewController: NSViewController {
     // MARK: - Hover
 
     func mouseMoved(toRow row: Int?, at point: NSPoint? = nil) {
-        updateRefsHover(row: row, point: point)
-        guard !isLiveScrolling, row != hoveredRow else { return }
+        guard !isLiveScrolling, row != hoveredRow else {
+            updateRefsHover(row: row, point: point)
+            return
+        }
         if let hoveredRow {
             (tableView.rowView(atRow: hoveredRow, makeIfNecessary: false) as? GraphRowView)?.isHovered = false
         }
         hoveredRow = row
         if let row { (tableView.rowView(atRow: row, makeIfNecessary: false) as? GraphRowView)?.isHovered = true }
         refreshGhosts()
+        updateRefsHover(row: row, point: point)
     }
 
     // MARK: - Search
@@ -1237,11 +1242,13 @@ final class GraphViewController: NSViewController {
     private func updateRefsHover(row: Int?, point: NSPoint?) {
         let column = tableView.column(withIdentifier: Self.columnRefs)
         guard let row, let point, !isLiveScrolling, column >= 0, !tableView.tableColumns[column].isHidden,
-            case .commit(let index) = displayRow(row), let display = cache.display(index), !display.labels.isEmpty
+            case .commit(let index) = displayRow(row), let display = cache.display(index)
         else {
             refsHover.hide()
             return
         }
+        let labels = display.labels + (ghostLabel(forRow: row).map { [$0.label] } ?? [])
+        guard !labels.isEmpty else { refsHover.hide(); return }
         let cellFrame = tableView.frameOfCell(atColumn: column, row: row)
         let showing = refsHover.row == row && !refsHover.isHidden
         guard
@@ -1252,7 +1259,7 @@ final class GraphViewController: NSViewController {
         }
         guard !showing else { return }
         refsHover.show(
-            row: row, labels: display.labels, slot: isFlat ? 0 : snapshot.row(index).nodeColor,
+            row: row, labels: labels, slot: isFlat ? 0 : snapshot.row(index).nodeColor,
             isSelected: tableView.selectedRowIndexes.contains(row), style: style, cellFrame: cellFrame,
             maxWidth: tableView.visibleRect.maxX - cellFrame.minX, in: tableView)
     }

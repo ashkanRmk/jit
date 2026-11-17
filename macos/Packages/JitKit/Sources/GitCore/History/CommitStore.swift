@@ -302,6 +302,14 @@ public struct CommitRow {
         return try chunk.subjects.withUnsafeBytes { try body(UnsafeRawBufferPointer(rebasing: $0[start..<end])) }
     }
 
+    /// The source branch recorded in a standard merge subject, including deleted branches.
+    public var mergedBranchName: String? {
+        guard isMerge else { return nil }
+        return subjectBytes { bytes in
+            LaneLayouter.mergedBranchName(bytes).map { String(decoding: $0, as: UTF8.self) }
+        }
+    }
+
     /// Materializes the subject (visible rows only).
     public var subject: String { subjectBytes { String(decoding: $0, as: UTF8.self) } }
 }

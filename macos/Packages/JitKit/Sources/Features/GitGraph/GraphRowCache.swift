@@ -3,8 +3,8 @@ import Foundation
 import GitCore
 
 /// A ref label drawn before a subject (design §3.2).
-struct RefLabel: Equatable {
-    enum Kind: Equatable {
+struct RefLabel: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
         case local
         case current
         /// A local branch and its upstream at the same commit: one pill `main ⇄ origin`.
@@ -12,6 +12,8 @@ struct RefLabel: Equatable {
         case remote
         case tag
         case detachedHead
+        /// A branch name preserved in a merge message; it need not have a live local or remote ref.
+        case historical
     }
 
     let kind: Kind
@@ -89,34 +91,15 @@ struct GraphRowDisplay {
         return month.string(from: date)
     }
 
-    /// The branch label of the line a commit sits on: the nearest row above it on the same lane and colour
-    /// that carries a branch label, as long as the line runs unbroken up to it. Reads lane columns only.
-    func lineLabel(above index: Int, limit: Int = 2_000) -> RefLabel? {
-        guard index > 0, index < snapshot.count else { return nil }
-        let origin = snapshot.row(index)
-        let lane = origin.nodeLane
-        let color = origin.nodeColor
-        var current = index - 1
-        let stop = max(0, index - limit)
-        while current >= stop {
-            let row = snapshot.row(current)
-            if row.nodeLane == lane, row.nodeColor == color {
-                let branch = (labelsByCommit[row.oid] ?? []).first {
-                    switch $0.kind {
-                    case .tag, .detachedHead: false
-                    default: true
-                    }
-                }
-                if let branch { return branch }
-            } else if !row.segments.contains(where: {
-                $0.color == color && ($0.fromLane == lane || $0.toLane == lane)
-            }) {
-                return nil
-            }
-            current -= 1
-        }
-        return nil
-    }
+    private var lineLabels = GraphLineLabels()
+    private var lineLabelsTask: Task<GraphLineLabels?, Never>?
+    private var lineLabelsRevision = 0
+    var onLineLabelsChanged: (() -> Void)?
+
+    isolated deinit { lineLabelsTask?.cancel() }
+
+    /// Branch ownership follows parent connections, independent of lane positions and palette reuse.
+    func lineLabel(above index: Int) -> RefLabel? { lineLabels.label(at: index) }
 
     /// Rows already materialized keep their strings when only more rows were appended.
     func update(snapshot: HistorySnapshot, refs: RefSnapshot?, dropRows: Bool) {
@@ -126,7 +109,27 @@ struct GraphRowDisplay {
             self.refs = refs
             labelsByCommit = Self.labels(for: refs)
         }
-        if dropRows || refsChanged { clear() }
+        if dropRows || refsChanged {
+            clear()
+            lineLabels = GraphLineLabels()
+        }
+        lineLabelsTask?.cancel()
+        lineLabelsRevision += 1
+        let revision = lineLabelsRevision
+        let previous = lineLabels
+        let labels = labelsByCommit
+        let task = Task.detached(priority: .userInitiated) {
+            var result = previous
+            guard result.append(snapshot: snapshot, labelsByCommit: labels) else { return nil as GraphLineLabels? }
+            return result
+        }
+        lineLabelsTask = task
+        Task { [weak self] in
+            guard let result = await task.value, let self, self.lineLabelsRevision == revision else { return }
+            self.lineLabels = result
+            self.lineLabelsTask = nil
+            self.onLineLabelsChanged?()
+        }
     }
 
     func clear() {

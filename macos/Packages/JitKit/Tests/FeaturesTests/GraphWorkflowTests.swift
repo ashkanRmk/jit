@@ -110,6 +110,69 @@ import Testing
         #expect(inspector.openedFilePath == "a.txt")
     }
 
+    @Test func hoverNamesDeletedBranchesOnTaggedCommitsAndSearchResults() async throws {
+        _ = NSApplication.shared
+        let sandbox = try GitSandbox()
+        let repo = try await sandbox.makeRepository()
+        var topology = Topology()
+        topology.commit("Base")
+        topology.branch("topic")
+        topology.commit("Topic one")
+        topology.tag("v-topic")
+        topology.commit("Topic two")
+        topology.checkout("main")
+        topology.merge("topic", label: "Merge branch 'topic'")
+        topology.tag("v-release")
+        try await topology.write(to: repo)
+        try await repo.git("branch", "-D", "topic")
+        let model = ClosedTabDeallocatesTests.makeModel(sandbox)
+        model.restore(nil)
+        let window = MainWindowController(model: model)
+        window.showWindow(nil)
+        defer { window.close() }
+        model.setForeground(true)
+        model.open(URL(fileURLWithPath: repo.path))
+        await model.settleOpen()
+        #expect(await ClosedTabDeallocatesTests.waitUntil { window.activeGraph?.loadedCount == 4 })
+        let graph = try #require(window.activeGraph)
+        let refsColumn = graph.tableView.column(withIdentifier: GraphViewController.columnRefs)
+        let headRow = try #require(graph.tableRow(forCommit: 0))
+        let headCell = try #require(
+            graph.tableView.view(atColumn: refsColumn, row: headRow, makeIfNecessary: true) as? RefsCellView)
+        let existingLabels = headCell.content.labels
+        #expect(existingLabels.map(\.text) == ["main", "v-release"])
+        graph.mouseMoved(toRow: headRow)
+        #expect(headCell.content.labels == existingLabels)
+        #expect(headCell.content.ghost == nil)
+        graph.mouseMoved(toRow: nil)
+        for filtered in [false, true] {
+            if filtered {
+                graph.viewModel.searchText = "Topic"
+                graph.searchTextChanged()
+                graph.setFilterMode(.onlyMatches)
+            }
+            let snapshot = try #require(graph.history?.snapshot)
+            var topics = 0
+            for row in 0..<graph.tableView.numberOfRows {
+                guard case .commit(let index) = graph.displayRow(row),
+                    snapshot.row(index).subject.hasPrefix("Topic")
+                else { continue }
+                topics += 1
+                let cell = try #require(
+                    graph.tableView.view(atColumn: refsColumn, row: row, makeIfNecessary: true) as? RefsCellView)
+                let frame = graph.tableView.frameOfCell(atColumn: refsColumn, row: row)
+                graph.mouseMoved(toRow: row, at: NSPoint(x: frame.midX, y: frame.midY))
+                #expect(await ClosedTabDeallocatesTests.waitUntil { cell.content.ghost?.text == "topic" })
+                if snapshot.row(index).subject == "Topic one" {
+                    #expect(cell.content.labels.contains { $0.kind == .tag && $0.text == "v-topic" })
+                }
+                graph.mouseMoved(toRow: nil)
+                #expect(cell.content.ghost == nil)
+            }
+            #expect(topics == 2)
+        }
+    }
+
     @Test func crowdedRefHoverAndTooltipsNeverOverlap() throws {
         let style = try RefLabelGlyphTests.style()
         style.reduceMotion = true
