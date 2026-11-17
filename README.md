@@ -9,7 +9,7 @@ A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + A
 Glass design, driving the Git CLI. No Electron, web views, background daemons or telemetry.
 
 **[Website](https://ashkanrmk.github.io/jit/)** · **[Download the latest test build](https://github.com/ashkanRmk/jit/releases)**
-(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.0.6.md)
+(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.0.7.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/graph-dark.webp">
@@ -24,8 +24,8 @@ Screenshots follow your GitHub light/dark appearance. They are real captures of 
 
 ## Status
 
-**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.6, a test build with
-in-app updates, provider tabs in Settings ▸ Accounts and diff fixes ([notes](docs/releases/v0.0.6.md)).**
+**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.7, a test build with
+reflog exploration, committed-state recovery and graph-label fixes ([notes](docs/releases/v0.0.7.md)).**
 
 | Phase | State | Report |
 |---|---|---|
@@ -37,11 +37,12 @@ in-app updates, provider tabs in Settings ▸ Accounts and diff fixes ([notes](d
 | 5 Profiles & providers | done | [progress](docs/phases/05-profiles-and-providers/progress.md) |
 | 6 Polish & performance | done, with carry-overs | [progress](docs/phases/06-polish-and-performance/progress.md) |
 | 7 Packaging & release | done, with carry-overs | [progress](docs/phases/07-packaging-and-release/progress.md) |
-| 8 Post-V1 epics | planned, not started | [design](docs/phases/08-post-v1/design.md) |
+| 8 Post-V1 epics | reflog/recovery implemented; others planned | [design](docs/phases/08-post-v1/design.md) |
 
 Builds are **ad-hoc signed and not notarized** (owner decision 2026-11-10: free distribution, no paid
 Apple Developer Program; ADR-0049). Developer ID signing and notarization are scripted but have never been run.
-Last full local run: 745 core tests passed, 0 failed; app tests and lint clean.
+Verification for 0.0.7: 856 package tests and 25 app tests passed; 21 enterprise-rig tests skipped because
+the rig was not running. Release validation and lint pass; see the [report](docs/phases/08-post-v1/progress-reflog.md).
 
 ## What Jit does (V1)
 - **Repository tabs** — one window, tabs restored on relaunch (only the active tab loads), new-tab page with
