@@ -1,6 +1,6 @@
 # Phase 8 — Remaining tag management
 
-Status: implemented and verified locally/unreleased (2026-11-18).
+Status: implemented and verified (2026-11-18); included in the [0.0.9 test build](../../releases/v0.0.9.md).
 Branch: `codex/tag-management`, based on main `29f445e` (0.0.8 released).
 Milestones: P8.tags.1/P8.tags.2. Decision: [ADR-0062](../../adr/0062-tag-management-and-exact-object-deletion.md).
 
@@ -86,4 +86,4 @@ Read-only release benchmark: 100k-commit fixture, 200 tags; exact details for `v
 - Tag lists are local refs; this is not a separate remote-tag catalog. Multiple push destinations and
   unsafe/credential-bearing URL configurations need separate handling. Signing remains in its own epic.
 - No live VoiceOver audit, new XCUITest target, enterprise rig or clean VM run for this feature.
-- No version bump, merge or release. Next planned feature: interactive rebase and its safety spike.
+- Released with the workspace fixes in 0.0.9. Next planned feature: interactive rebase and its safety spike.

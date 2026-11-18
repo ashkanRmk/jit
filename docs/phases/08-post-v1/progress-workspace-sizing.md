@@ -79,3 +79,25 @@ Sharpness verification: 233 UI/design-system/cleanup tests in 49 suites passed, 
 architecture lint. The live 150% view was reviewed for inspector headings, author details, file paths and
 command-bar symbols; Path/Tree interaction and zoom reset were exercised. The rebuilt QA app remains open
 on the repository for review. All seven zoom steps retain correct styled-button pointer targets.
+
+## 0.0.9 release verification
+
+Full Xcode 27.2 and XcodeGen became available for release verification, superseding the initial CLT-only
+limitations above. The clean Release archive contains version 0.0.9 (9), source `22604c9c1a`. All 25 app
+tests passed. Native verification launched the packaged Release app, checked About, enlarged the workspace
+to 150%, reviewed the sharp rendering and reset to 100%. The Release app remains open with isolated support
+files; the user's repositories were not mutated by the smoke check.
+
+- Full serial package run: **936 tests reported**, including **21 enterprise-rig skips**. **914 passed**;
+  the existing `ProcessRunnerTests.noThreadBlockedWhileWaiting` OS-thread-count assertion failed.
+  The 244 Services, 211 Features and 15 DesignSystem tests reported success; GitCore reported 466
+  tests with that one failure.
+- Isolated rerun: all **7 installer tests passed**, including the updated fixtures; **16 of 17 process-runner
+  tests passed**. The thread-count assertion also failed in isolation (37 additional OS threads against
+  a limit of 32; 48 in the broad run). The independent task responsiveness probe passed in both runs.
+  Process-runner code and its assertion were not changed. This remains a known test failure on this host,
+  previously seen during 0.0.8 verification, rather than a claim of a fully green package run.
+
+Formatting/architecture lint and diff checks passed. Bundled Git passed all 18 relocation/workflow/network
+checks. All expected ad-hoc DMG validation checks and the asset checksum manifest passed. Artifact hash,
+size and source provenance are recorded in the [0.0.9 notes](../../releases/v0.0.9.md).

@@ -82,8 +82,8 @@ Not in V1 by design: pull/merge request management, code review, CI dashboards, 
 ## What remains
 **Release**
 - Releases are test builds (0.0.x) published as GitHub pre-releases; there is no 1.0 release yet.
-- CI on `main` is not green: the last run did not start (GitHub Actions billing/spending limit), and the run
-  before it failed the advisory performance gate. The gate was relaxed afterwards but that change is unverified in CI.
+- CI runs lint, package tests, app tests and performance checks on `main`; see
+  [GitHub Actions](https://github.com/ashkanRmk/jit/actions). Local release verification is recorded in the release notes.
 
 **Never verified**
 - Developer ID signing, notarization, stapling and Gatekeeper acceptance (no certificate).
