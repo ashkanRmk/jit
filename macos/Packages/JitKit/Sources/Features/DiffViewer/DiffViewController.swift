@@ -11,8 +11,8 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
     public let model: DiffViewModel
     let codeView = CodeLinesView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
     private let scrollView = NSScrollView()
-    private var chrome: NSHostingView<DiffChromeView>?
-    private var messageHost: NSHostingView<DiffMessageView>?
+    private var chrome: WorkspaceHostingView<DiffChromeView>?
+    private var messageHost: WorkspaceHostingView<DiffMessageView>?
     /// Line selection (P3.8) hooks: clicks on line rows go here when set.
     var onLineClick: ((_ row: Int, _ column: Int, _ modifiers: NSEvent.ModifierFlags) -> Void)?
     var onLineDrag: ((_ row: Int, _ column: Int) -> Void)?
@@ -40,22 +40,23 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         scrollView.documentView = codeView
         codeView.delegate = self
         root.addSubview(scrollView)
-        let messageHost = NSHostingView(rootView: DiffMessageView(model: model))
+        let messageHost = WorkspaceHostingView(rootView: DiffMessageView(model: model))
         messageHost.translatesAutoresizingMaskIntoConstraints = false
         messageHost.sizingOptions = []
         messageHost.safeAreaRegions = []
         root.addSubview(messageHost)
         self.messageHost = messageHost
         // Separate hosting views sized to their content: the body between them takes the clicks.
-        let chrome = NSHostingView(rootView: DiffChromeView(model: model, controller: self))
+        let chrome = WorkspaceHostingView(rootView: DiffChromeView(model: model, controller: self))
         chrome.translatesAutoresizingMaskIntoConstraints = false
         chrome.sizingOptions = [.intrinsicContentSize]
+        chrome.providesIntrinsicWidth = false
         chrome.safeAreaRegions = []  // the bar sits at the pane's top, not below the window toolbar
         chrome.setContentHuggingPriority(.defaultLow, for: .horizontal)
         chrome.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         root.addSubview(chrome)
         self.chrome = chrome
-        let capsule = NSHostingView(rootView: SelectionCapsuleHost(model: model))
+        let capsule = WorkspaceHostingView(rootView: SelectionCapsuleHost(model: model))
         capsule.translatesAutoresizingMaskIntoConstraints = false
         capsule.sizingOptions = [.intrinsicContentSize]
         capsule.safeAreaRegions = []
@@ -376,7 +377,7 @@ struct DiffChromeView: View {
             FilePathText(
                 directory: (path as NSString).deletingLastPathComponent, name: (path as NSString).lastPathComponent
             )
-            .font(TypeToken.body.font)
+            .scaledFont(TypeToken.body.font)
             .help(path)
             Spacer(minLength: Space.s4)
             if let action = model.fileStageAction, model.onStageFile != nil {

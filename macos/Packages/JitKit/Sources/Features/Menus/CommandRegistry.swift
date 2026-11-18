@@ -248,16 +248,23 @@ public enum CommandRegistry {
                 "view.previousChange", "Previous Change", .view, #selector(DiffViewController.diffPreviousChange(_:)),
                 key: "\u{F700}", .option, group: 3, symbol: "arrow.up"),
             C(
-                "view.textSize.larger", "Larger Code Text", .view, #selector(W.increaseCodeTextSize(_:)), key: "+",
+                "view.zoom.in", "Zoom In", .view, #selector(W.zoomIn(_:)), key: "+", group: 4,
+                symbol: "plus.magnifyingglass", keywords: "zoom workspace scale"),
+            C("view.zoom.inAlt", "Zoom In", .view, #selector(W.zoomIn(_:)), key: "=", group: 4, hiddenAlternate: true),
+            C(
+                "view.zoom.out", "Zoom Out", .view, #selector(W.zoomOut(_:)), key: "-", group: 4,
+                symbol: "minus.magnifyingglass", keywords: "zoom workspace scale"),
+            C(
+                "view.zoom.reset", "Actual Size", .view, #selector(W.resetZoom(_:)), key: "0", group: 4,
+                symbol: "1.magnifyingglass", keywords: "zoom reset 100%"),
+            C(
+                "view.textSize.larger", "Larger Code Text", .view, #selector(W.increaseCodeTextSize(_:)),
                 group: 4, symbol: "textformat.size.larger", keywords: "zoom font"),
             C(
-                "view.textSize.largerAlt", "Larger Code Text", .view, #selector(W.increaseCodeTextSize(_:)), key: "=",
-                group: 4, hiddenAlternate: true),
-            C(
-                "view.textSize.smaller", "Smaller Code Text", .view, #selector(W.decreaseCodeTextSize(_:)), key: "-",
+                "view.textSize.smaller", "Smaller Code Text", .view, #selector(W.decreaseCodeTextSize(_:)),
                 group: 4, symbol: "textformat.size.smaller", keywords: "zoom font"),
             C(
-                "view.textSize.reset", "Default Code Text Size", .view, #selector(W.resetCodeTextSize(_:)), key: "0",
+                "view.textSize.reset", "Default Code Text Size", .view, #selector(W.resetCodeTextSize(_:)),
                 group: 4, symbol: "textformat.size", keywords: "zoom font"),
             C(
                 "view.fullScreen", "Enter Full Screen", .view, #selector(NSWindow.toggleFullScreen(_:)), key: "f",

@@ -482,7 +482,7 @@ struct AvatarView: View {
                 ZStack {
                     color.opacity(0.22)
                     Text(AvatarStyle.initials(for: name))
-                        .font(Font(GraphTypography.nodeInitials(diameter: size)))
+                        .scaledFont(Font(GraphTypography.nodeInitials(diameter: size)))
                         .foregroundStyle(color)
                 }
             }
@@ -774,7 +774,7 @@ private struct FileRow: View {
                 directory: nameOnly ? "" : (DisplayText.sanitize(file.path) as NSString).deletingLastPathComponent,
                 name: (DisplayText.sanitize(file.path) as NSString).lastPathComponent
             )
-            .font(TypeToken.monoBody.font)
+            .scaledFont(TypeToken.monoBody.font)
             .frame(maxWidth: .infinity, alignment: .leading)
             .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
             StatBar(additions: file.additions, deletions: file.deletions)

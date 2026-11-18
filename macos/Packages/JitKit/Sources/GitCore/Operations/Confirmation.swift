@@ -6,6 +6,7 @@ public enum DestructiveAction: Sendable, Hashable {
     case deleteTag(name: String, object: String)
     case deleteRemoteTag(previewID: UUID, remote: String, name: String, object: String)
     case deleteBranch(name: String, force: Bool)
+    case deleteLocalBranches(names: [String])
     case deleteRemoteBranch(remote: String, branch: String)
     case forcePush(remote: String, remoteRef: String, expected: String)
     case deleteLocalAndRemoteBranch(branch: String, remote: String, remoteBranch: String)

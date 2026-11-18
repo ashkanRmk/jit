@@ -172,6 +172,28 @@ extension RepositorySession {
         }
     }
 
+    public func prepareBranchCleanup(context: ExecContext) async -> Result<BranchCleanupPlan, PresentableError> {
+        let fetched = await fetch(FetchRequest(remote: nil, prune: true), context: context)
+        if case .failure(let error) = fetched { return .failure(error) }
+        if case .success(let outcome) = fetched, outcome.cancelled {
+            return .failure(PresentableError.make(.cancelled))
+        }
+        guard let handle else { return .failure(PresentableError.make(.cancelled)) }
+        do throws(GitCoreError) { return .success(try await handle.prepareBranchCleanup(context: context)) } catch {
+            return .failure(PresentableError.make(error))
+        }
+    }
+
+    public func deleteLocalBranches(_ plan: BranchCleanupPlan, token: ConfirmationToken, context: ExecContext) async
+        -> Result<Void, PresentableError>
+    {
+        await perform("Clean up local branches", refresh: [.refs, .config]) { _ in
+            OperationSummary("Deleted \(plan.branches.count) local branches.")
+        } _: { handle, _ throws(GitCoreError) in
+            try await handle.deleteLocalBranches(plan, token: token, context: context)
+        }
+    }
+
     public func deleteRemoteBranch(
         remote: String, branch: String, expectedTip: String, token: ConfirmationToken, context: ExecContext = .anonymous
     ) async

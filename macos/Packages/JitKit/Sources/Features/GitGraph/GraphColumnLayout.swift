@@ -31,7 +31,7 @@ struct GraphColumnLayout: Equatable {
 
         var minWidth: CGFloat {
             switch self {
-            case .refs: 96
+            case .refs: 40
             case .graph: 40
             case .subject: 160
             case .author: 80
@@ -123,7 +123,7 @@ struct GraphColumnLayout: Equatable {
         // The branch column narrows last: its labels are the hardest to read when cut.
         for column in [Column.author, .date, .refs] {
             let missing = comfortableSubject - (available - others())
-            guard missing > 0, let width = result[column] else { continue }
+            guard missing > 0, widths[column] == nil, let width = result[column] else { continue }
             result[column] = max(column.minWidth, width - missing)
         }
         result[.subject] = max(Column.subject.minWidth, available - others())

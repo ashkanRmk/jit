@@ -253,7 +253,7 @@ final class OperationsController {
             let target =
                 remote ?? (remotes.count == 1 ? remotes.first?.name : nil)
                 ?? (remotes.contains { $0.name == "origin" } ? "origin" : nil)
-            let effectivePrune = prune ?? remotes.first { $0.name == target }?.prune ?? remotes.first?.prune ?? false
+            let effectivePrune = prune ?? true
             lastRemoteURLs = remotes.filter { target == nil || $0.name == target }.flatMap(\.fetchURLs)
             guard !remotes.isEmpty else {
                 present(
@@ -268,7 +268,9 @@ final class OperationsController {
         }
     }
 
-    func fetchAll() { fetch(remote: nil, prune: nil) }
+    func fetchAll() {
+        Task { handle(await session.fetch(FetchRequest(remote: nil, prune: true), context: execContext)) }
+    }
 
     func pull(_ mode: PullMode = .fastForwardOnly) {
         let context = mode == .fastForwardOnly ? execContext : requireProfile()
@@ -470,6 +472,38 @@ final class OperationsController {
         Task {
             let token = await session.captureState()
             handle(await session.renameBranch(old, to: new, expected: token))
+        }
+    }
+
+    func cleanUpLocalBranches() {
+        guard !session.isBusy, sheet == nil else { return }
+        let context = execContext
+        Task {
+            switch await session.prepareBranchCleanup(context: context) {
+            case .failure(let error): present(error)
+            case .success(let plan):
+                guard !plan.branches.isEmpty else {
+                    present(
+                        PresentableError(
+                            title: "No local branches to clean up.",
+                            explanation:
+                                "Every eligible branch has a remote counterpart, is checked out in a worktree, or has unmerged commits."
+                        ))
+                    return
+                }
+                let request = ConfirmationRequest(
+                    action: .deleteLocalBranches(names: plan.branches),
+                    title: "Delete \(plan.branches.count) local branches?", context: contextLine,
+                    changes:
+                        "All remotes were refreshed and checked. These local branches have no remote counterpart and are merged into HEAD. Checked-out and unmerged branches are kept (\(plan.kept.count)).",
+                    losses: ["Local branches to delete:"] + plan.branches,
+                    recoverability: "Merged commits remain reachable from HEAD. Remote branches are unchanged.",
+                    verb: "Delete Local Branches")
+                confirm(request) { [weak self] token in
+                    guard let self else { return }
+                    Task { self.handle(await self.session.deleteLocalBranches(plan, token: token, context: context)) }
+                }
+            }
         }
     }
 

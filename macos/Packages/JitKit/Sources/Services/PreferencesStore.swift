@@ -23,6 +23,27 @@ public final class PreferencesStore {
         public var title: String { self == .compact ? "Compact" : "Comfortable" }
     }
 
+    /// Workspace zoom scales fonts, controls and layout together; system window chrome stays native.
+    public enum ZoomLevel: Int, CaseIterable, Sendable {
+        case percent75, percent80, percent90, percent100, percent110, percent125, percent150
+
+        public var factor: Double {
+            switch self {
+            case .percent75: 0.75
+            case .percent80: 0.8
+            case .percent90: 0.9
+            case .percent100: 1
+            case .percent110: 1.1
+            case .percent125: 1.25
+            case .percent150: 1.5
+            }
+        }
+    }
+
+    public var zoomLevel: ZoomLevel {
+        didSet { defaults.set(zoomLevel.rawValue, forKey: "workspaceZoom") }
+    }
+
     static let appearanceKey = "appearance"
     static let graphDensityKey = "graphDensity"
     static let restoreTabsKey = "restoreTabsOnLaunch"
@@ -109,6 +130,7 @@ public final class PreferencesStore {
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        zoomLevel = (defaults.object(forKey: "workspaceZoom") as? Int).flatMap(ZoomLevel.init(rawValue:)) ?? .percent100
         pushTagsAfterCreation = defaults.bool(forKey: "pushTagsAfterCreation")
         appearance = defaults.string(forKey: Self.appearanceKey).flatMap(Appearance.init(rawValue:)) ?? .system
         restoreTabsOnLaunch = defaults.object(forKey: Self.restoreTabsKey) as? Bool ?? true

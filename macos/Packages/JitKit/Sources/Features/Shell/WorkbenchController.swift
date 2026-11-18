@@ -259,7 +259,7 @@ final class WorkbenchController: NSSplitViewController {
     }
 
     private static func host<V: View>(_ view: V) -> NSViewController {
-        let host = NSHostingController(rootView: view)
+        let host = WorkspaceHostingController(rootView: view)
         host.sizingOptions = []
         return host
     }
@@ -455,7 +455,7 @@ final class MainPaneController: NSViewController {
     let inspectorModel: InspectorModel
     let showInspector: () -> Void
     private let reflogContainer = NSView()
-    private var reflogController: NSHostingController<ReflogView>?
+    private var reflogController: WorkspaceHostingController<ReflogView>?
     private var reflogWasInactive = false
     private let focusContainer = NSView()
     private let blameContainer = NSView()
@@ -514,7 +514,7 @@ final class MainPaneController: NSViewController {
     }
 
     /// The error / first-load overlay is hidden once the repository is open, so it never intercepts clicks
-    /// meant for the graph or its command bar (an empty NSHostingView still hit-tests to itself).
+    /// meant for the graph or its command bar (an empty WorkspaceHostingView still hit-tests to itself).
     private func observeOverlay() {
         withObservationTracking {
             stateOverlay?.isHidden = session.error == nil && session.info != nil && session.status != nil
@@ -646,7 +646,7 @@ final class MainPaneController: NSViewController {
         addChild(graph)
         graph.view.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(graph.view)
-        let overlay = NSHostingView(rootView: SessionStateOverlay(session: session, tab: tab, actions: actions))
+        let overlay = WorkspaceHostingView(rootView: SessionStateOverlay(session: session, tab: tab, actions: actions))
         overlay.translatesAutoresizingMaskIntoConstraints = false
         overlay.sizingOptions = []
         let reflog = ReflogView(
@@ -663,7 +663,7 @@ final class MainPaneController: NSViewController {
                 self.inspectorModel.show(selection: [oid, head], wip: false)
                 self.showInspector()
             })
-        let reflogHost = NSHostingController(rootView: reflog)
+        let reflogHost = WorkspaceHostingController(rootView: reflog)
         reflogHost.sizingOptions = []
         addChild(reflogHost)
         reflogController = reflogHost
@@ -692,7 +692,7 @@ final class MainPaneController: NSViewController {
         root.addSubview(resolverContainer)
         observeResolver()
         observeRefreshes()
-        let sheets = NSHostingView(rootView: OperationSheetsHost(controller: operations))
+        let sheets = WorkspaceHostingView(rootView: OperationSheetsHost(controller: operations))
         sheets.translatesAutoresizingMaskIntoConstraints = false
         sheets.sizingOptions = []
         root.addSubview(sheets)

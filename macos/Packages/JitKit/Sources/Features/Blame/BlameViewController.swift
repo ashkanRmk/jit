@@ -252,9 +252,10 @@ public final class BlameViewController: NSViewController {
             return
                 "\(commit.id)\n\(commit.author) \(commit.authorMail)\n\(Self.date(commit.authorTime))\n\n\(commit.summary)"
         }
-        let chrome = NSHostingView(rootView: BlameChrome(model: model))
+        let chrome = WorkspaceHostingView(rootView: BlameChrome(model: model))
         chrome.translatesAutoresizingMaskIntoConstraints = false
         chrome.sizingOptions = [.intrinsicContentSize]
+        chrome.providesIntrinsicWidth = false
         chrome.safeAreaRegions = []
         chrome.setContentHuggingPriority(.defaultLow, for: .horizontal)
         chrome.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)

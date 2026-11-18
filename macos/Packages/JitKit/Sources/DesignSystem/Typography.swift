@@ -99,16 +99,13 @@ extension Font.Weight {
 extension View {
     /// Applies a type token: font, line height, tracking and case.
     public func typeStyle(_ token: TypeToken) -> some View {
-        font(token.font)
-            .lineSpacing(max(0, token.lineHeight - token.naturalLineHeight))
-            .tracking(token.tracking)
-            .textCase(token.isUppercase ? .uppercase : nil)
+        modifier(ZoomTypeStyle(token: token))
     }
 }
 
 extension View {
     /// Sizes SF Symbols by an `IconSize` value (symbols scale with font size).
     public func symbolSize(_ size: CGFloat, weight: Font.Weight = .regular) -> some View {
-        font(.system(size: size, weight: weight))
+        scaledFont(.system(size: size, weight: weight))
     }
 }

@@ -40,8 +40,8 @@ final class GraphViewController: NSViewController {
     private let cache = GraphRowCache()
     private let scrollView = NSScrollView()
     let tableView = GraphTableView()
-    private var barHost: NSHostingView<GraphBar>?
-    private var overlayHost: NSHostingView<GraphStateOverlay>?
+    private var barHost: WorkspaceHostingView<GraphBar>?
+    private var overlayHost: WorkspaceHostingView<GraphStateOverlay>?
     private var snapshot: HistorySnapshot = .empty()
     private var rowCount = 0
     private var showsWIP = false
@@ -183,7 +183,7 @@ final class GraphViewController: NSViewController {
         configureTable()
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = true
         scrollView.backgroundColor = ColorToken.surfaceCanvas.nsColor
@@ -191,15 +191,19 @@ final class GraphViewController: NSViewController {
         scrollView.automaticallyAdjustsContentInsets = true
         root.addSubview(scrollView)
 
-        let overlay = NSHostingView(rootView: GraphStateOverlay(controller: self))
+        let overlay = WorkspaceHostingView(rootView: GraphStateOverlay(controller: self))
         overlay.translatesAutoresizingMaskIntoConstraints = false
         overlay.sizingOptions = []
         root.addSubview(overlay)
         overlayHost = overlay
 
-        let bar = NSHostingView(rootView: GraphBar(controller: self))
+        let bar = WorkspaceHostingView(rootView: GraphBar(controller: self))
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.sizingOptions = [.intrinsicContentSize]
+        bar.providesIntrinsicWidth = false
+        // The AppKit constraints already keep the bar below the toolbar. SwiftUI must not apply the
+        // inherited safe area a second time, especially when the workspace is magnified.
+        bar.safeAreaRegions = []
         root.addSubview(bar)
         barHost = bar
 
@@ -269,8 +273,8 @@ final class GraphViewController: NSViewController {
         fitSubjectColumn()
     }
 
-    /// The message column takes whatever the others leave (no horizontal scrolling). In narrow layouts the
-    /// SHA column hides first, then author, branch and date narrow (design §3.1). Widths set here are layout,
+    /// The message column takes whatever the others leave. In narrow layouts the
+    /// SHA column hides first, then automatic widths narrow. User widths stay fixed; overflow scrolls. Widths set here are layout,
     /// not the user's choice: never persisted.
     private func fitSubjectColumn() {
         guard !isFittingColumns else { return }

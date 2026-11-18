@@ -187,7 +187,7 @@ final class ResolverViewController: NSViewController {
     private let sidesSplit = NSSplitView()
     private let mainSplit = NSSplitView()
     private var textContainer = NSView()
-    private var stateHost: NSHostingView<ResolverStateView>?
+    private var stateHost: WorkspaceHostingView<ResolverStateView>?
     private var lastRevision = -1
     private var lastSegment: Int?
     private var lastEntry: String?
@@ -214,14 +214,15 @@ final class ResolverViewController: NSViewController {
         mainSplit.addArrangedSubview(sidesSplit)
         textContainer = mainSplit
 
-        let state = NSHostingView(rootView: ResolverStateView(model: model))
+        let state = WorkspaceHostingView(rootView: ResolverStateView(model: model))
         state.translatesAutoresizingMaskIntoConstraints = false
         state.sizingOptions = []
         stateHost = state
 
-        let header = NSHostingView(rootView: ResolverHeader(model: model))
+        let header = WorkspaceHostingView(rootView: ResolverHeader(model: model))
         header.translatesAutoresizingMaskIntoConstraints = false
         header.sizingOptions = [.intrinsicContentSize]
+        header.providesIntrinsicWidth = false
         // The header keeps its natural height; the panes take the rest.
         header.setContentHuggingPriority(.required, for: .vertical)
         header.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -278,9 +279,10 @@ final class ResolverViewController: NSViewController {
         if model.showsBase { sidesSplit.addArrangedSubview(base) }
         sidesSplit.addArrangedSubview(theirs)
         let resultContainer = NSView()
-        let actions = NSHostingView(rootView: BlockActionStrip(model: model))
+        let actions = WorkspaceHostingView(rootView: BlockActionStrip(model: model))
         actions.translatesAutoresizingMaskIntoConstraints = false
         actions.sizingOptions = [.intrinsicContentSize]
+        actions.providesIntrinsicWidth = false
         actions.setContentHuggingPriority(.required, for: .vertical)
         actions.setContentCompressionResistancePriority(.required, for: .vertical)
         result.translatesAutoresizingMaskIntoConstraints = false

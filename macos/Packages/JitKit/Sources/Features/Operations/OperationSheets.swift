@@ -502,7 +502,7 @@ struct RemotesSheet: View {
                                 Text(remote.name).typeStyle(.headline)
                                 ForEach(remote.fetchURLs, id: \.self) { url in row("Fetch", url) }
                                 ForEach(remote.pushURLs, id: \.self) { url in row("Push", url) }
-                                Text("Prune on fetch: \(remote.prune ? "on" : "off")")
+                                Text("Git CLI prune default: \(remote.prune ? "on" : "off") · Jit fetch: on")
                                     .typeStyle(.caption)
                                     .foregroundStyle(.token(.textTertiary))
                             }

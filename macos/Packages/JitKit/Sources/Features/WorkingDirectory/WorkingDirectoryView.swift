@@ -337,7 +337,7 @@ private struct FileRow: View {
                 directory: depth == 0 && !model.showsTree ? DisplayText.sanitize(file.directory) : "",
                 name: DisplayText.sanitize(file.name)
             )
-            .font(TypeToken.body.font)
+            .scaledFont(TypeToken.body.font)
             .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(file.badges, id: \.self) { Badge(badge: $0) }
             // One trailing slot: the line counts at rest, the action while hovered or selected. Both are laid

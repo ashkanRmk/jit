@@ -218,7 +218,7 @@ struct CommitComposerView: View {
             ComposerField(isFocused: focus == .summary, warning: model.summaryWarning) {
                 TextField("Summary", text: $model.summary)
                     .textFieldStyle(.plain)
-                    .font(TypeToken.headline.font)
+                    .scaledFont(TypeToken.headline.font)
                     .focused($focus, equals: .summary)
                     .accessibilityLabel("Commit summary")
             } footer: {
@@ -231,7 +231,7 @@ struct CommitComposerView: View {
                 TextField("Description", text: $model.details, axis: .vertical)
                     .lineLimit(4...10)
                     .textFieldStyle(.plain)
-                    .font(TypeToken.body.font)
+                    .scaledFont(TypeToken.body.font)
                     .focused($focus, equals: .details)
                     .accessibilityLabel("Commit description")
             } footer: {

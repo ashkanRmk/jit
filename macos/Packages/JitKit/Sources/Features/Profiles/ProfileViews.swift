@@ -13,7 +13,7 @@ struct ProfileAvatar: View {
         ZStack {
             Circle().fill(ProfileColor.at(profile.colorIndex).color)
             Text(profile.initials)
-                .font(.system(.caption2, design: .rounded, weight: .bold))
+                .scaledFont(.system(.caption2, design: .rounded, weight: .bold))
                 .minimumScaleFactor(0.5)
                 .foregroundStyle(ProfileColor.initialsColor)
                 .padding(Space.s1)

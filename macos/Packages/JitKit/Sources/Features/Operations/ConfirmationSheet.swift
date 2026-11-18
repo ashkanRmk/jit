@@ -15,6 +15,11 @@ struct ConfirmationSheet: View {
     var isConfirmDisabled = false
     @State private var armed = false
 
+    private var listsBranches: Bool {
+        if case .deleteLocalBranches = request.action { return true }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s6) {
             HStack(alignment: .top, spacing: Space.s5) {
@@ -37,15 +42,20 @@ struct ConfirmationSheet: View {
                 .foregroundStyle(.token(.textSecondary))
                 .fixedSize(horizontal: false, vertical: true)
             if !request.losses.isEmpty {
-                VStack(alignment: .leading, spacing: Space.s2) {
-                    ForEach(Array(request.losses.enumerated()), id: \.offset) { index, line in
-                        Text(DisplayText.sanitize(line))
-                            .typeStyle(index == 0 ? .callout : .monoCaption)
-                            .foregroundStyle(.token(index == 0 ? .textPrimary : .textSecondary))
-                            .lineLimit(index == 0 ? 3 : 1)
-                            .truncationMode(.tail)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Space.s2) {
+                        ForEach(Array(request.losses.enumerated()), id: \.offset) { index, line in
+                            Text(DisplayText.sanitize(line))
+                                .typeStyle(index == 0 ? .callout : .monoCaption)
+                                .foregroundStyle(.token(index == 0 ? .textPrimary : .textSecondary))
+                                .lineLimit(listsBranches ? nil : index == 0 ? 3 : 1)
+                                .fixedSize(horizontal: false, vertical: listsBranches)
+                                .textSelection(.enabled)
+                                .truncationMode(.tail)
+                        }
                     }
                 }
+                .frame(maxHeight: 180)
                 .padding(Space.s4)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ColorToken.surfaceSunken.color, in: RoundedRectangle(cornerRadius: Radius.sm))

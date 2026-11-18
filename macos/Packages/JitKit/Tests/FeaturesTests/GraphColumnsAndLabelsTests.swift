@@ -114,6 +114,17 @@ import Testing
         #expect(fitted.widths.values.reduce(0, +) <= 560)
     }
 
+    @Test func draggedBranchWidthIsExactEvenWhenTheWindowIsNarrow() {
+        for width: CGFloat in [41, 73, 137, 350, 700] {
+            var layout = GraphColumnLayout()
+            layout.widths[.refs] = width
+            let restored = GraphColumnLayout(json: layout.json)
+            for available: CGFloat in [360, 560, 1200] {
+                #expect(restored.fitted(available: available).widths[.refs] == width)
+            }
+        }
+    }
+
     @Test func hiddenColumnsTakeNoWidth() {
         var layout = GraphColumnLayout()
         layout.setHidden(.author, true)

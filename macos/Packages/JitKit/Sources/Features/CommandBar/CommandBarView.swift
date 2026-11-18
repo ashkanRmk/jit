@@ -116,8 +116,14 @@ enum BarMetrics {
 
 extension EnvironmentValues {
     /// View ▸ Command Bar ▸ Show Labels, or the bar is too narrow for titles.
-    @Entry var barShowsTitles = true
-    @Entry var barRunningAction: String? = nil
+    var barShowsTitles: Bool {
+        get { self[BarShowsTitlesKey.self] }
+        set { self[BarShowsTitlesKey.self] = newValue }
+    }
+    var barRunningAction: String? {
+        get { self[BarRunningActionKey.self] }
+        set { self[BarRunningActionKey.self] = newValue }
+    }
 }
 
 /// One command of the action bar: an icon with its title underneath. Plain content with a hover wash — no
@@ -287,4 +293,12 @@ struct StashActions: View {
         .disabled(operations.session.stashes?.isEmpty ?? true)
         .onAppear { if operations.session.stashes == nil { operations.session.loadStashes() } }
     }
+}
+
+private struct BarShowsTitlesKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+private struct BarRunningActionKey: EnvironmentKey {
+    static let defaultValue: String? = nil
 }

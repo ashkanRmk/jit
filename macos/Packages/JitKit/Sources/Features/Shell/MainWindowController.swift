@@ -85,6 +85,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         model.onChange = { [weak self] change in self?.handle(change) }
         model.presentOpenPanel = { [weak self] in self?.chooseRepository() }
         model.onOpenFailure = { [weak self] url, error in self?.presentOpenFailure(url, error) }
+        observeZoom()
         observeProfiles()
         ProfileMenu.shared.store = model.profiles
         // Not `model.accounts` here: that would create the accounts service (Keychain, path monitor) at launch.
@@ -183,7 +184,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             workbench.onSidebarGeometryChange = { [weak self] in self?.updateChromeWidth() }
             return workbench
         }
-        let host = NSHostingController(rootView: NewTabView(model: model, actions: newTabActions()))
+        let host = WorkspaceHostingController(rootView: NewTabView(model: model, actions: newTabActions()))
         host.sizingOptions = []
         // The page draws under the glass toolbar; its own layout keeps clear of it.
         return host
@@ -268,7 +269,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         let width = window.frame.width
         var origin = Self.trafficLightsWidth
         if let workbench = container.current as? WorkbenchController, !workbench.isSidebarCollapsed {
-            origin = max(origin, workbench.sidebarWidth)
+            origin = max(
+                origin,
+                workbench.view.convert(NSRect(x: 0, y: 0, width: workbench.sidebarWidth, height: 1), to: nil).width)
         }
         origin += Self.systemItemWidth
         // The strip's real position wins when it is on screen and further right than the estimate.
@@ -325,7 +328,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: splitView, dividerIndex: 0)
         case Self.stripIdentifier:
             let item = NSToolbarItem(itemIdentifier: identifier)
-            let host = NSHostingView(rootView: TabStripView(model: model))
+            let host = WorkspaceHostingView(rootView: TabStripView(model: model))
             host.translatesAutoresizingMaskIntoConstraints = false
             host.clipsToBounds = true
             let width = host.widthAnchor.constraint(equalToConstant: 600)
@@ -344,7 +347,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         case Self.activityIdentifier:
             // A standard toolbar item: macOS renders it inside the system Liquid Glass toolbar (no custom material).
             let item = NSToolbarItem(itemIdentifier: identifier)
-            let host = NSHostingView(
+            let host = WorkspaceHostingView(
                 rootView: ActivityToolbarView(model: model) { [weak self] in self?.toggleActivityPopover() })
             item.view = host
             // The icon alone, like the sidebar toggle: no glass platter around it.
@@ -355,7 +358,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             return item
         case Self.updatesIdentifier:
             let item = NSToolbarItem(itemIdentifier: identifier)
-            item.view = NSHostingView(
+            item.view = WorkspaceHostingView(
                 rootView: UpdateBellView(updates: model.updates) { [weak self] in self?.presentUpdates() })
             item.isBordered = false
             item.label = "What's New"
@@ -717,6 +720,26 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     @objc public func focusNextPane(_ sender: Any?) { activeWorkbench?.cycleFocus(forward: true) }
     @objc public func focusPreviousPane(_ sender: Any?) { activeWorkbench?.cycleFocus(forward: false) }
 
+    private func observeZoom() {
+        withObservationTracking {
+            _ = model.preferences.zoomLevel
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeZoom() }
+        }
+        container.setZoom(CGFloat(model.preferences.zoomLevel.factor))
+        updateChromeWidth()
+    }
+
+    @objc public func zoomIn(_ sender: Any?) { stepZoom(by: 1) }
+    @objc public func zoomOut(_ sender: Any?) { stepZoom(by: -1) }
+    @objc public func resetZoom(_ sender: Any?) { model.preferences.zoomLevel = .percent100 }
+
+    private func stepZoom(by step: Int) {
+        if let level = PreferencesStore.ZoomLevel(rawValue: model.preferences.zoomLevel.rawValue + step) {
+            model.preferences.zoomLevel = level
+        }
+    }
+
     @objc public func increaseCodeTextSize(_ sender: Any?) { stepCodeTextSize(by: 1) }
     @objc public func decreaseCodeTextSize(_ sender: Any?) { stepCodeTextSize(by: -1) }
     @objc public func resetCodeTextSize(_ sender: Any?) { model.preferences.codeTextSize = .medium }
@@ -839,6 +862,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             return activeGraph != nil
         case #selector(focusNextPane(_:)), #selector(focusPreviousPane(_:)):
             return activeWorkbench != nil
+        case #selector(zoomIn(_:)): return model.preferences.zoomLevel != .percent150
+        case #selector(zoomOut(_:)): return model.preferences.zoomLevel != .percent75
+        case #selector(resetZoom(_:)): return model.preferences.zoomLevel != .percent100
         case #selector(increaseCodeTextSize(_:)):
             return model.preferences.codeTextSize != PreferencesStore.CodeTextSize.allCases.last
         case #selector(decreaseCodeTextSize(_:)):
@@ -871,6 +897,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         case #selector(resolveConflicts(_:)): return isRepository ? "No conflicts" : noRepository
         case #selector(continueOperation(_:)), #selector(abortOperation(_:)):
             return isRepository ? "No merge, rebase, cherry-pick or revert in progress" : noRepository
+        case #selector(zoomIn(_:)): return "Already at 150% zoom"
+        case #selector(zoomOut(_:)): return "Already at 75% zoom"
+        case #selector(resetZoom(_:)): return "Already at 100% zoom"
         case #selector(increaseCodeTextSize(_:)): return "Already the largest size"
         case #selector(decreaseCodeTextSize(_:)): return "Already the smallest size"
         case #selector(resetCodeTextSize(_:)): return "Already the default size"
@@ -879,7 +908,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     }
 
     #if DEBUG
-        public func showDropOverlayForScreenshot() { (container.view as? DropTargetView)?.showOverlayForScreenshot() }
+        public func showDropOverlayForScreenshot() { container.showDropOverlayForScreenshot() }
     #endif
 
     public func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
@@ -897,13 +926,21 @@ final class ContentContainerViewController: NSViewController {
     private(set) var current: NSViewController?
     var onDropFolder: ((URL) -> Void)?
     var toastModel: AppModel?
+    private let viewport = WorkspaceZoomView()
+    private let content = DropTargetView()
+
+    func setZoom(_ factor: CGFloat) {
+        loadViewIfNeeded()
+        viewport.setZoom(factor)
+    }
 
     override func loadView() {
-        let view = DropTargetView()
+        let view = content
         view.onDrop = { [weak self] url in self?.onDropFolder?(url) }
-        self.view = view
+        viewport.documentView = view
+        self.view = viewport
         if let toastModel {
-            let toast = NSHostingView(rootView: OperationToasts(model: toastModel))
+            let toast = WorkspaceHostingView(rootView: OperationToasts(model: toastModel))
             toast.translatesAutoresizingMaskIntoConstraints = false
             toast.sizingOptions = [.intrinsicContentSize]
             view.addSubview(toast)
@@ -926,14 +963,18 @@ final class ContentContainerViewController: NSViewController {
         if controller.parent !== self { addChild(controller) }
         previous?.view.removeFromSuperview()
         let child = controller.view
-        if child.superview !== view {
-            child.frame = view.bounds
+        if child.superview !== content {
+            child.frame = content.bounds
             child.autoresizingMask = [.width, .height]
-            (view as? DropTargetView)?.setContent(child)
+            content.setContent(child)
         }
         (controller as? WorkbenchController)?.willBecomeVisible()
         view.window?.makeFirstResponder(controller.view)
     }
+
+    #if DEBUG
+        func showDropOverlayForScreenshot() { content.showOverlayForScreenshot() }
+    #endif
 
     /// Removes a closed or suspended tab's controller.
     /// Removes a tab's controller for good (closed tab, or suspended under memory pressure). Hosted SwiftUI
@@ -950,7 +991,7 @@ final class ContentContainerViewController: NSViewController {
 /// Accepts folders dragged anywhere over the content and shows an opaque overlay while dragging.
 final class DropTargetView: NSView {
     var onDrop: ((URL) -> Void)?
-    private let overlay = NSHostingView(rootView: DropOverlay())
+    private let overlay = WorkspaceHostingView(rootView: DropOverlay())
     private weak var content: NSView?
 
     override init(frame frameRect: NSRect) {
@@ -972,6 +1013,7 @@ final class DropTargetView: NSView {
     override func layout() {
         super.layout()
         overlay.frame = bounds
+        if let content, content.frame != bounds { content.frame = bounds }
     }
 
     private func folder(in info: any NSDraggingInfo) -> URL? {

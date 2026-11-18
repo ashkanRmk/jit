@@ -98,14 +98,14 @@ final class NavigatorViewController: NSViewController {
         scroll.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(filterField)
         root.addSubview(scroll)
-        let footer = NSHostingView(rootView: SidebarFooter(store: model.profiles))
+        let footer = WorkspaceHostingView(rootView: SidebarFooter(store: model.profiles))
         footer.translatesAutoresizingMaskIntoConstraints = false
         footer.sizingOptions = []
         footer.safeAreaRegions = []
         root.addSubview(footer)
         profileAnchor = footer
         // The logotype sits in the toolbar's height at the sidebar's top right (0.0.4).
-        let logotype = NSHostingView(rootView: JitLogotype(height: SidebarMetrics.logotypeHeight))
+        let logotype = WorkspaceHostingView(rootView: JitLogotype(height: SidebarMetrics.logotypeHeight))
         logotype.translatesAutoresizingMaskIntoConstraints = false
         logotype.sizingOptions = [.intrinsicContentSize]
         logotype.safeAreaRegions = []
@@ -117,9 +117,10 @@ final class NavigatorViewController: NSViewController {
         var filterTop = filterField.topAnchor.constraint(
             equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Space.s4)
         if let graph {
-            let header = NSHostingView(rootView: SidebarBranchHeader(source: .init(graph)))
+            let header = WorkspaceHostingView(rootView: SidebarBranchHeader(source: .init(graph)))
             header.translatesAutoresizingMaskIntoConstraints = false
             header.sizingOptions = [.intrinsicContentSize]
+            header.providesIntrinsicWidth = false
             header.safeAreaRegions = []
             root.addSubview(header)
             NSLayoutConstraint.activate([
@@ -149,7 +150,7 @@ final class NavigatorViewController: NSViewController {
     func tearDown() {
         tagDetailsModel?.cancel(); tagDetailsModel = nil
         tagPopover?.performClose(nil); tagPopover = nil
-        for subview in view.subviews where subview is NSHostingView<SidebarBranchHeader> {
+        for subview in view.subviews where subview is WorkspaceHostingView<SidebarBranchHeader> {
             subview.removeFromSuperview()
         }
     }
@@ -342,7 +343,16 @@ extension NavigatorViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
         cell.identifier = id
         cell.configure(
             node, pinned: node.ref.map { actions.isPinned($0.fullName) } ?? false,
-            canCreateTag: refs?.head.commit != nil, createTag: { [weak self] in self?.operations?.newTagAtHead() })
+            canCreateTag: refs?.head.commit != nil, createTag: { [weak self] in self?.operations?.newTagAtHead() },
+            canDelete: node.ref.map { $0.kind == .local && !$0.isHead && refs?.hasRemoteCounterpart($0) == false }
+                ?? false,
+            deleteBranch: { [weak self] in
+                if let ref = node.ref { self?.operations?.delete(branch: ref.shortName) }
+            },
+            cleanUpBranches: { [weak self] in self?.operations?.cleanUpLocalBranches() },
+            refreshRemote: { [weak self] in
+                if case .remote(let name) = node.kind { self?.operations?.fetch(remote: name, prune: true) }
+            })
         return cell
     }
 
@@ -401,6 +411,18 @@ extension NavigatorViewController: NSMenuDelegate {
         {
             if refs?.head.commit != nil { item("Create Tag at HEAD…") { operations.newTagAtHead() } }
             return
+        }
+        if row >= 0, let node = outline.item(atRow: row) as? NavigatorNode, let operations {
+            if node.kind == .section(.local) || node.kind == .section(.remote) {
+                item("Clean Up Local Branches…") { operations.cleanUpLocalBranches() }
+                item("Fetch All and Prune") { operations.fetchAll() }
+                return
+            }
+            if case .remote(let name) = node.kind {
+                item("Fetch \(name) and Prune") { operations.fetch(remote: name, prune: true) }
+                item("Clean Up Local Branches…") { operations.cleanUpLocalBranches() }
+                return
+            }
         }
         guard row >= 0, let node = outline.item(atRow: row) as? NavigatorNode, let ref = node.ref else { return }
         let format = refs?.format ?? .sha1
@@ -663,10 +685,39 @@ final class NavigatorCellView: NSTableCellView {
 
     @objc private func addTagClicked() { createTag?() }
 
-    func configure(_ node: NavigatorNode, pinned: Bool, canCreateTag: Bool = true, createTag: (() -> Void)? = nil) {
-        self.createTag = createTag
-        addTag.isHidden = node.kind != .section(.tags)
-        addTag.isEnabled = canCreateTag
+    func configure(
+        _ node: NavigatorNode, pinned: Bool, canCreateTag: Bool = true, createTag: (() -> Void)? = nil,
+        canDelete: Bool = false, deleteBranch: (() -> Void)? = nil,
+        cleanUpBranches: (() -> Void)? = nil, refreshRemote: (() -> Void)? = nil
+    ) {
+        self.createTag = nil
+        addTag.isHidden = true
+        addTag.isEnabled = true
+        var symbol = "plus"
+        var actionLabel = "Create Tag at HEAD…"
+        if node.kind == .section(.tags) {
+            self.createTag = createTag
+            addTag.isHidden = false
+            addTag.isEnabled = canCreateTag
+        } else if node.kind == .section(.local) || node.kind == .section(.remote) {
+            self.createTag = cleanUpBranches
+            addTag.isHidden = cleanUpBranches == nil
+            symbol = "trash"
+            actionLabel = "Clean Up Local Branches…"
+        } else if case .remote = node.kind {
+            self.createTag = refreshRemote
+            addTag.isHidden = refreshRemote == nil
+            symbol = "arrow.clockwise"
+            actionLabel = "Fetch and Prune Remote Branches"
+        } else if canDelete {
+            self.createTag = deleteBranch
+            addTag.isHidden = deleteBranch == nil
+            symbol = "trash"
+            actionLabel = "Delete Local Branch \(node.ref?.shortName ?? node.title)…"
+        }
+        addTag.image = NSImage(systemSymbolName: symbol, accessibilityDescription: actionLabel)
+        addTag.toolTip = actionLabel
+        addTag.setAccessibilityLabel(actionLabel)
         title.font = GraphTypography.sidebar
         title.textColor = .labelColor
         badge.stringValue = ""
@@ -679,7 +730,7 @@ final class NavigatorCellView: NSTableCellView {
             badgeTrailing.constant = -(Space.s4 + IconSize.md + (addTag.isHidden ? 0 : IconSize.md + Space.s4))
             sectionOffset.constant = NavigatorOutlineView.sectionGap / 2
         } else {
-            badgeTrailing.constant = -Space.s4
+            badgeTrailing.constant = -(Space.s4 + (addTag.isHidden ? 0 : IconSize.md * 2 + Space.s2 + Space.s3))
             sectionOffset.constant = 0
         }
         switch node.kind {
@@ -693,6 +744,7 @@ final class NavigatorCellView: NSTableCellView {
             title.stringValue = DisplayText.sanitize(name)
             icon.image = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
             badge.stringValue = "\(node.refCount)"
+            toolTip = "Cached remote-tracking branches. Fetch and Prune refreshes this list from \(name)."
             setAccessibilityLabel("Remote \(name)")
         case .folder:
             title.stringValue = DisplayText.sanitize(node.title)

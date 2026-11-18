@@ -16,10 +16,17 @@ public enum GlassPolicy {
     public static let opaqueChrome: Bool = UserDefaults.standard.bool(forKey: "JitOpaqueChrome")
 }
 
+private struct OpaqueChromeKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     /// Renders Jit's glass as the opaque Reduce Transparency surface (snapshot tests force this; the system
     /// setting itself is read-only).
-    @Entry public var jitOpaqueChrome = false
+    public var jitOpaqueChrome: Bool {
+        get { self[OpaqueChromeKey.self] }
+        set { self[OpaqueChromeKey.self] = newValue }
+    }
 }
 
 /// The outline of Jit's own glass controls (bars, fields, chips): a rounded rectangle, not a capsule (0.0.3).
