@@ -1,7 +1,7 @@
 # Jit — Implementation Roadmap
 
-> Status (2026-11-18): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.7, a
-> test build ([notes](releases/v0.0.7.md)); there is no 1.0 release yet.** Phase 8 reflog/recovery is merged to `main` for 0.0.7; see its [report](phases/08-post-v1/progress-reflog.md). What is still open is in [§10](#10-current-state-and-what-remains).
+> Status (2026-11-18): **V1 — Phases 0–7 — is implemented and merged to `main`; the current version is 0.0.8, a
+> test build ([notes](releases/v0.0.8.md)); there is no 1.0 release yet.** Phase 8 reflog/recovery (0.0.7) and reset previews/keep/stash-first (0.0.8) are merged to `main`; see the [reset report](phases/08-post-v1/progress-reset.md). What is still open is in [§10](#10-current-state-and-what-remains).
 >
 > | Phase | State | Report |
 > |---|---|---|
@@ -13,7 +13,7 @@
 > | 5 Profiles & providers | implemented | [`progress.md`](phases/05-profiles-and-providers/progress.md) |
 > | 6 Polish & performance | implemented with carry-overs | [`progress.md`](phases/06-polish-and-performance/progress.md) |
 > | 7 Packaging & release | implemented with carry-overs — ad-hoc signed, not notarized (owner decision 2026-11-10, ADR-0049 addendum) | [`progress.md`](phases/07-packaging-and-release/progress.md) |
-> | 8 Post-V1 | reflog/recovery implemented in 0.0.7; other epics planned | [`design.md`](phases/08-post-v1/design.md) |
+> | 8 Post-V1 | reflog/recovery (0.0.7) and reset (0.0.8) implemented; other epics planned | [`design.md`](phases/08-post-v1/design.md) |
 >
 > Each phase folder under [`docs/phases/`](phases/) holds a design doc, an implementation plan and a kickoff prompt.
 > The source requirements are in [`docs/master-prompt.md`](master-prompt.md); section references
@@ -367,8 +367,7 @@ sideways scrolling in side-by-side diffs. Details and what was verified: [`relea
 
 **Phase 8:** Reflog explorer/recovery is included in 0.0.7 ([report](phases/08-post-v1/progress-reflog.md)).
 Reset soft/mixed/hard, tag creation, detached worktree creation and patch export already have basic graph
-actions from 0.0.6. Reset previews, keep mode and stash-first recovery are implemented locally and
-unreleased ([report](phases/08-post-v1/progress-reset.md), ADR-0061). Next: remaining tag management,
+actions from 0.0.6. Reset previews, keep mode and stash-first recovery are included in 0.0.8 ([report](phases/08-post-v1/progress-reset.md), ADR-0061). Next: remaining tag management,
 then interactive rebase.
 The original suggested order for the independent epics was reflog → reset → tags →
 interactive rebase → commit surgery → history filters → worktrees → patches → remotes → branch history →

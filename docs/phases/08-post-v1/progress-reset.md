@@ -1,6 +1,6 @@
 # Phase 8 — Reset previews, keep mode and stash-first recovery
 
-Status: implemented locally, unreleased (2026-11-18).
+Status: merged to main for 0.0.8 (2026-11-18).
 Branch: `codex/reset-preview-recovery`, based on clean main `4204448` (0.0.7 released).
 Milestones: P8.reset.1 and P8.reset.2. Decision: [ADR-0061](../../adr/0061-reset-preview-and-stash-recovery.md).
 
@@ -68,4 +68,13 @@ is specified; all work remains cancellable and off the UI executor.
 - Hard/keep with hidden index flags and stash-first on dirty submodules/nested repos/special files require
   separate handling. Ordinary untracked files remain unless the user explicitly saves them in the stash.
 - No new XCUITest target, live VoiceOver audit, enterprise rig, clean VM or global idle benchmark run.
-- No version bump, merge or release. Next planned feature: remaining tag management, then interactive rebase.
+- Included in 0.0.8. Next planned feature: remaining tag management, then interactive rebase.
+
+## 0.0.8 release verification
+
+The feature was fast-forward merged into main. The release check covered 900 package tests: 21
+enterprise-rig skips, 878 passes and one existing process-runner thread-count failure in the full run.
+All 17 ProcessRunnerTests passed on an isolated rerun (threads 6 → 30, limit below +32; the full run
+measured 5 → 46). No assertion or production code was changed. All 19 reset tests and the ten snapshot
+cases passed in the full run.
+Release-version app tests: 25 passed; lint and diff checks passed. Xcode result: `Test-Jit-2026.11.18_11-07-41-+0330.xcresult`.
