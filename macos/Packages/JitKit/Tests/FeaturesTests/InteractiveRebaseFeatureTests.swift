@@ -155,20 +155,19 @@ import Testing
         session.close()
     }
 
-    @Test func nativeDragPayloadReordersCommitAndRejectsMismatchedPayload() async throws {
+    @Test func draggedCommitMovementPreservesSelectionAndRejectsUnknownCommit() async throws {
         let (sandbox, _, _, session, _, editor) = try await Self.fixture()
         defer { withExtendedLifetime(sandbox) {} }
         let source = editor.plan.steps[3].oid
         let target = editor.plan.steps[0].oid
         editor.draggedCommit = source
-        let receiver = RebaseRowDropDelegate(model: editor, target: target)
-        #expect(receiver.accept(NSItemProvider(object: source as NSString)))
-        #expect(await ClosedTabDeallocatesTests.waitUntil { editor.plan.steps[0].oid == source })
+        editor.moveDraggedCommit(source, to: target)
+        #expect(editor.plan.steps[0].oid == source)
         #expect(editor.selection == source && editor.draggedCommit == nil && editor.dropTarget == nil)
         editor.draggedCommit = target
         let before = editor.plan.steps
-        #expect(receiver.accept(NSItemProvider(object: "foreign payload" as NSString)))
-        #expect(await ClosedTabDeallocatesTests.waitUntil { editor.draggedCommit == nil })
+        editor.moveDraggedCommit("foreign payload", to: target)
+        #expect(editor.draggedCommit == nil)
         #expect(editor.plan.steps == before && editor.dropTarget == nil)
         session.close()
     }

@@ -8,7 +8,7 @@ fi
 status=0
 info "swift format lint"
 swift format lint --strict --recursive --configuration "$REPO_ROOT/.swift-format" \
-    "$PACKAGE_DIR/Sources" "$PACKAGE_DIR/Tests" "$MACOS_DIR/App" "$MACOS_DIR/AppTests" || status=1
+    "$PACKAGE_DIR/Sources" "$PACKAGE_DIR/Tests" "$MACOS_DIR/App" "$MACOS_DIR/AppTests" "$MACOS_DIR/NativeInputUITests" || status=1
 
 info "GitCore imports"
 if grep -rnE '^\s*(@preconcurrency\s+)?(public\s+|internal\s+)?import\s+(AppKit|SwiftUI|Cocoa|UIKit)' "$PACKAGE_DIR/Sources/GitCore"; then

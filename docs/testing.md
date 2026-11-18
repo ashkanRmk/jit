@@ -8,6 +8,7 @@ How Jit is tested, and how to run, record and re-baseline each suite. Rules: rea
 | Suite | Command | Notes |
 |---|---|---|
 | Package tests (GitCore, Services, Features, DesignSystem) | `scripts/build/test-core.sh` | Swift Testing; parallel. Timing assertions get headroom in debug (`PerfBudget`) and with `JIT_TEST_TIMING_SCALE`. |
+| Native rebase input | `scripts/testing/native-rebase-acceptance.sh` | Separate XCUITest scheme; foreground desktop and Developer Tools authorization required. |
 | App tests | `scripts/build/test-app.sh` | Xcode test target hosted in the app. |
 | Lint | `scripts/build/lint.sh` | swift-format, GitCore import rule, styling/glass rule. |
 | Snapshot (visual regression) | `swift test --package-path macos/Packages/JitKit --filter SnapshotTests` | ADR-0040; see below. |
@@ -55,3 +56,20 @@ How Jit is tested, and how to run, record and re-baseline each suite. Rules: rea
 - Read-only release benchmark: `JitBench reflog <fixture> <output-directory>` (three warm-ups, 15 reads).
   Do not run timing-sensitive suites alongside builds or benchmark generation. `JIT_TEST_SERIAL=1`
   is available for the package suite.
+
+## Interactive rebase native input
+
+`NativeRebaseInputTests` exercises real AppKit windows/responder routing, literal text input and native
+pasteboard drop validation. Tab enters the selected message; Command-Return opens review from the
+list or message. In the review sheet, Return cancels; Tab twice from Copy then Space explicitly
+confirms. It does not synthesize a WindowServer drag session. The separate
+`JitNativeInputAcceptance` XCUITest scheme uses pointer/keyboard events, drags both directions, edits a
+message, cancels the default confirmation, then explicitly executes and checks Git history/tree/identity.
+
+Run `scripts/testing/native-rebase-acceptance.sh` from an unlocked foreground desktop with macOS
+Developer Tools authorization enabled. The script refuses when authorization is disabled; it never
+changes that setting. It builds and registers a separately identified ad-hoc app copy, uses temporary
+repositories/app support, and retains `.xcresult` screenshots outside the checkout. Jit's normal signing,
+app support and repository remain untouched. UI test runner library validation is disabled only for the
+ad-hoc test bundle, not the Jit app. An automation-mode initialization timeout means the test body did
+not run; it is not evidence that drag passed or failed.

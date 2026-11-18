@@ -2,13 +2,12 @@ import DesignSystem
 import GitCore
 import Services
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// A focused workbench surface. Content remains opaque; the system confirmation is a separate sheet.
 struct RebaseEditorView: View {
     @Bindable var model: RebaseEditorModel
     let controller: OperationsController
-    @FocusState private var messageFocused: Bool
+    var focusList: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,9 +41,6 @@ struct RebaseEditorView: View {
             footer
         }
         .background(ColorToken.surfaceCanvas.color)
-        .background { actionShortcuts }
-        .background { selectionShortcuts }
-        .onExitCommand { controller.interactiveRebase = nil }
         .foregroundStyle(.token(.textPrimary))
         .accessibilityIdentifier("interactive-rebase-editor")
     }
@@ -60,7 +56,6 @@ struct RebaseEditorView: View {
                 } label: {
                     Image(systemName: "arrow.up")
                 }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
                 .help("Move selected commit earlier (⌥⌘↑)")
                 .accessibilityLabel("Move selected commit earlier")
                 .disabled(model.selectedIndex.map { $0 == 0 } ?? true)
@@ -69,7 +64,6 @@ struct RebaseEditorView: View {
                 } label: {
                     Image(systemName: "arrow.down")
                 }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
                 .help("Move selected commit later (⌥⌘↓)")
                 .accessibilityLabel("Move selected commit later")
                 .disabled(model.selectedIndex.map { $0 == model.plan.steps.count - 1 } ?? true)
@@ -94,8 +88,6 @@ struct RebaseEditorView: View {
                             .padding(.horizontal, Space.s4)
                             .contentShape(Rectangle())
                             .background(model.selection == step.oid ? ColorToken.accentMuted.color : Color.clear)
-                            .onTapGesture { model.selection = step.oid }
-                            .onDrop(of: [UTType.text], delegate: RebaseRowDropDelegate(model: model, target: step.oid))
                             .overlay(alignment: .top) {
                                 if model.dropTarget == step.oid {
                                     Rectangle().fill(ColorToken.accentTint.color).frame(height: 2)
@@ -116,45 +108,11 @@ struct RebaseEditorView: View {
         }
     }
 
-    /// Native key equivalents also work when AppKit's List owns keyboard focus. Disable them while
-    /// a message editor or confirmation sheet owns input so ordinary typing stays literal.
-    private var actionShortcuts: some View {
-        ForEach(RebaseAction.allCases, id: \.self) { action in
-            Button(action.title) {
-                if let index = model.selectedIndex { model.setAction(action, at: index) }
-            }
-            .keyboardShortcut(KeyEquivalent(action.rawValue.first ?? "p"), modifiers: [])
-            .disabled(messageFocused || controller.sheet != nil || model.selectedIndex == nil)
-        }
-        .frame(width: 0, height: 0)
-        .opacity(0)
-        .accessibilityHidden(true)
-    }
-
-    private var selectionShortcuts: some View {
-        Group {
-            Button("Select previous commit") { model.selectAdjacent(by: -1) }
-                .keyboardShortcut(.upArrow, modifiers: [])
-            Button("Select next commit") { model.selectAdjacent(by: 1) }
-                .keyboardShortcut(.downArrow, modifiers: [])
-        }
-        .disabled(messageFocused || controller.sheet != nil)
-        .frame(width: 0, height: 0).opacity(0).accessibilityHidden(true)
-    }
-
     private func row(_ step: RebaseStep, at index: Int) -> some View {
         VStack(alignment: .leading, spacing: Space.s3) {
             HStack(spacing: Space.s4) {
-                Image(systemName: "line.3.horizontal")
-                    .foregroundStyle(.token(.textTertiary))
-                    .help("Drag to reorder this commit")
-                    .accessibilityLabel(
-                        "Drag commit \(index + 1) to reorder; keyboard alternative Option-Command-Up or Down"
-                    )
-                    .onDrag {
-                        model.draggedCommit = step.oid
-                        return NSItemProvider(object: step.oid as NSString)
-                    }
+                RebaseDragHandle(model: model, oid: step.oid, position: index + 1, focusList: focusList)
+                    .frame(width: IconSize.md, height: IconSize.lg)
                 Text("\(index + 1)").typeStyle(.monoCaption).foregroundStyle(.token(.textTertiary))
                 Picker(
                     "Action",
@@ -164,10 +122,16 @@ struct RebaseEditorView: View {
                 }
                 .labelsHidden().frame(width: 100)
                 .accessibilityLabel("Action for commit \(index + 1), \(model.commit(for: step)?.subject ?? step.oid)")
-                Text(String(step.oid.prefix(7))).typeStyle(.monoCaption).foregroundStyle(.token(.textSecondary))
-                Text(DisplayText.sanitize(model.commit(for: step)?.subject ?? ""))
-                    .typeStyle(.body).strikethrough(step.action == .drop).lineLimit(1)
-                Spacer(minLength: 0)
+                HStack(spacing: Space.s4) {
+                    Text(String(step.oid.prefix(7))).typeStyle(.monoCaption).foregroundStyle(.token(.textSecondary))
+                    Text(DisplayText.sanitize(model.commit(for: step)?.subject ?? ""))
+                        .typeStyle(.body).strikethrough(step.action == .drop).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    model.selection = step.oid; focusList()
+                }
             }
             HStack {
                 Text(DisplayText.sanitize(model.commit(for: step)?.author ?? ""))
@@ -175,12 +139,15 @@ struct RebaseEditorView: View {
                 Text(model.commit(for: step)?.diffstat ?? "").lineLimit(1)
             }
             .typeStyle(.caption).foregroundStyle(.token(.textSecondary))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                model.selection = step.oid; focusList()
+            }
             if step.action == .reword || step.action == .squash {
                 Text(step.action == .squash ? "Combined commit message" : "New commit message")
                     .typeStyle(.caption).foregroundStyle(.token(.textSecondary))
                 TextEditor(text: $model.plan.steps[index].message)
                     .typeStyle(.monoCaption).frame(minHeight: 80, maxHeight: 140)
-                    .focused($messageFocused)
                     .autocorrectionDisabled()
                     .accessibilityLabel("\(step.action.title) message for \(step.oid.prefix(7))")
             }
@@ -255,6 +222,7 @@ struct RebaseEditorView: View {
                 Spacer()
                 Button("Cancel") { controller.interactiveRebase = nil }
                 Button("Review Rewrite…") { controller.reviewInteractiveRebase(model) }
+                    .help("Review rewrite (⌘↩)")
                     .disabled(
                         !model.plan.validationIssues.isEmpty || !controller.hasProfile || !trackedTreeIsClean
                             || controller.session.isBusy)
@@ -292,36 +260,5 @@ struct InteractiveRebaseStartSheet: View {
             .keyboardShortcut(.defaultAction)
             .disabled(base.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-    }
-}
-
-@MainActor
-struct RebaseRowDropDelegate: DropDelegate {
-    let model: RebaseEditorModel
-    let target: String
-
-    func validateDrop(info: DropInfo) -> Bool { model.draggedCommit != nil }
-    func dropEntered(info: DropInfo) { model.dropTarget = target }
-    func dropExited(info: DropInfo) { if model.dropTarget == target { model.dropTarget = nil } }
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
-    func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders(for: [UTType.text]).first else { return false }
-        return accept(provider)
-    }
-
-    func accept(_ provider: NSItemProvider) -> Bool {
-        guard provider.canLoadObject(ofClass: NSString.self) else { return false }
-        provider.loadObject(ofClass: NSString.self) { value, _ in
-            let oid = value as? String
-            Task { @MainActor in
-                guard let oid, model.draggedCommit == oid else {
-                    model.draggedCommit = nil
-                    model.dropTarget = nil
-                    return
-                }
-                model.moveDraggedCommit(oid, to: target)
-            }
-        }
-        return true
     }
 }

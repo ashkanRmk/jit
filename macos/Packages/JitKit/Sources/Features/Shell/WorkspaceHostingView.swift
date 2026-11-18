@@ -2,6 +2,13 @@ import AppKit
 import DesignSystem
 import SwiftUI
 
+@MainActor
+protocol WorkspaceDraggingHandler: AnyObject {
+    func updateDrag(_ sender: any NSDraggingInfo) -> NSDragOperation
+    func exitDrag()
+    func performDrag(_ sender: any NSDraggingInfo) -> Bool
+}
+
 /// SwiftUI must scale its own content and gestures. Counter the canvas transform at the hosting
 /// boundary, then apply the same scale inside SwiftUI so drawing and pointer targets stay together.
 @MainActor
@@ -23,6 +30,41 @@ final class WorkspaceHostingView<Content: View>: NSView, WorkspaceZoomAware {
     var providesIntrinsicWidth = true {
         didSet { invalidateIntrinsicContentSize() }
     }
+    /// Optional workbench-specific native input routing. Ordinary hosts retain their responder behavior.
+    var keyEventHandler: ((NSEvent) -> Bool)?
+    override var acceptsFirstResponder: Bool { keyEventHandler != nil }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if keyEventHandler?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if keyEventHandler?(event) != true { super.keyDown(with: event) }
+    }
+
+    weak var draggingHandler: (any WorkspaceDraggingHandler)? {
+        didSet {
+            if draggingHandler != nil { registerForDraggedTypes([.string]) } else { unregisterDraggedTypes() }
+        }
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        draggingHandler?.updateDrag(sender) ?? super.draggingEntered(sender)
+    }
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        draggingHandler?.updateDrag(sender) ?? super.draggingUpdated(sender)
+    }
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) { draggingHandler?.exitDrag() }
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        draggingHandler?.updateDrag(sender).contains(.move) ?? false
+    }
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        draggingHandler?.performDrag(sender) ?? false
+    }
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) { draggingHandler?.exitDrag() }
+    override func wantsPeriodicDraggingUpdates() -> Bool { false }
+
     private var naturalSize: NSSize?
     private var lastWidth: CGFloat = -1
     private var factor: CGFloat = 1

@@ -462,7 +462,7 @@ final class MainPaneController: NSViewController {
     private let resolverContainer = NSView()
     private weak var stateOverlay: NSView?
     private var resolverController: ResolverViewController?
-    private var rebaseEditorController: WorkspaceHostingController<RebaseEditorView>?
+    private var rebaseEditorController: RebaseEditorController?
     private weak var displayedRebaseEditor: RebaseEditorModel?
 
     init(
@@ -561,13 +561,13 @@ final class MainPaneController: NSViewController {
             rebaseEditorController = nil
             displayedRebaseEditor = editor
             if let editor {
-                let controller = WorkspaceHostingController(
-                    rootView: RebaseEditorView(model: editor, controller: operations))
+                let controller = RebaseEditorController(model: editor, operations: operations)
                 addChild(controller)
                 controller.view.frame = resolverContainer.bounds
                 controller.view.autoresizingMask = [.width, .height]
                 resolverContainer.addSubview(controller.view)
                 rebaseEditorController = controller
+                controller.focusList()
             }
         }
         rebaseEditorController?.view.isHidden = model != nil
