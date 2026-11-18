@@ -369,8 +369,10 @@ sideways scrolling in side-by-side diffs. Details and what was verified: [`relea
 Reset soft/mixed/hard, tag creation, detached worktree creation and patch export already have basic graph
 actions from 0.0.6. Reset previews, keep mode and stash-first recovery are included in 0.0.8
 ([report](phases/08-post-v1/progress-reset.md), ADR-0061). Remaining tag management is implemented
-locally/unreleased ([report](phases/08-post-v1/progress-tags.md), ADR-0062). Next: interactive rebase,
-starting with the safety/editor spike and ADR-0059/0060.
+in 0.0.9 ([report](phases/08-post-v1/progress-tags.md), ADR-0062). Interactive rebase is implemented
+locally/unreleased ([report](phases/08-post-v1/progress-rebase-interactive.md), ADR-0059/0060), with a
+validated editor, private prepared messages, restart-safe continuation and explicit rewrite confirmation.
+Next: direct commit surgery using this engine.
 The original suggested order for the independent epics was reflog → reset → tags →
 interactive rebase → commit surgery → history filters → worktrees → patches → remotes → branch history →
 signing → submodules → LFS. Update checks and the change-log sheet shipped in 0.0.5 (ADR-0051).

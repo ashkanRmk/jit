@@ -1616,6 +1616,11 @@ extension GraphViewController: NSMenuDelegate {
         items.append(ClosureMenuItem(title: "Create Patch from Commit…") { operations.exportPatch(hex) })
         items.append(ClosureMenuItem(title: "Create Worktree from Commit…") { operations.createWorktree(at: hex) })
         items.append(operations.resetMenu(at: hex))
+        if !operations.headIsDetached, session.operationState == .clean, !session.isBusy {
+            items.append(
+                ClosureMenuItem(title: "Interactive Rebase from Here…") { operations.beginInteractiveRebase(from: hex) }
+            )
+        }
         items.append(.separator())
         if !isHead {
             items.append(

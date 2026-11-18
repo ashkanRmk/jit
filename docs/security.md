@@ -88,3 +88,18 @@ identity, the user's Git/SSH configuration.
   files or `.DS_Store` in the app (`03-verify-archs.sh`). The `strings` scan results are in progress.md.
 - **OAuth**: no `OAuthClients.plist` is bundled, so GitHub/GitLab OAuth sign-in reports "not configured" in
   1.0.0. Registering the public OAuth clients is an owner action (`docs/release.md`). PAT and SSH work.
+
+## Interactive rebase preparation
+
+ADR-0059 adds two fixed modes to the existing bundled helper. The editor command contains only its
+single-quoted trusted executable path and a constant mode; object IDs/actions are validated, while
+messages travel through 0600 files under a 0700 per-worktree directory. The helper verifies canonical
+editor target paths and uses original IDs from Git's completed todo to select literal data. Prepared
+messages are bounded to 1 MB each and 16 MB across source/custom messages; fixups reference existing
+messages rather than duplicating them on disk. No message is used as executable shell text.
+
+Preparation includes captured author/committer identities, with no tokens, passwords or authentication
+plans. It survives pauses/relaunch deliberately and is bound to sequencer original-head, branch and
+onto values on continuation. A missing helper/mismatched preparation refuses Continue/Skip and keeps
+the data; Abort remains possible. Native Git and configured hooks still run under the existing process
+policy. Destructive rewrite confirmation binds exact steps and a checked repository snapshot.

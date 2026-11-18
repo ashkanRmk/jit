@@ -47,3 +47,10 @@ plus not leak into hooks and unrelated children. B has no such dependency and is
   expected key, sentinel never in argv/env), `RigIntegrationTests` (HTTPS clone+push through the rig).
 - Revisit if Git adds a supported FD-based credential channel, or if peer verification needs SecCode checks
   for distribution builds (Phase 7).
+
+## Interactive rebase extension (2026-11-18, ADR-0059)
+
+The same `jit-git-helper` executable now also supports fixed `sequence-editor` and `message-editor`
+subcommands. They copy validated prepared todo/message data through private per-worktree files and do
+not use the credential broker. User messages never appear in shell commands or argv; continuation
+uses original todo object IDs, not an invocation counter. Credential/askpass/SSH modes are unchanged.

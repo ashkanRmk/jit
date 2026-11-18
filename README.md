@@ -38,7 +38,7 @@ tag management, precise graph sizing, safe local branch cleanup and sharp worksp
 | 5 Profiles & providers | done | [progress](docs/phases/05-profiles-and-providers/progress.md) |
 | 6 Polish & performance | done, with carry-overs | [progress](docs/phases/06-polish-and-performance/progress.md) |
 | 7 Packaging & release | done, with carry-overs | [progress](docs/phases/07-packaging-and-release/progress.md) |
-| 8 Post-V1 epics | reflog/recovery, reset, tags and workspace sizing implemented; others planned | [design](docs/phases/08-post-v1/design.md) |
+| 8 Post-V1 epics | reflog/recovery, reset, tags and workspace sizing shipped; interactive rebase implemented locally; others planned | [design](docs/phases/08-post-v1/design.md) |
 
 Builds are **ad-hoc signed and not notarized** (owner decision 2026-11-10: free distribution, no paid
 Apple Developer Program; ADR-0049). Developer ID signing and notarization are scripted but have never been run.
@@ -113,7 +113,13 @@ with recovery metadata, or delete a remote tag under an exact object lease while
 **Workspace sizing and branch cleanup (0.0.9)** — [Implementation and verification](docs/phases/08-post-v1/progress-workspace-sizing.md):
 exact graph column widths, pruning fetches, confirmed local branch cleanup, and persisted workspace zoom.
 
-**Remaining Phase 8 work** — interactive rebase, commit surgery, history filters, worktree management, patch workflows, advanced remotes, branch
+**Interactive rebase (local development build, unreleased)** — [Feature report](docs/phases/08-post-v1/progress-rebase-interactive.md):
+right-click a commit → **Interactive Rebase from Here…**, or use **Branch → Interactive Rebase…** / ⌘K.
+Reorder, reword, edit, squash, fixup or drop commits; review the resulting history and confirm before
+rewriting. Conflicts use the existing resolver; prepared messages and identity survive app restart.
+Linear ranges up to 500 commits are supported. Other branch pointers stay unchanged.
+
+**Remaining Phase 8 work** — commit surgery, history filters, worktree management, patch workflows, advanced remotes, branch
 history manipulation, signing, submodules and LFS. Basic reset/tag/worktree/export actions already exist.
 
 ### Why origin can show a deleted branch

@@ -2,7 +2,7 @@ import Foundation
 
 /// Who a commit is by, captured from the active profile when the user presses Commit (§6.2): a profile
 /// switch while Git runs never changes it. Applied only through the child's environment (ADR-0028).
-public struct IdentitySnapshot: Sendable, Hashable {
+public struct IdentitySnapshot: Sendable, Hashable, Codable {
     public let author: GitIdentity
     public let committer: GitIdentity
 

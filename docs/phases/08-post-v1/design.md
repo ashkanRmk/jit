@@ -1,6 +1,6 @@
 # Phase 8 — Post-V1: design
 
-> Status (2026-11-18): **reflog/recovery implemented in 0.0.7** ([report](progress-reflog.md)); remaining epics planned. Phase 8 is not one linear phase. It is a set of independent **epics** that
+> Status (2026-11-18): **reflog/recovery implemented in 0.0.7** ([report](progress-reflog.md)); reset and tags also shipped; **interactive rebase implemented locally/unreleased** ([report](progress-rebase-interactive.md), ADR-0059/0060). Other epics planned. Phase 8 is not one linear phase. It is a set of independent **epics** that
 > extend V1 (§9.2, §22 Phase 8). Each epic starts only after V1 has shipped (Phase 7 exit gate) and
 > runs on its own branch `epic/<name>` with its own progress report. None of this may delay V1.
 
@@ -131,7 +131,7 @@ Stashing selected hunks (via the patch builder) stays here, in the `patches` epi
   lease; the local tag stays intact. Both confirmations default to Cancel (ADR-0062).
 - Implemented locally/unreleased: [specs and verification](progress-tags.md). Signing remains planned.
 
-### 3.5 Interactive rebase (`rebase-interactive`)
+### 3.5 Interactive rebase (`rebase-interactive`) — implemented locally/unreleased
 - **Start:** context menu on a commit "Interactive rebase from here…" or Branch ▸ Interactive Rebase
   onto…. Opens a focused editor occupying the main content area.
 - **Editor:** a list of commits oldest→newest (Git todo order, labelled clearly), each row: action

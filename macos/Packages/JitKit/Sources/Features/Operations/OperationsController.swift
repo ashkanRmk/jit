@@ -19,6 +19,7 @@ enum OperationSheet: Identifiable {
     case pushRejected(request: PushRequest, outcome: PushOutcome)
     case notFastForward(ahead: Int, behind: Int)
     case merge(source: String, label: String, conflicts: [String])
+    case interactiveRebaseStart
     case rebase(onto: String, label: String, plan: RebasePlan)
     case mainline(commit: String, parents: [CommitSummary], isRevert: Bool)
     case blockedSwitch(target: SwitchTarget, paths: [String], untracked: Bool)
@@ -45,6 +46,7 @@ enum OperationSheet: Identifiable {
         case .pushRejected(let request, _): "rejected-\(request.localBranch)"
         case .notFastForward: "nff"
         case .merge(let source, _, _): "merge-\(source)"
+        case .interactiveRebaseStart: "interactive-rebase-start"
         case .rebase(let onto, _, _): "rebase-\(onto)"
         case .mainline(let commit, _, _): "mainline-\(commit)"
         case .blockedSwitch: "blocked"
@@ -70,6 +72,7 @@ final class OperationsController {
     var sheet: OperationSheet?
     /// The open conflict resolver (covers the graph area).
     var resolver: ResolverModel?
+    var interactiveRebase: RebaseEditorModel?
     var showsActivity = false
     /// Detached-HEAD explanation shown once per session.
     @ObservationIgnored var explainedDetached = false
@@ -658,6 +661,54 @@ final class OperationsController {
         }
     }
 
+    func beginInteractiveRebase(from commit: String) {
+        guard !session.isBusy, session.operationState == .clean else { return }
+        Task {
+            do throws(GitCoreError) {
+                guard let repository = session.repository else { return }
+                let parents = try await repository.parents(of: commit)
+                guard parents.count == 1, let parent = parents.first else {
+                    present(
+                        PresentableError(
+                            title: "Choose a linear range",
+                            explanation:
+                                "The selected commit must have one parent. Root and merge commits are not supported yet."
+                        ))
+                    return
+                }
+                prepareInteractiveRebase(after: parent.oid)
+            } catch { present(PresentableError.make(error)) }
+        }
+    }
+
+    func prepareInteractiveRebase(after base: String, onto: String? = nil) {
+        guard !session.isBusy, session.operationState == .clean else { return }
+        Task {
+            do throws(GitCoreError) {
+                guard let repository = session.repository else { return }
+                let plan = try await repository.interactiveRebasePlan(after: base, onto: onto)
+                interactiveRebase = RebaseEditorModel(plan: plan)
+            } catch { present(PresentableError.make(error)) }
+        }
+    }
+
+    func reviewInteractiveRebase(_ editor: RebaseEditorModel) {
+        guard !session.isBusy, editor.plan.validationIssues.isEmpty, hasProfile else { return }
+        let plan = editor.plan
+        confirm(plan.confirmation(context: contextLine)) { [weak self] token in
+            guard let self else { return }
+            let context = self.execContext
+            self.interactiveRebase = nil
+            Task {
+                self.handle(await self.session.startInteractiveRebase(plan, token: token, context: context)) {
+                    outcome in
+                    self.handleIntegration(outcome)
+                    if case .stoppedInProgress = outcome { self.showWorkingDirectory() }
+                }
+            }
+        }
+    }
+
     func rebase(onto: String, label: String) {
         Task {
             guard let plan = try? await session.repository?.rebasePlan(onto: onto) else { return }
@@ -721,7 +772,7 @@ final class OperationsController {
     }
 
     func continueOperation() {
-        guard let context = requireProfile() else { return }
+        let context = execContext
         Task {
             handle(await session.continueOperation(context: context)) { [weak self] outcome in
                 guard let self else { return }
@@ -740,7 +791,7 @@ final class OperationsController {
     }
 
     func skip() {
-        guard let context = requireProfile() else { return }
+        let context = execContext
         Task { await self.confirmSkip(context: context) }
     }
 

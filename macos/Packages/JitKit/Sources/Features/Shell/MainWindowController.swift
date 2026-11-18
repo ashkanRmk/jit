@@ -691,6 +691,19 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
     @objc public func showRemotes(_ sender: Any?) { activeOperations?.showRemotes() }
     @objc public func stashChanges(_ sender: Any?) { activeOperations?.createStash() }
     @objc public func popStash(_ sender: Any?) { activeOperations?.popLatest() }
+    #if DEBUG
+        public func showInteractiveRebaseForScreenshot(after base: String) {
+            activeOperations?.prepareInteractiveRebase(after: base)
+        }
+    #endif
+
+    @objc public func interactiveRebase(_ sender: Any?) {
+        guard let operations = activeOperations, !operations.session.isBusy,
+            operations.session.operationState == .clean,
+            !operations.headIsDetached
+        else { return }
+        operations.sheet = .interactiveRebaseStart
+    }
     @objc public func newBranch(_ sender: Any?) {
         activeOperations?.newBranch(at: "HEAD", label: activeOperations?.currentBranch ?? "HEAD")
     }
@@ -841,6 +854,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         case #selector(fetchRepository(_:)), #selector(fetchAllRemotes(_:)), #selector(showRemotes(_:)),
             #selector(showActivity(_:)), #selector(showReflog(_:)), #selector(newBranch(_:)):
             return activeOperations != nil
+        case #selector(interactiveRebase(_:)):
+            return activeOperations.map {
+                !$0.session.isBusy && $0.session.operationState == .clean && !$0.headIsDetached
+                    && $0.session.status?.branch.oid != nil
+            } ?? false
         case #selector(pullWithMerge(_:)), #selector(pullWithRebase(_:)):
             return activeOperations?.session.status?.branch.upstream != nil
         case #selector(pullRepository(_:)):

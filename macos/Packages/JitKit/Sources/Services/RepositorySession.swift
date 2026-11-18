@@ -69,6 +69,7 @@ public final class RepositorySession {
     public let operations = OperationCenter()
     /// The in-progress merge/rebase/… with banner details; refreshed by FSEvents and after operations.
     public internal(set) var operationState: RepoOperationState = .clean
+    public internal(set) var rebaseStoppedForEdit = false
     /// `stash@{n}` entries, newest first; `nil` until first requested (lazy, design §3.11).
     public internal(set) var stashes: [StashEntry]?
     @ObservationIgnored var operationStateTask: Task<Void, Never>?
@@ -84,6 +85,7 @@ public final class RepositorySession {
 
     @ObservationIgnored private let engine: GitEngine
     @ObservationIgnored private let watchesFileSystem: Bool
+    @ObservationIgnored let gitHelperPath: String?
     @ObservationIgnored private(set) var handle: RepositoryHandle?
     @ObservationIgnored private var watcher: RepositoryWatcher?
     @ObservationIgnored private var watcherStartTask: Task<Void, Never>?
@@ -100,8 +102,9 @@ public final class RepositorySession {
     /// - Parameter handle: an already opened handle (the open flow discovers once, not twice).
     public init(
         path: String, engine: GitEngine, handle: RepositoryHandle? = nil, watchesFileSystem: Bool = true,
-        recoveryLocation: StoreLocation = .applicationSupport()
+        recoveryLocation: StoreLocation = .applicationSupport(), helperPath: String? = nil
     ) {
+        self.gitHelperPath = helperPath ?? HelperLocator.helperPath()
         self.recoveryJournal = RecoveryJournal(repository: path, location: recoveryLocation)
         self.path = path
         self.engine = engine

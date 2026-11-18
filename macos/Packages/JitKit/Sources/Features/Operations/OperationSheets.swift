@@ -53,6 +53,8 @@ struct OperationSheetsHost: View {
             NotFastForwardSheet(controller: controller, ahead: ahead, behind: behind)
         case .merge(let source, let label, let conflicts):
             MergeSheet(controller: controller, source: source, label: label, predicted: conflicts)
+        case .interactiveRebaseStart:
+            InteractiveRebaseStartSheet(controller: controller)
         case .rebase(let onto, let label, let plan):
             RebaseSheet(controller: controller, onto: onto, label: label, plan: plan)
         case .mainline(let commit, let parents, let isRevert):

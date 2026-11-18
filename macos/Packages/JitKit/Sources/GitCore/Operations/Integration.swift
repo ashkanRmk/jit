@@ -234,10 +234,11 @@ extension RepositoryHandle {
 
     /// `--continue` for the current operation (`GIT_EDITOR=true` keeps Git's prepared message). Refused
     /// while unmerged paths remain.
-    public func continueOperation(context: ExecContext) async throws(GitCoreError) -> IntegrationOutcome {
+    public func continueOperation(
+        context: ExecContext, helperPath: String? = nil, progress: AsyncStream<OperationProgress>.Continuation? = nil
+    ) async throws(GitCoreError) -> IntegrationOutcome {
         let topLevel = try requireWorkingTree()
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
-        let identity = try context.requireIdentity()
         return try await performExclusive("Continue", invalidating: Set(InvalidationKind.allCases)) {
             () throws(GitCoreError) -> IntegrationOutcome in
             try Self.refuseIfIndexLocked(gitDirectory: gitDirectory)
@@ -263,22 +264,33 @@ extension RepositoryHandle {
             case .bisecting, .applyingMailbox:
                 throw .refused(summary: "Jit doesn't drive this operation. Finish it in Terminal.")
             }
+            let preparation = command == "rebase" ? try RebasePreparation.load(gitDirectory: gitDirectory) : nil
+            let identity: IdentitySnapshot
+            if let preparation { identity = preparation.identity } else { identity = try context.requireIdentity() }
+            let environment =
+                preparation != nil
+                ? try RebasePreparation.environment(helperPath: helperPath ?? "", gitDirectory: gitDirectory) : [:]
+            defer { RebasePreparation.cleanUpIfFinished(gitDirectory: gitDirectory) }
             let head = try await Self.readHead(engine: engine, in: topLevel) ?? ""
             let outcome = try await Self.runIntegration(
-                [command, "--continue"], identity: identity, use: use, engine: engine, topLevel: topLevel,
-                gitDirectory: gitDirectory, headBefore: head)
+                (preparation != nil ? ["-c", "commit.cleanup=verbatim", "-c", "commit.gpgSign=false"] : []) + [
+                    command, "--continue",
+                ], identity: identity, use: use, engine: engine, topLevel: topLevel,
+                gitDirectory: gitDirectory, headBefore: head, environment: environment, progress: progress)
             return Self.finalize(outcome, gitDirectory: gitDirectory)
         }
     }
 
     /// `--skip` (rebase, cherry-pick, revert): drops the current commit. Destructive.
-    public func skipCurrent(context: ExecContext, token: ConfirmationToken, expected: RepoStateToken)
+    public func skipCurrent(
+        context: ExecContext, token: ConfirmationToken, expected: RepoStateToken, helperPath: String? = nil,
+        progress: AsyncStream<OperationProgress>.Continuation? = nil
+    )
         async throws(GitCoreError) -> IntegrationOutcome
     {
         let topLevel = try requireWorkingTree()
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         try token.verify(.skipCurrent)
-        let identity = try context.requireIdentity()
         return try await performExclusive("Skip commit", invalidating: Set(InvalidationKind.allCases)) {
             () throws(GitCoreError) -> IntegrationOutcome in
             try await Self.ensureCurrent(expected, engine: engine, in: topLevel, gitDirectory: gitDirectory)
@@ -290,10 +302,19 @@ extension RepositoryHandle {
             case .reverting: command = "revert"
             default: throw .refused(summary: "There's no commit to skip.")
             }
+            let preparation = command == "rebase" ? try RebasePreparation.load(gitDirectory: gitDirectory) : nil
+            let identity: IdentitySnapshot
+            if let preparation { identity = preparation.identity } else { identity = try context.requireIdentity() }
+            let environment =
+                preparation != nil
+                ? try RebasePreparation.environment(helperPath: helperPath ?? "", gitDirectory: gitDirectory) : [:]
+            defer { RebasePreparation.cleanUpIfFinished(gitDirectory: gitDirectory) }
             let head = try await Self.readHead(engine: engine, in: topLevel) ?? ""
             let outcome = try await Self.runIntegration(
-                [command, "--skip"], identity: identity, use: .committerOnly, engine: engine, topLevel: topLevel,
-                gitDirectory: gitDirectory, headBefore: head)
+                (preparation != nil ? ["-c", "commit.cleanup=verbatim", "-c", "commit.gpgSign=false"] : []) + [
+                    command, "--skip",
+                ], identity: identity, use: .committerOnly, engine: engine, topLevel: topLevel,
+                gitDirectory: gitDirectory, headBefore: head, environment: environment, progress: progress)
             return Self.finalize(outcome, gitDirectory: gitDirectory)
         }
     }
@@ -322,6 +343,7 @@ extension RepositoryHandle {
             _ = try await Self.runClassified(
                 GitCommand([command, "--abort"], in: topLevel, kind: .write, timeout: nil), engine: engine,
                 gitDirectory: gitDirectory)
+            RebasePreparation.cleanUpIfFinished(gitDirectory: gitDirectory)
         }
     }
 

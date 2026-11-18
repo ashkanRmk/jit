@@ -229,3 +229,19 @@ cloneRepository(_:engine:) — free function (no repository yet)
 the workbench list, commit inspection and recovery through existing branch/cherry-pick/reset workflows.
 Temporary graph tips are query-only; the feature never writes backup refs. See
 [ADR-0052](adr/0052-reflog-and-recovery-points.md) and the [report](phases/08-post-v1/progress-reflog.md).
+
+## Interactive rebase (ADR-0059/0060)
+
+`GitCore/Rebase` owns immutable plan provenance, editable typed steps, result/risk previews and
+execution. A plan captures the full repository state; its confirmation token binds the exact step array.
+The existing writer validates it before native `rebase -i`. A single NUL-delimited `diff-tree --stdin`
+read supplies range diffstats/paths without per-row processes. The editor is owned by
+`OperationsController` and hosted over the graph, sharing the resolver container's lifetime.
+
+The bundled helper gains `sequence-editor` / `message-editor` modes. A private per-worktree preparation
+stores literal messages once, with original-OID lookup keys (including fixups), and the captured identity.
+Continue/Skip bind preparation to Git's original HEAD, branch and onto target; relaunch re-detects the
+existing sequencer. Generic non-Jit rebases keep their original continuation behavior. Edit stops are
+identified from Git's `amend` file. Progress reads `msgnum`/`end` only on stderr events and uses the
+existing throttled progress sink. Cleanup follows completion/abort, and the existing journal captures
+previous refs. No polling, network calls or global Git configuration changes are introduced.

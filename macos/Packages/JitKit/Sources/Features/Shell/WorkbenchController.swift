@@ -167,7 +167,7 @@ final class WorkbenchController: NSSplitViewController {
             guard let self else { return }
             self.diffModel.close()
             self.blameModel.close()
-            guard self.operations.resolver == nil else { return }
+            guard self.operations.resolver == nil, self.operations.interactiveRebase == nil else { return }
             self.reflogModel.open()
         }
         reflogModel.onSelect = { [weak self, weak inspector] oid in
@@ -462,6 +462,8 @@ final class MainPaneController: NSViewController {
     private let resolverContainer = NSView()
     private weak var stateOverlay: NSView?
     private var resolverController: ResolverViewController?
+    private var rebaseEditorController: WorkspaceHostingController<RebaseEditorView>?
+    private weak var displayedRebaseEditor: RebaseEditorModel?
 
     init(
         graph: GraphViewController, session: RepositorySession, tab: TabModel, actions: WorkbenchActions,
@@ -527,6 +529,7 @@ final class MainPaneController: NSViewController {
     private func observeResolver() {
         withObservationTracking {
             _ = operations.resolver
+            _ = operations.interactiveRebase
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.applyResolver()
@@ -551,7 +554,24 @@ final class MainPaneController: NSViewController {
                 resolverController = controller
             }
         }
-        resolverContainer.isHidden = model == nil
+        let editor = operations.interactiveRebase
+        if displayedRebaseEditor !== editor {
+            rebaseEditorController?.view.removeFromSuperview()
+            rebaseEditorController?.removeFromParent()
+            rebaseEditorController = nil
+            displayedRebaseEditor = editor
+            if let editor {
+                let controller = WorkspaceHostingController(
+                    rootView: RebaseEditorView(model: editor, controller: operations))
+                addChild(controller)
+                controller.view.frame = resolverContainer.bounds
+                controller.view.autoresizingMask = [.width, .height]
+                resolverContainer.addSubview(controller.view)
+                rebaseEditorController = controller
+            }
+        }
+        rebaseEditorController?.view.isHidden = model != nil
+        resolverContainer.isHidden = model == nil && editor == nil
         if model != nil { view.window?.makeFirstResponder(resolverController?.view) }
     }
 
