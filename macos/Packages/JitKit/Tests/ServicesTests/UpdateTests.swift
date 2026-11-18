@@ -370,10 +370,10 @@ final class InstallerStub: UpdateInstalling {
         let base = "https://github.com/ashkanRmk/jit/releases/download/\(wanted)/Jit-\(wanted).dmg"
         let release = AppRelease(
             version: wanted, title: "Jit \(wanted)", notes: "", publishedAt: nil, isPrerelease: true,
-            pageURL: URL(string: "https://github.com/ashkanRmk/jit/releases/tag/\(wanted)")!,
+            pageURL: try #require(URL(string: "https://github.com/ashkanRmk/jit/releases/tag/\(wanted)")),
             diskImageURL: URL(string: base), checksumURL: URL(string: base + ".sha256"))
         let installer = DiskImageInstaller(
-            target: target, bundleIdentifier: Self.bundleID, currentVersion: AppVersion("0.0.4")!,
+            target: target, bundleIdentifier: Self.bundleID, currentVersion: try #require(AppVersion("0.0.4")),
             directory: root.appendingPathComponent("Updates"), requiredTeam: nil,
             fetch: { _ in Data("\(sum)  Jit-\(wanted).dmg\n".utf8) },
             download: { _, destination in try FileManager.default.copyItem(at: image, to: destination) })
