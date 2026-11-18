@@ -78,3 +78,9 @@ All 17 ProcessRunnerTests passed on an isolated rerun (threads 6 → 30, limit b
 measured 5 → 46). No assertion or production code was changed. All 19 reset tests and the ten snapshot
 cases passed in the full run.
 Release-version app tests: 25 passed; lint and diff checks passed. Xcode result: `Test-Jit-2026.11.18_11-07-41-+0330.xcresult`.
+
+0.0.8 was archived from `12e8113142fb848644bdf206e5935b09772a10f6` as build 8. The ad-hoc,
+non-notarized arm64 DMG passed release validation, and its embedded Git passed all 18 relocation/
+workflow/network checks. DMG: 11,318,756 bytes; SHA-256
+`bc974f58a162007eb987ff79245a0670029480edfc27055fe4553d5f6b25ab65`.
+All five publication assets were prepared and their checksum manifest verified. See [release notes](../../releases/v0.0.8.md).
