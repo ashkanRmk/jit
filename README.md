@@ -93,8 +93,11 @@ state into a branch or through a confirmed reset. Available from Repository ▸ 
 preview soft/mixed/keep/hard resets, protect local paths, and save local changes in a recovery stash
 before hard reset. Recover previous history through Reflog and restore the saved stash.
 
-**Remaining Phase 8 work** — complete tag management, then interactive
-rebase, commit surgery, history filters, worktree management, patch workflows, advanced remotes, branch
+**Tag management (local/unreleased)** — [Feature report](docs/phases/08-post-v1/progress-tags.md):
+create lightweight or annotated tags, inspect exact objects and messages, push one tag, delete locally
+with recovery metadata, or delete a remote tag under an exact object lease while keeping the local copy.
+
+**Remaining Phase 8 work** — interactive rebase, commit surgery, history filters, worktree management, patch workflows, advanced remotes, branch
 history manipulation, signing, submodules and LFS. Basic reset/tag/worktree/export actions already exist.
 
 ## Install

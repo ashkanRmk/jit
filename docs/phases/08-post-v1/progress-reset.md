@@ -68,7 +68,8 @@ is specified; all work remains cancellable and off the UI executor.
 - Hard/keep with hidden index flags and stash-first on dirty submodules/nested repos/special files require
   separate handling. Ordinary untracked files remain unless the user explicitly saves them in the stash.
 - No new XCUITest target, live VoiceOver audit, enterprise rig, clean VM or global idle benchmark run.
-- Included in 0.0.8. Next planned feature: remaining tag management, then interactive rebase.
+- Included in 0.0.8. Tag management is now implemented locally/unreleased ([report](progress-tags.md));
+  next planned feature: interactive rebase.
 
 ## 0.0.8 release verification
 

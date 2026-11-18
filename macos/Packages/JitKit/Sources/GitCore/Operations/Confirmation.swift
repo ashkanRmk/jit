@@ -3,6 +3,8 @@ import Foundation
 /// A destructive action, exactly as the user confirmed it (design §3.2, ADR-0015). Destructive methods on
 /// `RepositoryHandle` take a `ConfirmationToken` and refuse unless the token names the same action.
 public enum DestructiveAction: Sendable, Hashable {
+    case deleteTag(name: String, object: String)
+    case deleteRemoteTag(previewID: UUID, remote: String, name: String, object: String)
     case deleteBranch(name: String, force: Bool)
     case deleteRemoteBranch(remote: String, branch: String)
     case forcePush(remote: String, remoteRef: String, expected: String)

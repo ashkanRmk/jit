@@ -81,6 +81,12 @@ final class GraphViewController: NSViewController {
         operations?.newTag(at: oid, label: selectedRef?.shortName ?? String(oid.prefix(7)), annotated: annotated)
     }
 
+    var selectedTagRef: GitRef? {
+        if let ref = selectedRef, ref.kind == .tag { return ref }
+        guard let oid = viewModel.selection.last else { return nil }
+        return history?.refs?.tags.first { $0.commit == oid }
+    }
+
     var hasSelectedTag: Bool {
         guard let oid = viewModel.selection.last else { return false }
         return history?.refs?.tags.contains { $0.commit == oid } == true

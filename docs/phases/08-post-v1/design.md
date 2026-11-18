@@ -126,7 +126,10 @@ Stashing selected hunks (via the patch builder) stays here, in the `patches` epi
   `signing` exists), *Push after creating* (to a chosen remote).
 - **Tag rows** in sidebar: annotated vs lightweight icon, tagger/date/message popover, "Push", "Delete
   local", "Delete from ‹remote›" (destructive; affects others).
-- Deleting a local tag shows its target SHA for recovery.
+- Deleting a local tag confirms and records its direct object SHA, preserving an annotation as well as
+  its peeled target. Remote deletion previews the effective push destination and uses an exact object
+  lease; the local tag stays intact. Both confirmations default to Cancel (ADR-0062).
+- Implemented locally/unreleased: [specs and verification](progress-tags.md). Signing remains planned.
 
 ### 3.5 Interactive rebase (`rebase-interactive`)
 - **Start:** context menu on a commit "Interactive rebase from here…" or Branch ▸ Interactive Rebase
@@ -295,6 +298,14 @@ extension Repository {
     // reset
     func resetPreview(to target: String, mode: ResetMode) async throws(GitCoreError) -> ResetPreview
     func reset(_ preview: ResetPreview, stashFirst: Bool, token: ConfirmationToken, context: ExecContext) async throws(GitCoreError) -> ResetOutcome
+
+    // tags (implemented on RepositoryHandle, ADR-0062)
+    func tagDetails(named: String, object: String?) async throws(GitCoreError) -> TagDetails
+    func createTag(_ name: String, at commit: String, message: String?, context: ExecContext, expected: RepoStateToken?) async throws(GitCoreError) -> String
+    func pushTag(_ name: String, remote: String, object: String?, expected: RepoStateToken?, context: ExecContext) async throws(GitCoreError)
+    func deleteTag(_ tag: TagDetails, token: ConfirmationToken, expected: RepoStateToken?) async throws(GitCoreError) -> TagDetails
+    func remoteTagDeletionPreview(named: String, remote: String, context: ExecContext) async throws(GitCoreError) -> RemoteTagDeletionPreview
+    func deleteRemoteTag(_ preview: RemoteTagDeletionPreview, token: ConfirmationToken, context: ExecContext) async throws(GitCoreError)
 
     // interactive rebase
     func rebasePlan(base: ObjectID, headRef: String) async throws(GitError) -> RebasePlan // commits + published flags + unsupported reasons

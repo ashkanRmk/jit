@@ -27,6 +27,8 @@ final class NavigatorViewController: NSViewController {
     /// The profile row at the bottom (the profile switcher popover opens from it).
     private(set) weak var profileAnchor: NSView?
 
+    private var tagPopover: NSPopover?
+    private var tagDetailsModel: TagDetailsModel?
     private let outline = NavigatorOutlineView()
     private let filterField = NSSearchField()
     private var roots: [NavigatorNode] = []
@@ -145,6 +147,8 @@ final class NavigatorViewController: NSViewController {
 
     /// The tab closed: drop the hosted SwiftUI rows (P6.6).
     func tearDown() {
+        tagDetailsModel?.cancel(); tagDetailsModel = nil
+        tagPopover?.performClose(nil); tagPopover = nil
         for subview in view.subviews where subview is NSHostingView<SidebarBranchHeader> {
             subview.removeFromSuperview()
         }
@@ -277,41 +281,33 @@ final class NavigatorViewController: NSViewController {
         actions.showInGraph(commit)
     }
 
-    private func showTagMessage(_ ref: GitRef, row: Int) {
-        guard let repository else { return }
-        Task { [weak self] in
-            let message: String
-            do throws(GitCoreError) {
-                message = try await repository.tagMessage(object: ref.object)
-            } catch {
-                message = error.summary
-            }
-            guard let self, let rowView = self.outline.rowView(atRow: row, makeIfNecessary: false) else { return }
-            let popover = NSPopover()
-            popover.behavior = .transient
-            let label = NSTextField(
-                wrappingLabelWithString: message.isEmpty
-                    ? "(empty message)" : DisplayText.sanitize(message, keepNewlines: true))
-            label.isSelectable = true
-            label.font = TypeToken.body.nsFont
-            label.textColor = ColorToken.textPrimary.nsColor
-            label.preferredMaxLayoutWidth = 320
-            let controller = NSViewController()
-            let container = NSView()
-            label.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(label)
-            NSLayoutConstraint.activate([
-                label.topAnchor.constraint(equalTo: container.topAnchor, constant: Space.s6),
-                label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -Space.s6),
-                label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: Space.s6),
-                label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -Space.s6),
-                label.widthAnchor.constraint(lessThanOrEqualToConstant: 320),
-            ])
-            controller.view = container
-            popover.contentViewController = controller
-            popover.show(relativeTo: rowView.bounds, of: rowView, preferredEdge: .maxX)
+    private func showTagDetails(_ ref: GitRef, row: Int) {
+        // Let the context menu finish tracking before presenting another transient surface.
+        DispatchQueue.main.async { [weak self] in
+            self?.presentTagDetails(ref, row: row)
         }
     }
+
+    private func presentTagDetails(_ ref: GitRef, row: Int) {
+        guard let operations, view.window != nil,
+            let current = (outline.item(atRow: row) as? NavigatorNode)?.ref,
+            current.fullName == ref.fullName, current.object == ref.object,
+            let rowView = outline.rowView(atRow: row, makeIfNecessary: false)
+        else { return }
+        tagPopover?.performClose(nil)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.delegate = self
+        let details = TagDetailsModel()
+        tagDetailsModel = details
+        popover.contentViewController = NSHostingController(
+            rootView: TagManagementView(
+                controller: operations, ref: ref,
+                dismiss: { [weak popover] in popover?.performClose(nil) }, model: details))
+        tagPopover = popover
+        popover.show(relativeTo: rowView.bounds, of: rowView, preferredEdge: .maxX)
+    }
+
 }
 
 extension NavigatorViewController: NSOutlineViewDataSource, NSOutlineViewDelegate {
@@ -344,7 +340,9 @@ extension NavigatorViewController: NSOutlineViewDataSource, NSOutlineViewDelegat
         let id = NSUserInterfaceItemIdentifier("navigatorCell")
         let cell = outlineView.makeView(withIdentifier: id, owner: nil) as? NavigatorCellView ?? NavigatorCellView()
         cell.identifier = id
-        cell.configure(node, pinned: node.ref.map { actions.isPinned($0.fullName) } ?? false)
+        cell.configure(
+            node, pinned: node.ref.map { actions.isPinned($0.fullName) } ?? false,
+            canCreateTag: refs?.head.commit != nil, createTag: { [weak self] in self?.operations?.newTagAtHead() })
         return cell
     }
 
@@ -398,6 +396,12 @@ extension NavigatorViewController: NSMenuDelegate {
             item("Stash Changes…") { operations.createStash() }
             return
         }
+        if row >= 0, let node = outline.item(atRow: row) as? NavigatorNode,
+            node.kind == .section(.tags) || node.id == "note/notags", let operations
+        {
+            if refs?.head.commit != nil { item("Create Tag at HEAD…") { operations.newTagAtHead() } }
+            return
+        }
         guard row >= 0, let node = outline.item(atRow: row) as? NavigatorNode, let ref = node.ref else { return }
         let format = refs?.format ?? .sha1
         switch ref.kind {
@@ -414,8 +418,10 @@ extension NavigatorViewController: NSMenuDelegate {
             item("Copy Tag Name") { Pasteboard.copy(ref.shortName) }
             item("Copy SHA") { Pasteboard.copy((ref.commit ?? ref.object).hex(format)) }
             if ref.commit != nil { item("Show in Graph") { [weak self] in self?.showInGraph(row: row) } }
-            if ref.isAnnotatedTag {
-                item("Show Tag Message") { [weak self] in self?.showTagMessage(ref, row: row) }
+            item("Tag Details and Actions…") { [weak self] in self?.showTagDetails(ref, row: row) }
+            item("Push Tag…") { [weak self] in self?.showTagDetails(ref, row: row) }
+            if let operations {
+                item("Delete Local Tag…") { operations.deleteLocalTag(ref) }
             }
         default:
             if let operations {
@@ -508,7 +514,11 @@ extension NavigatorViewController {
             if let remote = operations.webRemoteURL, let url = WebLink.map(remoteURL: remote, target: .branch(branch)) {
                 add("Copy Link to Branch") { Pasteboard.copy(url.absoluteString) }
             }
-        case .tag, .other:
+        case .tag:
+            add("Tag Details and Actions…") { operations.manageTag(ref) }
+            add("Push Tag…") { operations.manageTag(ref) }
+            add("Delete Local Tag…") { operations.deleteLocalTag(ref) }
+        case .other:
             break
         }
         if let oid = ref.commit?.hex(operations.refs?.format ?? .sha1) {
@@ -591,6 +601,8 @@ final class NavigatorOutlineView: NSOutlineView {
 /// Glyph, name, and trailing tracking info.
 final class NavigatorCellView: NSTableCellView {
     private let icon = NSImageView()
+    private let addTag = NSButton()
+    private var createTag: (() -> Void)?
     private let title = NSTextField(labelWithString: "")
     private let badge = NSTextField(labelWithString: "")
     private let dot = NSView()
@@ -605,7 +617,13 @@ final class NavigatorCellView: NSTableCellView {
         pin.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)
         pin.contentTintColor = .tertiaryLabelColor
         pin.symbolConfiguration = .init(pointSize: 9, weight: .medium)
-        for view in [icon, title, badge, dot, pin] as [NSView] {
+        addTag.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Create tag at HEAD")
+        addTag.isBordered = false; addTag.target = self; addTag.action = #selector(addTagClicked)
+        addTag.toolTip = "Create Tag at HEAD…"
+        addTag.title = ""
+        addTag.imagePosition = .imageOnly
+        addTag.setAccessibilityLabel("Create tag at HEAD")
+        for view in [icon, title, badge, dot, pin, addTag] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -619,6 +637,10 @@ final class NavigatorCellView: NSTableCellView {
         dot.wantsLayer = true
         dot.layer?.cornerRadius = 3
         NSLayoutConstraint.activate([
+            addTag.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(Space.s4 + IconSize.md)),
+            addTag.centerYAnchor.constraint(equalTo: title.centerYAnchor),
+            addTag.widthAnchor.constraint(equalToConstant: IconSize.md + Space.s2),
+            addTag.heightAnchor.constraint(equalToConstant: IconSize.md + Space.s2),
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Space.s1),
             icon.centerYAnchor.constraint(equalTo: title.centerYAnchor),
             sectionOffset,
@@ -639,7 +661,12 @@ final class NavigatorCellView: NSTableCellView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    func configure(_ node: NavigatorNode, pinned: Bool) {
+    @objc private func addTagClicked() { createTag?() }
+
+    func configure(_ node: NavigatorNode, pinned: Bool, canCreateTag: Bool = true, createTag: (() -> Void)? = nil) {
+        self.createTag = createTag
+        addTag.isHidden = node.kind != .section(.tags)
+        addTag.isEnabled = canCreateTag
         title.font = GraphTypography.sidebar
         title.textColor = .labelColor
         badge.stringValue = ""
@@ -649,7 +676,7 @@ final class NavigatorCellView: NSTableCellView {
         icon.isHidden = false
         toolTip = nil
         if case .section = node.kind {
-            badgeTrailing.constant = -(Space.s4 + IconSize.md)
+            badgeTrailing.constant = -(Space.s4 + IconSize.md + (addTag.isHidden ? 0 : IconSize.md + Space.s4))
             sectionOffset.constant = NavigatorOutlineView.sectionGap / 2
         } else {
             badgeTrailing.constant = -Space.s4
@@ -691,8 +718,9 @@ final class NavigatorCellView: NSTableCellView {
             var spoken = ref.kind == .tag ? "Tag \(ref.shortName)" : "Branch \(ref.shortName)"
             switch ref.kind {
             case .tag:
+                spoken = "\(ref.isAnnotatedTag ? "Annotated" : "Lightweight") tag \(ref.shortName)"
                 icon.image = NSImage(
-                    systemSymbolName: ref.commit == nil ? "tag.slash" : "tag", accessibilityDescription: nil)
+                    systemSymbolName: ref.isAnnotatedTag ? "tag.fill" : "tag", accessibilityDescription: nil)
                 if ref.commit == nil {
                     badge.stringValue = "non-commit tag"
                     spoken += ", non-commit tag"
@@ -733,5 +761,14 @@ extension NavigatorNode.Section {
         case .tags: "tag"
         case .stashes: "tray.full"
         }
+    }
+}
+
+extension NavigatorViewController: NSPopoverDelegate {
+    func popoverDidClose(_ notification: Notification) {
+        guard let closed = notification.object as? NSPopover, closed === tagPopover else { return }
+        tagDetailsModel?.cancel(); tagDetailsModel = nil
+        closed.contentViewController = nil
+        tagPopover = nil
     }
 }

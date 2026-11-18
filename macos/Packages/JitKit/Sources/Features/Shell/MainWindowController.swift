@@ -666,6 +666,18 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         activeGraph?.createTagAtSelection()
     }
 
+    @objc public func createTagAtHead(_ sender: Any?) { activeOperations?.newTagAtHead() }
+
+    @objc public func createAnnotatedTagAtSelection(_ sender: Any?) {
+        guard !model.isBusy else { return }
+        activeGraph?.createTagAtSelection(annotated: true)
+    }
+
+    @objc public func manageSelectedTag(_ sender: Any?) {
+        guard let tag = activeGraph?.selectedTagRef else { return }
+        activeOperations?.manageTag(tag)
+    }
+
     @objc public func copySelectedTag(_ sender: Any?) { activeGraph?.copySelectedTag() }
     @objc public func pullWithMerge(_ sender: Any?) { activeOperations?.pull(.merge) }
     @objc public func pullWithRebase(_ sender: Any?) { activeOperations?.pull(.rebase) }
@@ -779,8 +791,11 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
             return false
         }
         switch menuItem.action {
-        case #selector(createTagAtSelection(_:)): return activeGraph?.selectedOID != nil
-        case #selector(copySelectedTag(_:)): return activeGraph?.hasSelectedTag == true
+        case #selector(createTagAtSelection(_:)), #selector(createAnnotatedTagAtSelection(_:)):
+            return activeGraph?.selectedOID != nil
+        case #selector(createTagAtHead(_:)): return activeOperations?.session.status?.branch.oid != nil
+        case #selector(copySelectedTag(_:)), #selector(manageSelectedTag(_:)):
+            return activeGraph?.hasSelectedTag == true
         case #selector(reopenClosedTab(_:)): return model.canReopenClosedTab
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)): return model.tabs.count > 1
         case #selector(moveTabLeft(_:)): return (model.activeIndex ?? 0) > 0

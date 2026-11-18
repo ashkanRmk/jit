@@ -5,7 +5,7 @@ extension RepositorySession {
     public func createTag(
         _ name: String, at commit: String, message: String?, context: ExecContext,
         expected: RepoStateToken?
-    ) async -> Result<Void, PresentableError> {
+    ) async -> Result<String, PresentableError> {
         await perform(
             "Create tag \(name)", refresh: [.refs], summarize: { _ in OperationSummary("Created tag \(name).") }
         ) {
@@ -14,9 +14,12 @@ extension RepositorySession {
         }
     }
 
-    public func pushTag(_ name: String, remote: String, context: ExecContext) async -> Result<Void, PresentableError> {
+    public func pushTag(
+        _ name: String, remote: String, object: String? = nil, expected: RepoStateToken? = nil, context: ExecContext
+    ) async -> Result<Void, PresentableError> {
         await perform("Push tag \(name)", summarize: { _ in OperationSummary("Pushed \(name) to \(remote).") }) {
-            handle, _ throws(GitCoreError) in try await handle.pushTag(name, remote: remote, context: context)
+            handle, _ throws(GitCoreError) in
+            try await handle.pushTag(name, remote: remote, object: object, expected: expected, context: context)
         }
     }
 

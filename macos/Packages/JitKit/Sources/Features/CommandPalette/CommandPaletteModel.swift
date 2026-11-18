@@ -139,7 +139,8 @@ final class CommandPaletteModel {
         guard let workbench = window?.activeWorkbench, let refs = workbench.graph?.history?.refs else { return }
         let operations = workbench.operations
         for (order, ref) in refs.refs.enumerated() where ref.kind != .other {
-            guard let commit = ref.commit else { continue }
+            let commit = ref.commit
+            guard commit != nil || ref.kind == .tag else { continue }
             let name = Self.shortName(ref)
             let isCurrent = refs.head.branchName == name && ref.kind == .local
             let symbol =
@@ -157,15 +158,20 @@ final class CommandPaletteModel {
                 case .other: "Ref"
                 }
             let upstream = ref.upstream.map { " · tracks \($0)" } ?? ""
-            let primary: @MainActor () -> Void = { [weak workbench] in workbench?.graph?.select(oid: commit) }
+            let primary: @MainActor () -> Void = { [weak workbench, weak operations] in
+                if let commit { workbench?.graph?.select(oid: commit) } else { operations?.manageTag(ref) }
+            }
             var secondary: (@MainActor () -> Void)?
-            if !isCurrent, ref.kind != .tag {
+            if ref.kind == .tag {
+                secondary = { [weak operations] in operations?.manageTag(ref) }
+            } else if !isCurrent {
                 secondary = { [weak operations] in operations?.checkout(ref: ref) }
             }
             let entry = PaletteEntry(
                 id: "ref:\(ref.fullName)", source: .ref, title: name, subtitle: kind + upstream, symbol: symbol,
                 shortcut: "", disabledReason: nil, primary: primary,
-                secondaryTitle: secondary == nil ? nil : "Check Out", secondary: secondary, keywords: ref.fullName)
+                secondaryTitle: secondary == nil ? nil : ref.kind == .tag ? "Tag Details…" : "Check Out",
+                secondary: secondary, keywords: ref.fullName)
             add(entry, order: order)
         }
     }

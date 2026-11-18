@@ -2,53 +2,68 @@ import Foundation
 
 extension RepositoryHandle {
     public nonisolated func validateTagName(_ name: String) async throws(GitCoreError) {
-        try Self.requireSafeName(name, what: "tag")
-        let output = try await gitEngine.run(
-            GitCommand(
-                ["check-ref-format", "refs/tags/\(name)"], in: workingDirectory, kind: .read,
-                acceptedExitCodes: [0, 1, 128]))
-        guard output.exitCode == 0 else { throw .refused(summary: "“\(name)” isn't a valid tag name.") }
+        try await requireValidTagRef(name)
         guard try await Self.readRef(engine: gitEngine, in: workingDirectory, "refs/tags/\(name)") == nil else {
             throw .refused(summary: "A tag named “\(name)” already exists.")
         }
     }
 
+    @discardableResult
     public func createTag(
         _ name: String, at commit: String, message: String?, context: ExecContext,
         expected: RepoStateToken?
-    ) async throws(GitCoreError) {
+    ) async throws(GitCoreError) -> String {
         try await validateTagName(name)
         try Self.requireObjectID(commit)
+        if let message {
+            guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !message.contains("\0"),
+                message.utf8.count <= 1024 * 1024
+            else {
+                throw .refused(summary: "Enter a nonempty tag message of at most 1 MiB without NUL characters.")
+            }
+        }
+        let resolved = try await runRead(
+            ["rev-parse", "--verify", "--end-of-options", commit + "^{commit}"], limit: 256)
+        let target = String(decoding: resolved, as: UTF8.self).trimmingCharacters(in: .newlines)
+        try Self.requireObjectID(target)
         let identity = try message.map { _ throws(GitCoreError) in try context.requireIdentity() }
         let (engine, directory, gitDirectory) = (gitEngine, workingDirectory, info.gitDirectory)
-        try await performExclusive("Create tag \(name)", invalidating: [.refs]) { () throws(GitCoreError) in
+        return try await performExclusive("Create tag \(name)", invalidating: [.refs]) {
+            () throws(GitCoreError) -> String in
             try await Self.ensureCurrent(expected, engine: engine, in: directory, gitDirectory: gitDirectory)
             var arguments = ["-c", "tag.gpgSign=false", "tag"]
-            if message != nil { arguments += ["-a", "-F", "-"] }
-            arguments += ["--", name, commit]
+            let file = try message.map { text throws(GitCoreError) in try Self.writeTagMessage(text) }
+            defer { if let file { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) } }
+            if let file { arguments += ["-a", "--cleanup=verbatim", "-F", file.path] }
+            arguments += ["--", name, target]
             _ = try await Self.runClassified(
                 GitEnvironment.integrationCommand(
-                    arguments, in: directory, identity: identity, use: .committerOnly,
-                    stdin: message.map { Array($0.utf8) }), engine: engine, gitDirectory: gitDirectory)
+                    arguments, in: directory, identity: identity, use: .committerOnly), engine: engine,
+                gitDirectory: gitDirectory)
+            guard let object = try await Self.readTagObject(name, engine: engine, in: directory) else {
+                throw .staleSnapshot(summary: "The created tag disappeared before its object could be recorded.")
+            }
+            return object
         }
     }
 
-    /// Push only this exact tag; never --tags or a branch-shaped refspec.
-    public func pushTag(_ name: String, remote: String, context: ExecContext) async throws(GitCoreError) {
-        try Self.requireSafeName(name, what: "tag")
-        try Self.requireSafeName(remote, what: "remote")
-        guard let info = try await remotes().first(where: { $0.name == remote }) else {
-            throw .refused(summary: "There's no remote named “\(remote)”.")
-        }
-        let (engine, directory, gitDirectory) = (gitEngine, workingDirectory, self.info.gitDirectory)
-        try await performExclusive("Push tag \(name)", invalidating: [.refs]) { () throws(GitCoreError) in
-            let lease = try await context.prepareAccess(for: info.pushURLs, purpose: .push)
-            defer { lease?.release() }
-            _ = try await Self.runClassified(
-                GitEnvironment.remoteCommand(
-                    ["push", "--porcelain", remote, "refs/tags/\(name):refs/tags/\(name)"],
-                    in: directory, context: context, access: lease?.access), engine: engine, gitDirectory: gitDirectory)
+    static func writeTagMessage(_ message: String) throws(GitCoreError) -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "jit-tag-message-" + UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            let file = directory.appendingPathComponent("message")
+            guard
+                FileManager.default.createFile(
+                    atPath: file.path, contents: Data(message.utf8), attributes: [.posixPermissions: 0o600])
+            else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            return file
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw .io(summary: "Couldn't write the private tag message file.")
         }
     }
-
 }

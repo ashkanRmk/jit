@@ -7,6 +7,8 @@ import Services
 enum OperationSheet: Identifiable {
     case confirm(ConfirmationRequest)
     case reset(commit: String, mode: ResetMode)
+    case tagDetails(GitRef)
+    case remoteTagDelete(name: String, remote: String)
     case error(PresentableError)
     case newTag(commit: String, label: String, annotated: Bool, remotes: [String], expected: RepoStateToken)
     case newBranch(start: String, label: String)
@@ -29,6 +31,8 @@ enum OperationSheet: Identifiable {
 
     var id: String {
         switch self {
+        case .tagDetails(let ref): "tag-details-\(ref.fullName)-\(ref.object)"
+        case .remoteTagDelete(let name, let remote): "delete-tag-\(remote)-\(name)"
         case .reset(let commit, let mode): "reset-\(mode.rawValue)-\(commit)"
         case .confirm(let request): "confirm-\(request.id)"
         case .error(let error): "error-\(error.title)"

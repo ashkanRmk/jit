@@ -69,6 +69,15 @@ func measure(
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 
+if arguments.first == "tag-details" {
+    guard arguments.count == 3 else {
+        print("usage: JitBench tag-details <fixture> <output-directory>")
+        exit(2)
+    }
+    try await TagBench.run(path: arguments[1], out: arguments[2])
+    exit(0)
+}
+
 if arguments.first == "reset-preview" {
     guard arguments.count == 3 else {
         print("usage: JitBench reset-preview <fixture> <output-directory>")

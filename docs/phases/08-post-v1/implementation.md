@@ -88,16 +88,18 @@ Implemented as Phase 4 milestones P4.15 (core) and P4.16 (UI); see that phase's 
 
 **P8.tags.1 — Create/delete/push**
 - Tasks:
-  - [ ] Name validation via `git check-ref-format "refs/tags/<name>"`.
-  - [ ] Lightweight + annotated create (message via 0600 temp file, tagger from profile snapshot env).
-  - [ ] Push one tag, delete local (record target), delete remote (destructive).
-- Tests: `tagAnnotatedUsesProfileIdentity`, `tagNameValidationRejectsInvalid`,
-  `tagDeleteLocalReturnsTarget`, `tagPushRejectedWhenRemoteDiffers` (local bare remote fixture).
+  - [x] Name validation via `git check-ref-format "refs/tags/<name>"`.
+  - [x] Lightweight + annotated create (message via 0600 temp file, tagger from profile snapshot env).
+  - [x] Push one exact tag object, delete local (record direct object and target), leased remote deletion.
+- Tests: `TagManagementTests` (14 real-repository tests, including parameterized cases).
 
 **P8.tags.2 — Tag UI**
-- Tasks: create sheet, sidebar tag rows with popover details, actions, palette entries.
-- Tests: UI `testCreateAnnotatedTagAndPush`; snapshots.
-- Done when: demo — create an annotated tag on an older commit, push to a local bare remote, delete it remotely.
+- Tasks:
+  - [x] Shared creation sheet with multiline annotations, identity and remembered push choice.
+  - [x] Distinct sidebar rows, on-demand popover/sheet details, exact-object actions and palette entries.
+- Tests: `TagFeatureTests` (4 tests), `TagSnapshotTests` (12 image cases), native workflow.
+- Completed locally/unreleased: create on an older commit, push to a bare remote, delete remotely with
+  the local copy intact, delete locally and restore the exact annotation. [Report](progress-tags.md), ADR-0062.
 
 ### Epic `rebase-interactive` — Interactive rebase
 

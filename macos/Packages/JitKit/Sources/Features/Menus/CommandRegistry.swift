@@ -266,6 +266,15 @@ public enum CommandRegistry {
                 "branch.createTag", "Create Tag at Selection…", .branch, #selector(W.createTagAtSelection(_:)),
                 key: "t", symbol: "tag"),
             C(
+                "branch.createTagAtHead", "Create Tag at HEAD…", .branch, #selector(W.createTagAtHead(_:)),
+                symbol: "tag", keywords: "tag release head"),
+            C(
+                "branch.createAnnotatedTag", "Create Annotated Tag at Selection…", .branch,
+                #selector(W.createAnnotatedTagAtSelection(_:)), symbol: "tag.fill", keywords: "tag message release"),
+            C(
+                "branch.manageTag", "Tag Details and Actions…", .branch, #selector(W.manageSelectedTag(_:)),
+                symbol: "tag", keywords: "push delete tag release"),
+            C(
                 "branch.copyTag", "Copy Selected Tag Name", .branch, #selector(W.copySelectedTag(_:)), key: "T",
                 symbol: "doc.on.doc"),
             // Repository

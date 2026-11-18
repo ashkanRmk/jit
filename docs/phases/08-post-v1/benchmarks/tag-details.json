@@ -1,0 +1,12 @@
+{
+  "benchmark" : "tag-details",
+  "git" : "\/Applications\/Xcode.app\/Contents\/Developer\/usr\/bin\/git 2.54.0 (Apple Git-157)",
+  "iterations" : 15,
+  "machine" : "Mac17,9",
+  "maxMilliseconds" : 25.892791,
+  "minMilliseconds" : 25.048167,
+  "osVersion" : "Version 27.2.1 (Build 26B131)",
+  "p50Milliseconds" : 25.449042,
+  "p90Milliseconds" : 25.766416,
+  "timestamp" : "2026-11-18T08:24:23Z"
+}

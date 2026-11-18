@@ -26,12 +26,17 @@ extension OperationsController {
         Task {
             switch await session.createTag(name, at: commit, message: message, context: context, expected: expected) {
             case .failure(let error): present(error)
-            case .success:
-                if let remote, case .failure(let error) = await session.pushTag(name, remote: remote, context: context)
+            case .success(let object):
+                if let remote,
+                    case .failure(let error) = await session.pushTag(
+                        name, remote: remote, object: object, context: context)
                 {
                     var error = error
                     error.title = "Tag “\(name)” Created — Push Failed"
                     error.explanation = "Tag “\(name)” was created locally. Pushing it failed.\n\n" + error.explanation
+                    if let detail = error.technicalDetail {
+                        error.technicalDetail = "The local tag was kept.\n\n" + detail
+                    }
                     present(error)
                 }
             }
@@ -41,19 +46,7 @@ extension OperationsController {
     func push(ref: GitRef) {
         guard !session.isBusy else { return }
         if ref.kind == .tag {
-            Task {
-                let remotes = ((try? await session.repository?.remotes()) ?? []).map(\.name)
-                guard let remote = remotes.first(where: { $0 == "origin" }) ?? remotes.first else {
-                    present(
-                        PresentableError(
-                            title: "No remote configured", explanation: "Add a remote before pushing this tag."))
-                    return
-                }
-                if case .failure(let error) = await session.pushTag(ref.shortName, remote: remote, context: execContext)
-                {
-                    present(error)
-                }
-            }
+            manageTag(ref)
         } else if ref.kind == .local {
             push(branch: ref.shortName)
         } else if ref.kind == .remote, let local = ref.remoteBranchName, let remote = ref.remoteName {
