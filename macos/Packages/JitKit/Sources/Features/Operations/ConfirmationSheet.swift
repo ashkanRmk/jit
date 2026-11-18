@@ -12,6 +12,7 @@ struct ConfirmationSheet: View {
     let cancel: () -> Void
     let confirm: () -> Void
     var extra: AnyView?
+    var isConfirmDisabled = false
     @State private var armed = false
 
     var body: some View {
@@ -72,7 +73,7 @@ struct ConfirmationSheet: View {
                 Button(role: .destructive, action: confirm) {
                     Text(request.verb).foregroundStyle(.token(.statusDanger))
                 }
-                .disabled(request.isHighRisk && !armed)
+                .disabled(isConfirmDisabled || request.isHighRisk && !armed)
                 .help(request.isHighRisk && !armed ? "Take a moment to read what will happen." : request.verb)
             }
             .controlSize(.large)

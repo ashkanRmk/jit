@@ -71,16 +71,16 @@ Implemented as Phase 4 milestones P4.15 (core) and P4.16 (UI); see that phase's 
 
 **P8.reset.1 — Preview + execution**
 - Tasks:
-  - [ ] `resetPreview` (files lost, unreachable commits count/subjects), `reset` for soft/mixed/keep/hard.
-  - [ ] "Stash first" chain in one writer job (abort reset if stash fails).
+  - [x] `resetPreview` (files lost, unreachable commits count/subjects), `reset` for soft/mixed/keep/hard.
+  - [x] "Stash first" chain in one writer job (abort reset if stash fails).
 - Tests: `resetSoftKeepsIndexAndWorktree`, `resetMixedUnstages`, `resetKeepAbortsOnConflictingChanges`,
   `resetHardPreviewListsLostFiles`, `resetHardLeavesUntrackedFiles`, `resetStashFirstChainAtomic`,
   `resetRejectsStaleRevision`.
 
 **P8.reset.2 — Reset UI**
 - Tasks:
-  - [ ] Graph context submenu with per-mode explanations; destructive sheet for hard.
-  - [ ] Recovery info line from the recorded `RecoveryPoint`.
+  - [x] Graph context submenu with per-mode explanations; destructive sheet for hard.
+  - [x] Recovery info line from the recorded `RecoveryPoint`.
 - Tests: UI `testHardResetSheetListsFilesAndOffersStash`; snapshots.
 - Done when: demo — hard reset with "Stash first", then recover the commits from reflog.
 

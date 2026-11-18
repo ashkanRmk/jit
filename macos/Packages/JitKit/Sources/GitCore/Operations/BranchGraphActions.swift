@@ -96,19 +96,4 @@ extension RepositoryHandle {
         }
     }
 
-    public func reset(to commit: String, mode: String, token: ConfirmationToken, expected: RepoStateToken)
-        async throws(GitCoreError)
-    {
-        try Self.requireObjectID(commit)
-        guard ["soft", "mixed", "hard"].contains(mode) else { throw .refused(summary: "Unknown reset mode.") }
-        try token.verify(.reset(commit: commit, mode: mode))
-        let (engine, directory, gitDirectory) = (gitEngine, workingDirectory, info.gitDirectory)
-        try await performExclusive("Reset \(mode)", invalidating: Set(InvalidationKind.allCases)) {
-            () throws(GitCoreError) in
-            try await Self.ensureCurrent(expected, engine: engine, in: directory, gitDirectory: gitDirectory)
-            _ = try await Self.runClassified(
-                GitCommand(["reset", "--\(mode)", commit, "--"], in: directory, kind: .write),
-                engine: engine, gitDirectory: gitDirectory)
-        }
-    }
 }

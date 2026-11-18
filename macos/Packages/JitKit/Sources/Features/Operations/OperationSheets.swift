@@ -19,6 +19,8 @@ struct OperationSheetsHost: View {
 
     @ViewBuilder private func content(_ sheet: OperationSheet) -> some View {
         switch sheet {
+        case .reset(let commit, let mode):
+            ResetSheet(controller: controller, commit: commit, mode: mode)
         case .confirm(let request):
             ConfirmationSheet(request: request, cancel: controller.cancelSheet) { controller.confirmed(request) }
         case .error(let error):

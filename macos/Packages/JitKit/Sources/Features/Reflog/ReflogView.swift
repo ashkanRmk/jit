@@ -234,6 +234,7 @@ struct ReflogView: View {
     @ViewBuilder private func resetActions(at commit: String) -> some View {
         Button("Soft — Keep Index and Files…") { operations.confirmReset(to: commit, mode: "soft") }
         Button("Mixed — Keep Files…") { operations.confirmReset(to: commit, mode: "mixed") }
+        Button("Keep — Preserve Local Changes…") { operations.confirmReset(to: commit, mode: "keep") }
         Button("Hard — Discard Tracked Changes…") { operations.confirmReset(to: commit, mode: "hard") }
     }
 }

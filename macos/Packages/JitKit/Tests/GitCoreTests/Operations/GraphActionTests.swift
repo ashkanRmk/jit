@@ -141,17 +141,18 @@ import Testing
         let (_, repo, handle) = try await Ops.single()
         let first = try await repo.git("rev-parse", "HEAD")
         try await repo.commit("Second")
-        let expected = try await handle.captureState()
-        let wrong = confirmation(.reset(commit: first, mode: "soft"))
+        let preview = try await handle.resetPreview(to: first, mode: .soft)
+        let hard = try await handle.resetPreview(to: first, mode: .hard)
+        let wrong = confirmation(preview.confirmationAction(stashFirst: false))
         let before = try await RepoFingerprint.capture(repo)
         await #expect(throws: GitCoreError.self) {
-            try await handle.reset(to: first, mode: "hard", token: wrong, expected: expected)
+            _ = try await handle.reset(hard, token: wrong)
         }
         #expect(try await RepoFingerprint.capture(repo) == before)
-        try await handle.reset(to: first, mode: "soft", token: wrong, expected: expected)
+        _ = try await handle.reset(preview, token: wrong)
         #expect(try await repo.git("rev-parse", "HEAD") == first)
         await #expect(throws: GitCoreError.self) {
-            try await handle.reset(to: first, mode: "soft", token: wrong, expected: expected)
+            _ = try await handle.reset(preview, token: wrong)
         }
     }
 

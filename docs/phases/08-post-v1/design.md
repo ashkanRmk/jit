@@ -115,7 +115,7 @@ Stashing selected hunks (via the patch builder) stays here, in the `patches` epi
 - Each mode has a one-line plain-language explanation in the menu and sheet:
   Soft — "move branch, keep changes staged"; Mixed — "move branch, keep changes unstaged";
   Keep — "move branch, keep local changes, abort if they conflict" (`--keep`); Hard — "move branch and
-  discard all uncommitted changes".
+  discard tracked local changes".
 - **Hard reset sheet:** lists uncommitted files that will be lost (from status), commits that become
   unreachable (count + first 5 subjects), states "Commits recoverable via Reflog; uncommitted changes
   are not recoverable", and offers **Stash changes first** (default-on checkbox when `stash` exists).
@@ -293,8 +293,8 @@ extension Repository {
     func findUnreachable(progress: ProgressSink) async throws(GitError) -> [DanglingCommit]
 
     // reset
-    func resetPreview(to target: ObjectID, mode: ResetMode) async throws(GitError) -> ResetPreview // files lost, commits unreachable
-    func reset(to target: ObjectID, mode: ResetMode, at rev: RepoRevision) async throws(GitError) -> RecoveryPoint
+    func resetPreview(to target: String, mode: ResetMode) async throws(GitCoreError) -> ResetPreview
+    func reset(_ preview: ResetPreview, stashFirst: Bool, token: ConfirmationToken, context: ExecContext) async throws(GitCoreError) -> ResetOutcome
 
     // interactive rebase
     func rebasePlan(base: ObjectID, headRef: String) async throws(GitError) -> RebasePlan // commits + published flags + unsupported reasons
@@ -323,9 +323,12 @@ file stamp and repository state. Check page reachability only, including detache
 all-HEAD-ancestors case using `merge-base --independent`, otherwise run exact ancestor/ref-containment
 checks with at most four in flight. Fsck is an explicit cancellable read, never a background scan.
 
-**Reset.** `git reset --soft|--mixed|--keep|--hard <oid>`; preview combines `status` (files lost) and
-`git rev-list --count <HEAD> ^<target>` + `--max-count=5` subjects. "Stash first" chains `StashPush`
-then `Reset` inside one serialized writer job, aborting the reset if the stash fails.
+**Reset.** Implemented by ADR-0061: typed modes, an immutable preview/confirmation ID, full state and
+changed-content validation, and `--no-recurse-submodules`. Preview distinguishes removed commits,
+commits losing reachability from target/all other refs, and remote-tracking history. Hard/keep refuse
+local obstructions and hidden index flags. Stash-first includes untracked files and runs in the same
+writer as reset; stash failure prevents reset, subsequent failure retains and names the stash. Recovery
+uses the existing previous-HEAD journal, Reflog branch creation and Stashes.
 
 **Tags.** `git tag [-a -m <msg>] [-s|-u <key>] -- <name> <oid>` (message via `-F <tmpfile>` with 0600
 permissions). Annotated tagger identity from the profile snapshot via `GIT_COMMITTER_NAME/EMAIL` env.
@@ -438,7 +441,7 @@ Locks: `git lfs locks --json`, `lock`, `unlock` with credentials from the P5 hel
 | Stash | `stash@{n}` index shifted by an external stash | Drop/apply validates OID, returns `StaleState`, list refreshes. |
 | Stash | Pop conflicts | Stash retained; resolver opens; message says the stash was kept. |
 | Stash | Untracked file collides on apply | Git refuses; error explains which file and offers "Apply to a new branch" (`stash branch`). |
-| Reset | Hard reset with untracked files | Untracked files are **not** removed by reset; sheet says so (no `clean` implied). |
+| Reset | Hard reset with untracked files | Ordinary untracked files remain; untracked/ignored/directory obstructions are refused. Stash-first explicitly includes untracked files. |
 | Reset | `--keep` aborts due to conflicting local changes | Clear error listing the files; nothing changed. |
 | Rebase | Range contains a merge | Disabled with "contains merge commits; preserving merges is not supported yet". |
 | Rebase | Commits already pushed | Rewrite banner; completing requires force-with-lease to publish. |

@@ -48,14 +48,24 @@ extension RepositorySession {
         }
     }
 
-    public func reset(to commit: String, mode: String, token: ConfirmationToken, expected: RepoStateToken) async
-        -> Result<Void, PresentableError>
+    public func reset(_ preview: ResetPreview, stashFirst: Bool, token: ConfirmationToken, context: ExecContext) async
+        -> Result<ResetOutcome, PresentableError>
     {
-        await perform("Reset \(mode)", summarize: { _ in OperationSummary("Reset to \(commit.prefix(7)).") }) {
-            handle, _ throws(GitCoreError) in
-            try await handle.reset(to: commit, mode: mode, token: token, expected: expected)
+        await perform(
+            "Reset \(preview.mode.rawValue)",
+            summarize: { outcome in
+                var message =
+                    "Reset to \(outcome.commit.prefix(12)). Previous HEAD: \(outcome.previousHead). Recover committed history from Reflog."
+                if let stash = outcome.stashOID {
+                    message += " Saved changes: \(stash). Restore from Stashes on the recovered branch."
+                }
+                return OperationSummary(message)
+            }
+        ) { handle, _ throws(GitCoreError) in
+            try await handle.reset(preview, stashFirst: stashFirst, token: token, context: context)
         }
     }
+
 }
 
 extension RepositorySession {

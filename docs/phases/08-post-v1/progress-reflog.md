@@ -110,5 +110,5 @@ bundled 2.56.0 runtime was verified separately by integration tests.
 
 ## Next
 
-Finish the reset epic's missing previews, keep mode and
-stash-first chain. Basic soft/mixed/hard reset actions already exist; do not reimplement them.
+Reset previews, keep mode and stash-first recovery were completed locally on 2026-11-18
+([report](progress-reset.md)). Continue with remaining tag management.

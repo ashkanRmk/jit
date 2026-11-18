@@ -6,6 +6,7 @@ import Services
 /// A sheet the repository's operations present (design §3.2–§3.7). One at a time, window-modal.
 enum OperationSheet: Identifiable {
     case confirm(ConfirmationRequest)
+    case reset(commit: String, mode: ResetMode)
     case error(PresentableError)
     case newTag(commit: String, label: String, annotated: Bool, remotes: [String], expected: RepoStateToken)
     case newBranch(start: String, label: String)
@@ -28,6 +29,7 @@ enum OperationSheet: Identifiable {
 
     var id: String {
         switch self {
+        case .reset(let commit, let mode): "reset-\(mode.rawValue)-\(commit)"
         case .confirm(let request): "confirm-\(request.id)"
         case .error(let error): "error-\(error.title)"
         case .newTag(let commit, _, _, _, _): "tag-\(commit)"

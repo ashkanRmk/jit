@@ -100,7 +100,8 @@ extension OperationsController {
             title: "Reset \(currentBranch ?? "HEAD") to This Commit", action: nil, keyEquivalent: "")
         let menu = NSMenu()
         for (mode, title) in [
-            ("soft", "Soft — Keep Index and Files"), ("mixed", "Mixed — Keep Files"),
+            ("soft", "Soft — Keep Index and Files…"), ("mixed", "Mixed — Keep Files…"),
+            ("keep", "Keep — Preserve Local Changes…"),
             ("hard", "Hard — Discard Tracked Changes…"),
         ] {
             menu.addItem(ClosureMenuItem(title: title) { [weak self] in self?.confirmReset(to: commit, mode: mode) })
@@ -110,32 +111,8 @@ extension OperationsController {
     }
 
     func confirmReset(to commit: String, mode: String) {
-        guard !session.isBusy else { return }
-        Task { [self] in
-            guard let expected = await session.captureState() else { return }
-            let request = ConfirmationRequest(
-                action: .reset(commit: commit, mode: mode),
-                title: "Reset \(currentBranch ?? "HEAD") to \(commit.prefix(7))?", context: contextLine,
-                changes: "Move the current branch to this commit (\(mode) reset).",
-                losses: mode == "hard"
-                    ? [
-                        "Uncommitted changes to tracked files will be discarded.",
-                        "Untracked files or folders blocking tracked paths may also be removed.",
-                    ] : [],
-                recoverability:
-                    "Committed history can be recovered using the old HEAD. Uncommitted changes discarded by a hard reset cannot be recovered by Git.",
-                recoveryValue: expected.head, verb: "Reset", isHighRisk: mode == "hard")
-            confirm(request) { [weak self] token in
-                guard let self = self else { return }
-                Task {
-                    if case .failure(let error) = await self.session.reset(
-                        to: commit, mode: mode, token: token, expected: expected)
-                    {
-                        self.present(error)
-                    }
-                }
-            }
-        }
+        guard !session.isBusy, let mode = ResetMode(rawValue: mode) else { return }
+        sheet = .reset(commit: commit, mode: mode)
     }
 
     func createWorktree(at commit: String) {

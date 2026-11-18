@@ -114,12 +114,12 @@ import Testing
         let point = try #require(await handle.recoveryPoints.first { $0.refName == "refs/heads/main" })
         #expect(point.oldOID == initial)
         #expect(point.newOID == outcome.commitID)
-        let state = try await handle.captureState()
+        let preview = try await handle.resetPreview(to: initial, mode: .soft)
         let token = ConfirmationRequest(
-            action: .reset(commit: initial, mode: "soft"), title: "Reset", context: "test",
+            action: preview.confirmationAction(stashFirst: false), title: "Reset", context: "test",
             changes: "Move HEAD", recoverability: "Reflog", verb: "Reset"
         ).confirm()
-        try await handle.reset(to: initial, mode: "soft", token: token, expected: state)
+        _ = try await handle.reset(preview, token: token)
         #expect(await handle.recoveryPoints.first?.oldOID == outcome.commitID)
     }
 
