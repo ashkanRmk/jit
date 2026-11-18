@@ -193,6 +193,41 @@ import Testing
         #expect(ChildProcessMath.roundedUp(.milliseconds(15_001)) == 16)
     }
 
+    @Test func cancellationDuringQueuedLaunchReapsEveryStartedChild() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("jit-launch-cancel-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tasks = (0..<64).map { index in
+            Task {
+                try await runner.run(
+                    spec(
+                        "/bin/sh",
+                        [
+                            "-c", "echo $$ > \"$1\"; exec /bin/sleep 30", "fixture",
+                            directory.appendingPathComponent("\(index).pid").path,
+                        ]))
+            }
+        }
+        defer { for task in tasks { task.cancel() } }
+        _ = try await readPID(directory.appendingPathComponent("0.pid").path)
+        for task in tasks { task.cancel() }
+        for task in tasks {
+            do {
+                _ = try await task.value
+                Issue.record("Cancelled child unexpectedly completed")
+            } catch let error as GitCoreError { #expect(error == .cancelled) }
+        }
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        #expect(!files.isEmpty)
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let pid = pid_t(text) {
+                #expect(await waitUntilGone(pid))
+                #expect(!processGroupHasMembers(pid))
+            }
+        }
+    }
+
     @Test func noThreadBlockedWhileWaiting() async throws {
         func threadCount() -> Int {
             var threads: thread_act_array_t?
