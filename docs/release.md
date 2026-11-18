@@ -3,7 +3,8 @@
 Status (1.0.0, 2026-11-10): **distributed free as an ad-hoc-signed, non-notarized DMG** (owner decision,
 ADR-0049 addendum). The Developer ID path (steps 07–08) is implemented but unused; clean-VM acceptance pending. See
 [`phases/07-packaging-and-release/progress.md`](phases/07-packaging-and-release/progress.md).
-Current version: **0.0.8**, a test build ([`releases/v0.0.8.md`](releases/v0.0.8.md); earlier:
+Current version: **0.0.9**, a test build ([`releases/v0.0.9.md`](releases/v0.0.9.md); earlier:
+[`0.0.8`](releases/v0.0.8.md),
 [`0.0.7`](releases/v0.0.7.md),
 [`0.0.6`](releases/v0.0.6.md),
 [`0.0.5`](releases/v0.0.5.md),
@@ -60,11 +61,11 @@ All outputs are in `build/release/<version>/` (git-ignored). dSYMs stay there, p
 2. Assets in `build/release/X.Y.Z/publish/`: the DMG, `Jit-X.Y.Z.dmg.sha256`, `SHA256SUMS`,
    `git-<v>.tar.xz`, `jit-git-build-scripts-X.Y.Z.tar.gz` (GPLv2 corresponding source for the bundled Git).
 3. Notes from `docs/releases/vX.Y.Z.md` (first-launch steps and the DMG SHA-256 must be in them).
-4. With the owner's approval: tag `vX.Y.Z` on the build commit, `gh release create` with the notes and assets.
+4. With the owner's approval: tag `X.Y.Z` on the build commit, `gh release create` with the notes and assets.
    The repository (or a releases repository) must be public for users to download.
 
 ### Publishing (owner approval required)
-Tag `vX.Y.Z` on the release commit. Attach to the GitHub Release: the DMG, its SHA-256, and the GPLv2
+Tag `X.Y.Z` on the release commit. Attach to the GitHub Release: the DMG, its SHA-256, and the GPLv2
 corresponding source for Git (`build/git-src/git-<v>.tar.xz`, `scripts/build/build-git.sh`,
 `scripts/build/git-version.env`). Release notes must call out security fixes. Nothing is uploaded by the scripts.
 

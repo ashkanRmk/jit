@@ -9,7 +9,7 @@ A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + A
 Glass design, driving the Git CLI. No Electron, web views, background daemons or telemetry.
 
 **[Website](https://ashkanrmk.github.io/jit/)** · **[Download the latest test build](https://github.com/ashkanRmk/jit/releases)**
-(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.0.8.md)
+(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.0.9.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/graph-dark.webp">
@@ -24,8 +24,9 @@ Screenshots follow your GitHub light/dark appearance. They are real captures of 
 
 ## Status
 
-**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.8, a test build with
-reset previews, keep mode and stash-first recovery ([notes](docs/releases/v0.0.8.md)).**
+**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.9, a test build with
+tag management, precise graph sizing, safe local branch cleanup and sharp workspace zoom
+([notes](docs/releases/v0.0.9.md)).**
 
 | Phase | State | Report |
 |---|---|---|
@@ -37,18 +38,30 @@ reset previews, keep mode and stash-first recovery ([notes](docs/releases/v0.0.8
 | 5 Profiles & providers | done | [progress](docs/phases/05-profiles-and-providers/progress.md) |
 | 6 Polish & performance | done, with carry-overs | [progress](docs/phases/06-polish-and-performance/progress.md) |
 | 7 Packaging & release | done, with carry-overs | [progress](docs/phases/07-packaging-and-release/progress.md) |
-| 8 Post-V1 epics | reflog/recovery and reset implemented; others planned | [design](docs/phases/08-post-v1/design.md) |
+| 8 Post-V1 epics | reflog/recovery, reset, tags and workspace sizing implemented; others planned | [design](docs/phases/08-post-v1/design.md) |
 
 Builds are **ad-hoc signed and not notarized** (owner decision 2026-11-10: free distribution, no paid
 Apple Developer Program; ADR-0049). Developer ID signing and notarization are scripted but have never been run.
-Verification details and release checks are recorded in the [0.0.8 notes](docs/releases/v0.0.8.md)
-and [reset report](docs/phases/08-post-v1/progress-reset.md).
+Verification details and release checks are recorded in the [0.0.9 notes](docs/releases/v0.0.9.md)
+and [workspace report](docs/phases/08-post-v1/progress-workspace-sizing.md).
 
 ## What Jit does (V1)
 - **Repository tabs** — one window, tabs restored on relaunch (only the active tab loads), new-tab page with
   recents, live status from FSEvents while visible, no polling.
 - **Commit graph** — virtualized graph for large histories, branch navigator, commit details, search and
-  filter, file history, compare two commits.
+  filter, file history, compare two commits. Drag column edges to choose exact widths; long branch names
+  truncate instead of changing your chosen width. Column widths persist across tabs and relaunches.
+- **Branch cleanup** — Fetch prunes deleted remote-tracking branches. Refresh a remote with the arrow
+  beside its name. Local branches without a known remote counterpart have a trash button; deletion always
+  asks for confirmation. The trash button beside **Local** or **Remote** opens bulk cleanup: all remotes
+  are refreshed and checked before the confirmation lists merged local branches to remove. Checked-out
+  branches (including other worktrees) and unmerged branches are kept; individual deletion can review
+  unmerged commits separately.
+- **Workspace zoom** — **View ▸ Zoom In / Zoom Out** scales graph, sidebar, inspector, working directory,
+  diff, fonts and controls together, from 75% to 150%. Use **⌘+** (or **⌘=**), **⌘−**, and **⌘0** for actual
+  size. The zoom level is remembered. Smaller windows scroll the workspace when needed to keep panels
+  usable; text and SF Symbols render at the selected font size to stay sharp. macOS window chrome and menus
+  retain their system size. Code-only text sizing remains in View.
 - **Working directory & diff** — native unified/split diff with syntax highlighting and word diff;
   stage, unstage and discard by file, hunk or line; blame; commit and amend with the profile's identity.
 - **Everyday workflows** — fetch, pull (fast-forward only by default), push (force-with-lease only, never plain
@@ -93,12 +106,24 @@ state into a branch or through a confirmed reset. Available from Repository ▸ 
 preview soft/mixed/keep/hard resets, protect local paths, and save local changes in a recovery stash
 before hard reset. Recover previous history through Reflog and restore the saved stash.
 
-**Tag management (local/unreleased)** — [Feature report](docs/phases/08-post-v1/progress-tags.md):
+**Tag management (0.0.9)** — [Feature report](docs/phases/08-post-v1/progress-tags.md):
 create lightweight or annotated tags, inspect exact objects and messages, push one tag, delete locally
 with recovery metadata, or delete a remote tag under an exact object lease while keeping the local copy.
 
+**Workspace sizing and branch cleanup (0.0.9)** — [Implementation and verification](docs/phases/08-post-v1/progress-workspace-sizing.md):
+exact graph column widths, pruning fetches, confirmed local branch cleanup, and persisted workspace zoom.
+
 **Remaining Phase 8 work** — interactive rebase, commit surgery, history filters, worktree management, patch workflows, advanced remotes, branch
 history manipulation, signing, submodules and LFS. Basic reset/tag/worktree/export actions already exist.
+
+### Why origin can show a deleted branch
+
+The **Remote ▸ origin** list shows Git's local remote-tracking refs, which are a cache of the last fetch.
+Deleting a branch on the server does not remove that cache until a pruning fetch succeeds. Use the
+refresh arrow beside **origin**, **Fetch**, or **Fetch All Remotes** to refresh and prune it. Jit does not
+contact remotes automatically when opening a repository. Offline or failed fetches leave the last known
+list in place. Bulk local cleanup verifies live heads on every remote, including branches outside a narrow
+fetch refspec; a failed remote check stops cleanup.
 
 ## Install
 - **System requirements:** macOS 26 or later on Apple silicon (arm64; ADR-0049). Nothing else: Jit bundles Git
