@@ -45,5 +45,4 @@ fi
 echo "  Validation  $OUT/validation.txt ($(tail -1 "$OUT/validation.txt"))"
 echo "  Took        $((SECONDS - start)) s"
 echo
-echo "Next: tag $JIT_VERSION, push, create the GitHub Release (DMG + .sha256), then update the website —"
-echo "      mandatory after every release: scripts/site/publish.sh --version $JIT_VERSION"
+echo "Next: sign the final DMG offline, then run scripts/release/10-prepare-publish.sh. See docs/release.md."

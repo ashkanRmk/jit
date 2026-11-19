@@ -53,17 +53,18 @@ public struct AppRelease: Codable, Sendable, Identifiable, Equatable {
     public let isPrerelease: Bool
     /// The release's page on GitHub (built by Jit from the tag, not taken from the feed).
     public let pageURL: URL
-    /// `Jit-<version>.dmg` and its `.sha256`; both are needed for Jit to install the release itself.
+    /// The image, its manifest and its detached signature must all be present for an in-app install.
     public let diskImageURL: URL?
-    public let checksumURL: URL?
+    public let manifestURL: URL?
+    public let signatureURL: URL?
 
     public var id: String { version }
     public var parsedVersion: AppVersion? { AppVersion(version) }
-    public var isInstallable: Bool { diskImageURL != nil && checksumURL != nil }
+    public var isInstallable: Bool { diskImageURL != nil && manifestURL != nil && signatureURL != nil }
 
     public init(
         version: String, title: String, notes: String, publishedAt: Date?, isPrerelease: Bool, pageURL: URL,
-        diskImageURL: URL?, checksumURL: URL?
+        diskImageURL: URL?, manifestURL: URL?, signatureURL: URL?
     ) {
         self.version = version
         self.title = title
@@ -72,7 +73,8 @@ public struct AppRelease: Codable, Sendable, Identifiable, Equatable {
         self.isPrerelease = isPrerelease
         self.pageURL = pageURL
         self.diskImageURL = diskImageURL
-        self.checksumURL = checksumURL
+        self.manifestURL = manifestURL
+        self.signatureURL = signatureURL
     }
 }
 
@@ -101,9 +103,8 @@ public enum ReleaseFeed {
         private static func url(_ text: String) -> URL { URL(string: text) ?? URL(fileURLWithPath: "/") }
 
         /// Only this repository's own release downloads, over HTTPS, are ever fetched.
-        func isAssetURL(_ url: URL) -> Bool {
-            url.scheme == "https" && url.host == "github.com" && url.user == nil && url.port == nil
-                && url.path.hasPrefix("/\(owner)/\(name)/releases/download/") && !url.path.contains("..")
+        func isAssetURL(_ url: URL, tag: String, name: String) -> Bool {
+            url.absoluteString == "https://github.com/\(owner)/\(self.name)/releases/download/\(tag)/\(name)"
         }
     }
 
@@ -143,13 +144,14 @@ public enum ReleaseFeed {
         guard let entries = try? decoder.decode([Entry].self, from: data) else { throw UpdateError.unreadableFeed }
         var releases: [(AppVersion, AppRelease)] = []
         for entry in entries where entry.draft != true {
-            guard let version = AppVersion(entry.tagName), !releases.contains(where: { $0.0 == version }) else {
+            let tag = entry.tagName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let version = AppVersion(tag), !releases.contains(where: { $0.0 == version }) else {
                 continue
             }
             let imageName = "Jit-\(version).dmg"
             func asset(_ name: String) -> URL? {
                 guard let asset = entry.assets?.first(where: { $0.name == name }),
-                    let url = URL(string: asset.downloadURL), repository.isAssetURL(url)
+                    let url = URL(string: asset.downloadURL), repository.isAssetURL(url, tag: tag, name: name)
                 else { return nil }
                 return url
             }
@@ -161,8 +163,8 @@ public enum ReleaseFeed {
                         version: version.description, title: title.isEmpty ? "Jit \(version)" : title,
                         notes: String((entry.body ?? "").prefix(60_000)), publishedAt: entry.publishedAt,
                         isPrerelease: entry.prerelease ?? false,
-                        pageURL: repository.pageURL(tag: entry.tagName.trimmingCharacters(in: .whitespaces)),
-                        diskImageURL: asset(imageName), checksumURL: asset(imageName + ".sha256"))
+                        pageURL: repository.pageURL(tag: tag), diskImageURL: asset(imageName),
+                        manifestURL: asset(imageName + ".manifest"), signatureURL: asset(imageName + ".manifest.sig"))
                 ))
         }
         return releases.sorted { $0.0 > $1.0 }.map(\.1)
@@ -231,10 +233,19 @@ public enum UpdateError: Error, Equatable, Sendable {
     case cannotUpdateThisBuild
     case translocated
     case cannotReplace(String)
+    case invalidUpdateSignature
+    case invalidUpdateManifest
     case checksumMismatch
     case unreadableDiskImage
     case wrongApplication(String)
     case tooLarge
+
+    var isVerificationFailure: Bool {
+        switch self {
+        case .invalidUpdateSignature, .invalidUpdateManifest, .checksumMismatch, .wrongApplication: true
+        default: false
+        }
+    }
 
     public var message: String {
         switch self {
@@ -251,7 +262,9 @@ public enum UpdateError: Error, Equatable, Sendable {
             "Jit is running from a temporary, read-only location. Move it to the Applications folder, open it again, then update."
         case .cannotReplace(let folder):
             "Jit can't replace itself in “\(folder)”. Move Jit to a folder you can change, or get the new version from the release page."
-        case .checksumMismatch: "The download didn't match its published checksum and was thrown away."
+        case .invalidUpdateSignature: "Jit couldn't verify the update's signature. The update was rejected."
+        case .invalidUpdateManifest: "The signed manifest doesn't match this release. The update was rejected."
+        case .checksumMismatch: "The download didn't match its signed checksum. The update was rejected."
         case .unreadableDiskImage: "The downloaded disk image couldn't be opened."
         case .wrongApplication(let reason): "The download was not installed: \(reason)."
         case .tooLarge: "The download was larger than expected and was thrown away."

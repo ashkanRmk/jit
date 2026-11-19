@@ -61,6 +61,10 @@ Open the bell icon in Jit to read **What's New**. The changelog refreshes when i
 missing or a day old. To check immediately, choose **Check for Updates**. When an update is available,
 choose **Install and Restart**. You can enable automatic updates in **Settings → General**.
 
+To upgrade from **0.1.2 or earlier**, install **0.1.3 or newer** from the release DMG.
+Jit verifies the release signature and the disk image before installing future updates. See the
+[release guide](docs/release.md#publishing-owner-approval-required) for verifying the manual download.
+
 ## License
 
 Jit is free and open source under the [MIT License](LICENSE).

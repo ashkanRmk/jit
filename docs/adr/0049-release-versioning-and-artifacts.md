@@ -33,3 +33,6 @@ for Keychain access because ad-hoc builds have no stable signing identity; the b
 is knowingly not met. The Developer ID steps (07–08) stay in the pipeline for a later switch.
 Release assets: DMG, `.sha256`, `SHA256SUMS`, `git-<v>.tar.xz`, `jit-git-build-scripts-<v>.tar.gz`
 (prepared in `build/release/<v>/publish/`), notes in `docs/releases/v<v>.md`.
+
+Starting at 0.1.3, [ADR-0051](0051-updates-from-github-releases.md) replaces the standalone
+`.dmg.sha256` asset with `.dmg.manifest` and `.dmg.manifest.sig`. `SHA256SUMS` remains available.

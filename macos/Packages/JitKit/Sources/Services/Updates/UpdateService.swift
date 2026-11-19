@@ -36,6 +36,7 @@ public final class UpdateService {
         case downloading(AppRelease)
         /// Downloaded and verified: installed when Jit quits or restarts.
         case ready(AppRelease)
+        case rejected(String)
         case failed(String)
     }
 
@@ -84,7 +85,7 @@ public final class UpdateService {
     /// Whether the bell shows its badge.
     public var hasUpdate: Bool {
         switch phase {
-        case .available, .downloading, .ready: true
+        case .available, .downloading, .ready, .rejected: true
         case .idle, .checking, .upToDate, .failed: false
         }
     }
@@ -207,6 +208,8 @@ public final class UpdateService {
             staged = try await installer.stage(release)
             phase = .ready(release)
             if relaunchWhenReady { relaunch?() }
+        } catch let error as UpdateError where error.isVerificationFailure {
+            phase = .rejected(error.message)
         } catch {
             phase = userInitiated ? .failed(Self.message(error)) : .available(release)
         }
@@ -235,7 +238,7 @@ public final class UpdateService {
     // MARK: - Cache
 
     private struct Cache: Codable {
-        static let currentVersion = 1
+        static let currentVersion = 2
         var version = Cache.currentVersion
         let lastChecked: Date?
         let releases: [AppRelease]

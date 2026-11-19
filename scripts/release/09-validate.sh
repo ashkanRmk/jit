@@ -5,6 +5,7 @@
 # are recorded as expected rejections, and the release is reported as NOT distributable.
 source "$(dirname "$0")/lib.sh"
 step "09 validate"
+require_update_public_key
 [[ -f "$DMG" ]] || die "run 06-create-dmg.sh first"
 REPORT="$OUT/validation.txt"
 failures=0
@@ -12,6 +13,7 @@ failures=0
     echo "Jit $JIT_VERSION ($JIT_BUILD) release validation — $(date -u '+%Y-%m-%d %H:%M:%SZ')"
     echo "Artifact: $(basename "$DMG")"
     echo "SHA-256:  $(shasum -a 256 "$DMG" | awk '{print $1}')"
+    echo "Update public key: $JIT_UPDATE_PUBLIC_KEY"
     echo "Size:     $(du -h "$DMG" | cut -f1)"
     echo "Mode:     $(is_adhoc && echo 'ad-hoc (NOT distributable: not Developer ID signed, not notarized)' || echo "Developer ID: $JIT_SIGN_IDENTITY")"
     echo
@@ -34,6 +36,9 @@ MNT="$(mktemp -d "${TMPDIR:-/tmp}/jit-validate.XXXXXX")"
 hdiutil attach -quiet -readonly -nobrowse -noautoopen -mountpoint "$MNT" "$DMG"
 trap 'hdiutil detach -quiet "$MNT" 2>/dev/null || true; rmdir "$MNT" 2>/dev/null || true' EXIT
 INNER="$MNT/Jit.app"
+record "App inside DMG pins the configured update key" pass test \
+    "$(/usr/libexec/PlistBuddy -c 'Print :JitUpdatePublicKey' "$INNER/Contents/Info.plist" 2>/dev/null || true)" \
+    = "$JIT_UPDATE_PUBLIC_KEY"
 record "App inside DMG: strict deep signature" pass codesign --verify --strict --deep --verbose=2 "$INNER"
 record "Gatekeeper: app inside DMG (execute)" "$G" spctl --assess --type execute --verbose=2 "$INNER"
 record "Hardened runtime on every Mach-O" pass sh -c '

@@ -2,6 +2,7 @@
 
 - Status: accepted (supersedes ADR-0020)
 - Date: 2026-11-11
+- Amended: 2026-11-19 for signed updates in 0.1.3
 - Phase: post-V1 (after 0.0.4)
 - Requirements: §19 ("no unintended remote requests"), §26 priorities 1 and 5; amends ADR-0020
   ("V1 ships with no update mechanism")
@@ -18,9 +19,9 @@ ADR-0020 deferred this to "opt-in Sparkle with an EdDSA-signed appcast". Jit has
 ## Decision
 **Source.** `GET https://api.github.com/repos/ashkanRmk/jit/releases?per_page=20`, unauthenticated.
 Drafts and tags that are not plain `X.Y.Z` / `vX.Y.Z` versions are ignored. Pre-releases count: every build
-so far is published as one. A release is installable by Jit when it has `Jit-<version>.dmg` and
-`Jit-<version>.dmg.sha256`, both under `https://github.com/ashkanRmk/jit/releases/download/` — any other
-URL in the feed is dropped. The release page link is built from the tag, not read from the feed.
+so far is published as one. In-app installation requires `Jit-<version>.dmg`, its `.dmg.manifest` and
+`.dmg.manifest.sig`. Each URL must match the exact owner, repository, tag and asset name on GitHub.
+The release page link is built from the tag.
 
 **When Jit asks.**
 - *Update automatically* **off (default)**: Jit requests releases only when the user opens the bell
@@ -28,24 +29,30 @@ URL in the feed is dropped. The release page link is built from the tag, not rea
 - **On**: at most one check per 24 hours, made when Jit starts or becomes the active app. No timer, no
   polling (hard rule). A newer installable release is downloaded and verified in the background and
   installed **when Jit quits**; Jit never restarts by itself. The bell shows a badge and the change log
-  offers Restart Now. A failed automatic check is silent.
+   offers Restart Now. A failed automatic network check is silent. Verification failures are shown in
+   What's New and never stage an installation.
 - One ephemeral `URLSession`: no cookies, credentials or cache; redirects must stay on HTTPS. The system
   proxy applies; per-profile proxy/CA settings (ADR-0038) are for Git and provider hosts.
 - Tests and tools never reach the network: `UpdateService` requests only through a `fetcher` the app
   delegate installs. Benchmark launches do not start it.
 
 **Installing** (`Services/Updates/DiskImageInstaller`).
-1. Refuse early when Jit cannot be replaced where it is (App Translocation, a folder the user cannot write).
-2. Download the `.sha256` and the DMG into `<Application Support>/Jit/Updates`; compare SHA-256; size cap 1 GB.
+1. Require a newer release and a writable, non-translocated app location.
+2. Fetch the manifest and its detached Ed25519 signature. Verify the raw signature with the public key
+   sealed in the installed app. The canonical payload is UTF-8 `Jit Update Manifest v1`, `version=X.Y.Z`,
+   `sha256=<64 lowercase hex digits>`, one line each with a final LF. The version must match the feed.
+   Download the DMG into `<Application Support>/Jit/Updates` only after signature and manifest verification.
+   Enforce the 1 GB image size limit and compare the DMG SHA-256 before mounting it.
 3. `hdiutil attach -nobrowse -readonly -noautoopen -mountpoint <private dir>` (argv array, no shell), copy
    `Jit.app` out, detach.
-4. The copy must be Jit: same bundle identifier, exactly the release's version, newer than the running
-   one, and a code signature that validates strictly with nested code. When the running Jit is signed with
-   a Developer ID team, the new one must satisfy that team's requirement too.
+4. The candidate bundle must match Jit's bundle identifier, release version and pinned public key. Its
+   code signature must validate strictly, including nested code and the existing Developer ID team check
+   when applicable.
 5. At quit — after state is flushed and Git children are gone — the staged bundle is moved beside the
    installed one and swapped with one `renamex_np(RENAME_SWAP)` (two renames with rollback where the volume
    has no atomic swap). Restart Now / Install and Restart then reopen Jit with `/usr/bin/open -n`.
-Development (debug) builds have no installer: they show the change log and point at the release page.
+Regular development builds show the change log and link to the release page. The native acceptance test
+uses a debug-only file transport, an isolated install and a disposable key.
 
 **UI.** A bell toolbar item at the trailing end of the main window (standard item, system glass; badge
 while a newer release is known). It opens *What's New*, a standard sheet: updater state and its one action,
@@ -55,20 +62,19 @@ for Updates, Done. The same switch is in Settings ▸ General. Jit ▸ Check for
 command palette.
 
 ## Consequences
-- **Trust.** Releases are ad-hoc signed (ADR-0049 addendum), so there is no publisher identity to verify.
-  The SHA-256 comes from the same release as the DMG: it catches a damaged download, not a malicious
-  release. What Jit trusts is GitHub over TLS and whoever can publish releases in the repository — the
-  same trust as downloading the DMG by hand, but with automatic updates on it is exercised without a
-  person looking. Protect the GitHub account accordingly (2FA, no shared tokens with release scope).
-  **Follow-up worth doing:** sign each DMG with an Ed25519 key kept off GitHub and embed the public key in
-  Jit (CryptoKit), or move to Developer ID — the team check in step 4 then applies by itself.
+- **Trust.** GitHub distributes the feed and files. The owner's offline Ed25519 key authorizes the DMG
+  bytes and version. Jit rejects unverifiable updates and older or mismatched versions. GitHub still
+  controls release discovery, changelog text and availability.
+- Existing versions through 0.1.2 install the first signed-update build manually. Starting with 0.1.3,
+  publish `SHA256SUMS` for manual checks and omit the standalone `.dmg.sha256` required by the old updater.
+  Users verify the manual download with the public key obtained separately from the maintainer. Replacing
+  the signing key requires another trusted manual installation.
 - The updated app carries no quarantine attribute, so the "Open Anyway" step is not needed after an
   in-app update. macOS may still ask once for Keychain access (ad-hoc builds have no stable identity).
 - **The repository must be public** (or releases must move to a public repository): an unauthenticated
   request to a private repository answers 404, and Jit says the releases were not found. On 2026-11-11 the
   repository was private; the feature was verified against the real release data read with `gh`.
-- Release process: the tag must be the version, and `Jit-<v>.dmg` + `.sha256` must be attached under those
-  exact names (`docs/release.md`). Release notes are what users read in the app.
+- The [release guide](../release.md) covers offline signing, verification, migration and publication.
 - Idle cost is unchanged: no timer; one small file read after the first frame.
 
 ## Alternatives considered

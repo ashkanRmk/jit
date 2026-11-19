@@ -34,6 +34,7 @@ struct UpdateBellView: View {
         case .available(let release): "Jit \(release.version) is available"
         case .downloading(let release): "Downloading Jit \(release.version)"
         case .ready(let release): "Jit \(release.version) installs when you quit"
+        case .rejected: "A Jit update was rejected"
         case .idle, .checking, .upToDate, .failed: "What's New and updates"
         }
     }
@@ -101,6 +102,7 @@ struct UpdatesSheet: View {
                         Task { await updates.install(release, relaunchWhenReady: true) }
                     }
                     .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("install-update-and-restart")
                 } else {
                     Button("Open Release Page") { openPage(release.pageURL) }
                 }
@@ -114,6 +116,8 @@ struct UpdatesSheet: View {
             ) {
                 Button("Restart Now") { updates.relaunchToUpdate() }.keyboardShortcut(.defaultAction)
             }
+        case .rejected(let message):
+            statusRow(symbol: "exclamationmark.shield", tint: .statusWarning, text: message)
         case .failed(let message):
             statusRow(symbol: "exclamationmark.triangle", tint: .statusWarning, text: message) {
                 Button("Open Release Page") { openPage(updates.newerRelease?.pageURL ?? updates.releasesPageURL) }
@@ -136,15 +140,16 @@ struct UpdatesSheet: View {
             if progress {
                 ProgressView().controlSize(.small)
             } else if let symbol {
-                Image(systemName: symbol).foregroundStyle(.token(tint))
+                Image(systemName: symbol).foregroundStyle(.token(tint)).accessibilityHidden(true)
             }
             Text(text)
                 .typeStyle(.body)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("update-status-message")
             action()
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     // MARK: Change log

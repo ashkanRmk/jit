@@ -20,4 +20,5 @@ export TEST_RUNNER_JIT_NATIVE_FIXTURE_GIT="$(xcrun --find git)"
 export TEST_RUNNER_JIT_NATIVE_APP="$acceptance_app"
 xcodebuild -project "$PROJECT" -scheme JitNativeInputAcceptance -configuration Debug \
     -derivedDataPath "$DERIVED_DATA" -destination 'platform=macOS' \
-    -resultBundlePath "$acceptance_dir/results.xcresult" -quiet test "$@"
+    -resultBundlePath "$acceptance_dir/results.xcresult" \
+    -skip-testing:JitNativeInputUITests/SignedUpdateAcceptanceTests -quiet test "$@"

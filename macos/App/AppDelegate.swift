@@ -105,18 +105,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let directory = UpdateService.defaultDirectory()
         let updates = UpdateService(currentVersion: version, directory: directory)
         updates.fetcher = UpdateNetwork.fetch
+        let signingKey = (Bundle.main.object(forInfoDictionaryKey: UpdateSigningKey.bundleKey) as? String)
+            .flatMap(UpdateSigningKey.init(hex:))
         #if DEBUG
             // `-JitUpdateFeedFile <json>`: read the release list from a file instead of GitHub (screenshots).
             if let file = UserDefaults.standard.string(forKey: "JitUpdateFeedFile") {
                 updates.fetcher = { _ in try Data(contentsOf: URL(fileURLWithPath: file)) }
             }
-        #endif
-        #if !DEBUG
-            // Only release builds replace themselves; a development build points at the release page.
-            if let version, let identifier = Bundle.main.bundleIdentifier {
+            // Native acceptance only. The debug app uses local files and the real signed installer.
+            if let path = UserDefaults.standard.string(forKey: "JitUpdateFixtureDirectory"),
+                let version, let signingKey, let identifier = Bundle.main.bundleIdentifier
+            {
+                let fixture = URL(fileURLWithPath: path, isDirectory: true)
+                let permit = UserDefaults.standard.string(forKey: "JitUpdateDownloadPermit")
+                    .map { URL(fileURLWithPath: $0) }
+                updates.fetcher = { _ in try Data(contentsOf: fixture.appendingPathComponent("releases.json")) }
                 updates.installer = DiskImageInstaller(
                     target: Bundle.main.bundleURL, bundleIdentifier: identifier, currentVersion: version,
-                    directory: directory)
+                    directory: directory, signingKey: signingKey, requiredTeam: nil,
+                    fetch: { try Data(contentsOf: fixture.appendingPathComponent($0.lastPathComponent)) },
+                    download: { url, destination in
+                        // Let XCTest finish the click before the update can terminate the app.
+                        if let permit {
+                            for _ in 0..<200 {
+                                if FileManager.default.fileExists(atPath: permit.path) { break }
+                                try await Task.sleep(for: .milliseconds(100))
+                            }
+                            guard FileManager.default.fileExists(atPath: permit.path) else { throw URLError(.timedOut) }
+                        }
+                        try FileManager.default.copyItem(
+                            at: fixture.appendingPathComponent(url.lastPathComponent), to: destination)
+                    })
+            }
+        #else
+            // Packaged releases pin an update key. Unsigned developer builds can still show release notes.
+            if let version, let signingKey, let identifier = Bundle.main.bundleIdentifier {
+                updates.installer = DiskImageInstaller(
+                    target: Bundle.main.bundleURL, bundleIdentifier: identifier, currentVersion: version,
+                    directory: directory, signingKey: signingKey)
             }
         #endif
         updates.relaunch = { [weak self] in
@@ -149,7 +175,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private static func reopen() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-n", Bundle.main.bundleURL.path]
+        var arguments = ["-n"]
+        if let support = ProcessInfo.processInfo.environment["JIT_APP_SUPPORT"], !support.isEmpty {
+            arguments += ["--env", "JIT_APP_SUPPORT=\(support)"]
+        }
+        process.arguments = arguments + [Bundle.main.bundleURL.path]
         try? process.run()
     }
 

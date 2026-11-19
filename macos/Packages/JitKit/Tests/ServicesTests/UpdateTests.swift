@@ -36,7 +36,8 @@ import Testing
         assets: [String]? = nil, host: String = "https://github.com/ashkanRmk/jit/releases/download"
     ) -> [String: Any] {
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        let names = assets ?? ["Jit-\(version).dmg", "Jit-\(version).dmg.sha256"]
+        let image = "Jit-\(version).dmg"
+        let names = assets ?? [image, image + ".manifest", image + ".manifest.sig"]
         return [
             "tag_name": tag, "name": "Jit \(version) — test build", "body": body, "draft": draft,
             "prerelease": prerelease, "published_at": "2026-11-10T20:27:40Z",
@@ -78,6 +79,21 @@ import Testing
 
     @Test func unreadableFeedThrows() {
         #expect(throws: UpdateError.unreadableFeed) { try ReleaseFeed.parse(Data("{\"message\":\"no\"}".utf8)) }
+    }
+
+    @Test func oldChecksumAndMissingOrMismatchedSignatureAssetsCannotInstall() throws {
+        var wrongTag = Self.entry("0.1.3")
+        var assets = try #require(wrongTag["assets"] as? [[String: String]])
+        assets[2]["browser_download_url"] =
+            "https://github.com/ashkanRmk/jit/releases/download/0.1.2/Jit-0.1.3.dmg.manifest.sig"
+        wrongTag["assets"] = assets
+        let releases = try ReleaseFeed.parse(
+            Self.feed([
+                Self.entry("0.1.1", assets: ["Jit-0.1.1.dmg", "Jit-0.1.1.dmg.sha256"]),
+                Self.entry("0.1.2", assets: ["Jit-0.1.2.dmg", "Jit-0.1.2.dmg.manifest"]), wrongTag,
+            ]))
+        #expect(releases.count == 3)
+        #expect(releases.allSatisfy { !$0.isInstallable })
     }
 }
 
@@ -324,7 +340,7 @@ final class InstallerStub: UpdateInstalling {
 
         service.installer = InstallerStub(failure: .checksumMismatch)
         await service.install(release, relaunchWhenReady: true)
-        #expect(service.phase == .failed(UpdateError.checksumMismatch.message))
+        #expect(service.phase == .rejected(UpdateError.checksumMismatch.message))
         #expect(service.staged == nil)
 
         service.installer = InstallerStub()
@@ -350,7 +366,9 @@ final class InstallerStub: UpdateInstalling {
     }
 
     /// An ad-hoc signed `Jit.app` of `version` in `folder`.
-    static func makeApp(in folder: URL, version: String, bundleID: String = bundleID, sign: Bool = true) throws -> URL {
+    static func makeApp(
+        in folder: URL, version: String, bundleID: String = bundleID, sign: Bool = true, publicKey: String
+    ) throws -> URL {
         let app = folder.appendingPathComponent("Jit.app")
         let macOS = app.appendingPathComponent("Contents/MacOS")
         try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
@@ -359,6 +377,7 @@ final class InstallerStub: UpdateInstalling {
         let info: [String: Any] = [
             "CFBundleIdentifier": bundleID, "CFBundleExecutable": "Jit", "CFBundlePackageType": "APPL",
             "CFBundleShortVersionString": version, "CFBundleVersion": "1",
+            UpdateSigningKey.bundleKey: publicKey,
         ]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: app.appendingPathComponent("Contents/Info.plist"))
@@ -372,6 +391,11 @@ final class InstallerStub: UpdateInstalling {
         let image: URL
         let release: AppRelease
         let installer: DiskImageInstaller
+        let privateKey: Curve25519.Signing.PrivateKey
+        let downloadCount: @Sendable () -> Int
+
+        var manifest: URL { image.appendingPathExtension("manifest") }
+        var signature: URL { manifest.appendingPathExtension("sig") }
 
         func installedVersion() -> String? {
             let plist = target.appendingPathComponent("Contents/Info.plist")
@@ -382,34 +406,49 @@ final class InstallerStub: UpdateInstalling {
         }
     }
 
-    /// An installed 0.0.4 and a disk image holding `version`; `checksum` overrides the published SHA-256.
     static func fixture(
         version: String = "0.0.5", releaseVersion: String? = nil, bundleID: String = bundleID, sign: Bool = true,
-        checksum: String? = nil
+        incomingKey: String? = nil
     ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("jit-dmg-\(UUID().uuidString)")
         let installed = root.appendingPathComponent("Applications")
         let source = root.appendingPathComponent("source")
         try FileManager.default.createDirectory(at: installed, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
-        let target = try makeApp(in: installed, version: "0.0.4")
-        _ = try makeApp(in: source, version: version, bundleID: bundleID, sign: sign)
+        let privateKey = Curve25519.Signing.PrivateKey()
+        let publicKey = privateKey.publicKey.rawRepresentation.map { String(format: "%02x", $0) }.joined()
+        let target = try makeApp(in: installed, version: "0.0.4", publicKey: publicKey)
+        _ = try makeApp(
+            in: source, version: version, bundleID: bundleID, sign: sign, publicKey: incomingKey ?? publicKey)
         let image = root.appendingPathComponent("Jit.dmg")
         try run(
             "/usr/bin/hdiutil", ["create", "-srcfolder", source.path, "-volname", "Jit", "-format", "UDZO", image.path])
-        let sum = try checksum ?? DiskImageInstaller.sha256(of: image)
+        let sum = try DiskImageInstaller.sha256(of: image)
         let wanted = releaseVersion ?? version
-        let base = "https://github.com/ashkanRmk/jit/releases/download/\(wanted)/Jit-\(wanted).dmg"
-        let release = AppRelease(
-            version: wanted, title: "Jit \(wanted)", notes: "", publishedAt: nil, isPrerelease: true,
-            pageURL: try #require(URL(string: "https://github.com/ashkanRmk/jit/releases/tag/\(wanted)")),
-            diskImageURL: URL(string: base), checksumURL: URL(string: base + ".sha256"))
+        let release = try #require(ReleaseFeed.parse(ReleaseFeedTests.feed([ReleaseFeedTests.entry(wanted)])).first)
+        let manifestURL = image.appendingPathExtension("manifest")
+        let signatureURL = manifestURL.appendingPathExtension("sig")
+        let manifest = Data("Jit Update Manifest v1\nversion=\(wanted)\nsha256=\(sum)\n".utf8)
+        try manifest.write(to: manifestURL)
+        try privateKey.signature(for: manifest).write(to: signatureURL)
+        let downloads = Mutex(0)
         let installer = DiskImageInstaller(
             target: target, bundleIdentifier: Self.bundleID, currentVersion: try #require(AppVersion("0.0.4")),
-            directory: root.appendingPathComponent("Updates"), requiredTeam: nil,
-            fetch: { _ in Data("\(sum)  Jit-\(wanted).dmg\n".utf8) },
-            download: { _, destination in try FileManager.default.copyItem(at: image, to: destination) })
-        return Fixture(root: root, target: target, image: image, release: release, installer: installer)
+            directory: root.appendingPathComponent("Updates"),
+            signingKey: try #require(UpdateSigningKey(hex: publicKey)),
+            requiredTeam: nil,
+            fetch: { url in
+                let file = url.pathExtension == "sig" ? signatureURL : manifestURL
+                guard FileManager.default.fileExists(atPath: file.path) else { throw UpdateError.http(404) }
+                return try Data(contentsOf: file)
+            },
+            download: { _, destination in
+                downloads.withLock { $0 += 1 }
+                try FileManager.default.copyItem(at: image, to: destination)
+            })
+        return Fixture(
+            root: root, target: target, image: image, release: release, installer: installer, privateKey: privateKey,
+            downloadCount: { downloads.withLock { $0 } })
     }
 
     static func leftovers(_ fixture: Fixture) -> [String] {
@@ -441,10 +480,45 @@ final class InstallerStub: UpdateInstalling {
         #expect(Self.leftovers(fixture).isEmpty)
     }
 
-    @Test func wrongChecksumIsRejectedBeforeMounting() async throws {
-        let fixture = try Self.fixture(checksum: String(repeating: "0", count: 64))
+    @Test func tamperedDiskImageIsRejectedBeforeMounting() async throws {
+        let fixture = try Self.fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let handle = try FileHandle(forWritingTo: fixture.image)
+        _ = try handle.seekToEnd()
+        try handle.write(contentsOf: Data([0x00]))
+        try handle.close()
         await #expect(throws: UpdateError.checksumMismatch) { try await fixture.installer.stage(fixture.release) }
+        #expect(fixture.downloadCount() == 1)
+        #expect(fixture.installedVersion() == "0.0.4")
+        #expect(Self.leftovers(fixture).isEmpty)
+    }
+
+    @Test func missingForgedAndReplayedSignaturesStopBeforeDownloading() async throws {
+        let fixture = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let signed = try Data(contentsOf: fixture.manifest)
+        let signature = try Data(contentsOf: fixture.signature)
+
+        try FileManager.default.removeItem(at: fixture.signature)
+        await #expect(throws: UpdateError.invalidUpdateSignature) { try await fixture.installer.stage(fixture.release) }
+        try signature.dropLast().write(to: fixture.signature)
+        await #expect(throws: UpdateError.invalidUpdateSignature) { try await fixture.installer.stage(fixture.release) }
+
+        try signature.write(to: fixture.signature)
+        let otherVersion = Data(
+            String(decoding: signed, as: UTF8.self).replacingOccurrences(of: "0.0.5", with: "0.0.6").utf8)
+        try otherVersion.write(to: fixture.manifest)
+        await #expect(throws: UpdateError.invalidUpdateSignature) { try await fixture.installer.stage(fixture.release) }
+        try Curve25519.Signing.PrivateKey().signature(for: otherVersion).write(to: fixture.signature)
+        await #expect(throws: UpdateError.invalidUpdateSignature) { try await fixture.installer.stage(fixture.release) }
+        try fixture.privateKey.signature(for: otherVersion).write(to: fixture.signature)
+        await #expect(throws: UpdateError.invalidUpdateManifest) { try await fixture.installer.stage(fixture.release) }
+
+        let malformed = signed + Data("\n".utf8)
+        try malformed.write(to: fixture.manifest)
+        try fixture.privateKey.signature(for: malformed).write(to: fixture.signature)
+        await #expect(throws: UpdateError.invalidUpdateManifest) { try await fixture.installer.stage(fixture.release) }
+        #expect(fixture.downloadCount() == 0)
         #expect(fixture.installedVersion() == "0.0.4")
         #expect(Self.leftovers(fixture).isEmpty)
     }
@@ -481,6 +555,15 @@ final class InstallerStub: UpdateInstalling {
         #expect(fixture.installedVersion() == "0.0.4")
     }
 
+    @Test func bundleCannotReplaceThePinnedKey() async throws {
+        let fixture = try Self.fixture(incomingKey: String(repeating: "1", count: 64))
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        await #expect(throws: UpdateError.wrongApplication("its update signing key differs from the installed app")) {
+            try await fixture.installer.stage(fixture.release)
+        }
+        #expect(fixture.installedVersion() == "0.0.4")
+    }
+
     @Test func readOnlyInstallFolderIsRefusedBeforeDownloading() async throws {
         let fixture = try Self.fixture()
         defer {
@@ -496,10 +579,4 @@ final class InstallerStub: UpdateInstalling {
         #expect(Self.leftovers(fixture).isEmpty)
     }
 
-    @Test func checksumFileFormat() throws {
-        let sum = String(repeating: "aB", count: 32)
-        #expect(try DiskImageInstaller.checksum(in: Data("\(sum)  Jit-0.0.5.dmg\n".utf8)) == sum.lowercased())
-        #expect(throws: UpdateError.checksumMismatch) { try DiskImageInstaller.checksum(in: Data("nope".utf8)) }
-        #expect(throws: UpdateError.checksumMismatch) { try DiskImageInstaller.checksum(in: Data()) }
-    }
 }

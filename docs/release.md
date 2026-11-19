@@ -1,10 +1,10 @@
 # Release
 
-Status (1.0.0, 2026-11-10): **distributed free as an ad-hoc-signed, non-notarized DMG** (owner decision,
-ADR-0049 addendum). The Developer ID path (steps 07–08) is implemented but unused; clean-VM acceptance pending. See
-[`phases/07-packaging-and-release/progress.md`](phases/07-packaging-and-release/progress.md).
-Current version: **0.1.2**, a test build ([`releases/v0.1.2.md`](releases/v0.1.2.md); earlier:
-[`0.1.1`](releases/v0.1.1.md),
+Jit is **free** and distributed as an ad-hoc-signed DMG. The Apple Developer ID and notarization steps
+remain available separately. Starting with **0.1.3**, Jit uses Ed25519 signatures for in-app updates.
+[0.1.3 notes](releases/v0.1.3.md) · [0.1.2 notes](releases/v0.1.2.md)
+
+Earlier builds include [`0.1.1`](releases/v0.1.1.md),
 [`0.1.0`](releases/v0.1.0.md),
 [`0.0.9`](releases/v0.0.9.md),
 [`0.0.8`](releases/v0.0.8.md),
@@ -12,13 +12,17 @@ Current version: **0.1.2**, a test build ([`releases/v0.1.2.md`](releases/v0.1.2
 [`0.0.6`](releases/v0.0.6.md),
 [`0.0.5`](releases/v0.0.5.md),
 [`0.0.4`](releases/v0.0.4.md), [`0.0.3`](releases/v0.0.3.md), [`0.0.2`](releases/v0.0.2.md),
-[`0.0.1`](releases/v0.0.1.md)). There is no 1.0 release yet.
+[`0.0.1`](releases/v0.0.1.md).
 Decisions: ADR-0019 (bundled Git), 0020 (no updater), 0045 (entitlements/sandbox), 0046 (signing), 0047 (DMG
 and notarization), 0048 (clean-machine protocol), 0049 (versioning, arm64-only).
 
 ## 1. Prerequisites (release machine)
 - macOS 26+ on Apple silicon, **full Xcode 26+** selected, `brew install xcodegen`.
-- For a distributable build (owner-only steps; never paste secrets into a chat or commit them):
+- OpenSSL 3 for offline signing and publish verification. Install the free `openssl@3` formula if needed
+  and set `JIT_UPDATE_OPENSSL="$(brew --prefix openssl@3)/bin/openssl"`. Jit uses CryptoKit at runtime.
+- The official update signing public key is in `scripts/release/release.env`. An explicit
+  `JIT_UPDATE_PUBLIC_KEY` can be used for rehearsals. See [offline signing](#offline-update-signing).
+- For optional Apple notarization (keep credentials in Keychain):
   1. A **Developer ID Application** certificate (with private key) in the login keychain.
      Check: `security find-identity -v -p codesigning`.
   2. Notary credentials, stored once in the keychain (App Store Connect API key preferred):
@@ -28,7 +32,7 @@ and notarization), 0048 (clean-machine protocol), 0049 (versioning, arm64-only).
      JIT_SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)"
      JIT_TEAM_ID=<TEAMID>
      ```
-  4. Once per machine: allow Finder automation when macOS asks (DMG window layout), or set `JIT_DMG_LAYOUT=0`.
+- Allow Finder automation when macOS asks for DMG window layout, or set `JIT_DMG_LAYOUT=0`.
 - Optional: `brew install gnupg` and `JIT_GIT_VERIFY_SIGNATURE=1` to also check Git's PGP signature (ADR-0019).
 - Releases from 0.1.0 bundle the public OAuth client IDs in `macos/App/Resources/OAuthClients.plist`.
   GitHub.com uses Device Flow. GitLab.com uses PKCE with redirect `jit://oauth/gitlab` and scopes
@@ -39,14 +43,13 @@ Change the version **only** in `macos/App/Config/Version.xcconfig` (`MARKETING_V
 `CURRENT_PROJECT_VERSION` for every distributed build), commit, then:
 
 ```bash
-scripts/release/release.sh --version 1.0.0          # Developer ID: steps 01–09
-scripts/release/release.sh --version 1.0.0 --adhoc  # no credentials: 01–06 + 09 (not distributable)
+scripts/release/release.sh --version 0.1.3 --adhoc  # free test-build distribution
 scripts/release/release.sh --from-step 07           # resume, e.g. after a notarization failure
 ```
 
 | Step (§20) | Script | Does | Output |
 |---|---|---|---|
-| 1–3 | `01-build-app.sh` | XcodeGen, clean Release archive (`JIT_ARCHS`), plist checks, `JitSourceCommit` | `stage/Jit.app`, `dSYMs/`, `Jit.xcarchive`, `xcodebuild.log` |
+| 1–3 | `01-build-app.sh` | XcodeGen, clean Release archive, source commit and public update key sealed in the app | `stage/Jit.app`, `dSYMs/`, `Jit.xcarchive`, `xcodebuild.log` |
 | 4 | `02-bundle-git.sh` | `build-git.sh` (cached), embed at `Contents/Resources/git`, run check | — |
 | — | `03-verify-archs.sh` | every Mach-O has exactly `JIT_ARCHS`; helper and Git present; no dev-only content | — |
 | 5 | `04-sign-embedded.sh` | inside-out: Git binaries, helper (runtime, timestamp, no entitlements) | — |
@@ -54,22 +57,55 @@ scripts/release/release.sh --from-step 07           # resume, e.g. after a notar
 | 7 | `06-create-dmg.sh` | styled DMG (background, layout, volume icon), ULFO, signed | `Jit-<v>.dmg` |
 | 8 | `07-notarize.sh` | `notarytool submit --wait`; log on failure; skips an already-accepted DMG hash | `notary-<sha>.json`, `notary-log-<id>.json` |
 | 9 | `08-staple.sh` | `stapler staple` + `validate` | — |
-| 10 | `09-validate.sh` | SHA-256, signatures, ticket, Gatekeeper (DMG + app), runtime, archs, Git in DMG | `validation.txt` |
+| 10 | `09-validate.sh` | DMG hash, embedded update key, signatures, ticket, Gatekeeper, runtime, architecture, bundled Git | `validation.txt` |
 
 All outputs are in `build/release/<version>/` (git-ignored). dSYMs stay there, private — never in the DMG.
 
-### Publishing an ad-hoc release (current mode)
-1. `scripts/release/release.sh --version X.Y.Z --adhoc` from a clean tree (About shows the commit).
-2. Assets in `build/release/X.Y.Z/publish/`: the DMG, `Jit-X.Y.Z.dmg.sha256`, `SHA256SUMS`,
-   `git-<v>.tar.xz`, `jit-git-build-scripts-X.Y.Z.tar.gz` (GPLv2 corresponding source for the bundled Git).
-3. Notes from `docs/releases/vX.Y.Z.md` (first-launch steps and the DMG SHA-256 must be in them).
-4. With the owner's approval: tag `X.Y.Z` on the build commit, `gh release create` with the notes and assets.
-   The repository (or a releases repository) must be public for users to download.
+### Offline update signing
+
+On the offline signing machine, create one passphrase-encrypted Ed25519 key outside the checkout. Back it
+up to encrypted offline storage. Keep the private key and passphrase out of GitHub, CI, and the build machine.
+
+```bash
+key=/path/to/jit-update-key.pem
+(umask 077; set -C; "${JIT_UPDATE_OPENSSL:-openssl}" genpkey -algorithm Ed25519 -aes-256-cbc > "$key")
+scripts/release/update-signing.sh public-key "$key"
+```
+
+The printed lowercase hex string is the public key. Record the official public key in
+`scripts/release/release.env` when establishing the signing identity and use it for each release. If the
+private key is lost or must be replaced, distribute a newly verified manual installer with the new pin
+and communicate the change through a trusted channel.
+
+After packaging and validation, transfer the **exact final DMG** and the signing script to the offline
+machine. Sign only after all packaging, code signing, and any notarization or stapling are complete.
+
+```bash
+scripts/release/update-signing.sh sign 0.1.3 /path/to/Jit-0.1.3.dmg /path/to/jit-update-key.pem
+```
+
+Return only `Jit-0.1.3.dmg.manifest` and `Jit-0.1.3.dmg.manifest.sig` to the build machine, alongside the
+original DMG in `build/release/0.1.3/`. Run `scripts/release/10-prepare-publish.sh`. It checks that the DMG
+still matches the validation report and that the manifest and signature match the configured public key.
+Tests and local release rehearsals use disposable keys. A public release uses the owner's offline key.
 
 ### Publishing (owner approval required)
-Tag `X.Y.Z` on the release commit. Attach to the GitHub Release: the DMG, its SHA-256, and the GPLv2
-corresponding source for Git (`build/git-src/git-<v>.tar.xz`, `scripts/build/build-git.sh`,
-`scripts/build/git-version.env`). Release notes must call out security fixes. Nothing is uploaded by the scripts.
+
+1. Run the [signed-update acceptance test](testing.md#signed-in-app-updates) on the release candidate and
+   confirm package and app tests pass for the commit you will tag.
+2. Tag the exact clean build commit as `X.Y.Z`. Create a GitHub draft prerelease with the notes from
+   `docs/releases/vX.Y.Z.md` and all files from `build/release/X.Y.Z/publish/`. The repository must be public.
+3. Confirm that the DMG, `.dmg.manifest`, `.dmg.manifest.sig`, `SHA256SUMS`, and bundled Git source and
+   build scripts are present and match the locally verified assets. Publish the draft together with all assets.
+4. Omit the standalone `.dmg.sha256` asset for 0.1.3 and later. Jit 0.1.2 and earlier will offer the
+   release page for manual installation because they require that exact legacy asset for in-app installation.
+
+For the initial manual install, get the public key from the maintainer over a trusted channel and verify
+the downloaded DMG and its two manifest files before opening it.
+
+```bash
+scripts/release/update-signing.sh verify 0.1.3 /path/to/Jit-0.1.3.dmg "$JIT_UPDATE_PUBLIC_KEY"
+```
 
 ### Website (mandatory after every release)
 Right after the GitHub Release exists, publish the website:
@@ -83,10 +119,8 @@ It builds `site/` locally, writes `release.json` and the download links, size an
 branch as is (Settings ▸ Pages: "Deploy from a branch", `gh-pages`, `/`); nothing runs in GitHub Actions. A
 release is not done until the site offers its DMG: check https://ashkanrmk.github.io/jit/ after about a minute.
 
-The in-app updater (ADR-0051) reads these releases: the tag must be the version (`X.Y.Z` or `vX.Y.Z`), the
-assets must be named exactly `Jit-X.Y.Z.dmg` and `Jit-X.Y.Z.dmg.sha256`, the release must not be a draft, and
-the repository must be public. The notes are shown in the app's What's New sheet (headings, paragraphs,
-bullets, inline bold/code/links). `CFBundleShortVersionString` in the DMG's app must equal the tag's version.
+Jit reads public releases from GitHub and shows their notes in **What's New**. The tag must be `X.Y.Z`
+or `vX.Y.Z`. The signed version and `CFBundleShortVersionString` must match the tag's normalized version.
 
 ## 3. Troubleshooting
 - **Notarization "Invalid"**: `07` prints the issues from `notary-log-<id>.json`. Typical causes: a nested

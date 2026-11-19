@@ -3,6 +3,7 @@
 # $JIT_ARCHS, copied to build/release/<version>/stage/Jit.app; dSYMs kept privately in .../dSYMs.
 source "$(dirname "$0")/lib.sh"
 step "01 build app ($JIT_VERSION ($JIT_BUILD), $JIT_ARCHS)"
+require_update_public_key
 require_xcode
 "$REPO_ROOT/scripts/build/gen-xcodeproj.sh"
 ARCHIVE="$OUT/Jit.xcarchive"
@@ -25,6 +26,7 @@ commit="$(git -C "$REPO_ROOT" rev-parse --short=10 HEAD)"
 git -C "$REPO_ROOT" diff --quiet HEAD -- macos scripts || commit="$commit-dirty"
 /usr/libexec/PlistBuddy -c "Delete :JitSourceCommit" "$plist" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :JitSourceCommit string $commit" "$plist"
+/usr/libexec/PlistBuddy -c "Add :JitUpdatePublicKey string $JIT_UPDATE_PUBLIC_KEY" "$plist"
 short="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")"
 build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
 bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")"

@@ -3,10 +3,7 @@ import Darwin
 import Foundation
 import Security
 
-/// Installs a release from its disk image (ADR-0051): download `Jit-<version>.dmg` and its `.sha256` from the
-/// release, compare the SHA-256, mount the image read-only (no Finder window), copy `Jit.app` out, check that
-/// the copy is Jit — bundle identifier, the expected version, newer than the running one, an intact code
-/// signature (and the same Developer ID team when the running Jit has one) — and keep it until Jit quits.
+/// Verifies the signed release manifest and image digest before mounting, then validates and stages Jit.app.
 /// `apply` then swaps the two bundles with one atomic rename.
 public struct DiskImageInstaller: UpdateInstalling {
     /// The installed Jit that gets replaced.
@@ -15,6 +12,7 @@ public struct DiskImageInstaller: UpdateInstalling {
     public let currentVersion: AppVersion
     /// Downloads and the staged copy live here.
     public let directory: URL
+    private let signingKey: UpdateSigningKey
     /// The Team ID the new app must be signed with; `nil` for ad-hoc builds (no team to compare).
     public let requiredTeam: String?
     public let fetch: @Sendable (URL) async throws -> Data
@@ -26,6 +24,7 @@ public struct DiskImageInstaller: UpdateInstalling {
 
     public init(
         target: URL, bundleIdentifier: String, currentVersion: AppVersion, directory: URL,
+        signingKey: UpdateSigningKey,
         requiredTeam: String? = DiskImageInstaller.runningTeam,
         fetch: @escaping @Sendable (URL) async throws -> Data = UpdateNetwork.fetch,
         download: @escaping @Sendable (URL, URL) async throws -> Void = UpdateNetwork.download
@@ -34,6 +33,7 @@ public struct DiskImageInstaller: UpdateInstalling {
         self.bundleIdentifier = bundleIdentifier
         self.currentVersion = currentVersion
         self.directory = directory
+        self.signingKey = signingKey
         self.requiredTeam = requiredTeam
         self.fetch = fetch
         self.download = download
@@ -51,16 +51,27 @@ public struct DiskImageInstaller: UpdateInstalling {
     }
 
     public func stage(_ release: AppRelease) async throws -> StagedUpdate {
-        guard let imageURL = release.diskImageURL, let checksumURL = release.checksumURL else {
+        guard let imageURL = release.diskImageURL, let manifestURL = release.manifestURL,
+            let signatureURL = release.signatureURL, let version = release.parsedVersion
+        else {
             throw UpdateError.notInstallable
         }
+        guard version > currentVersion else { throw UpdateError.wrongApplication("it is not newer than this Jit") }
         try checkTargetIsReplaceable()
+        let manifest: Data
+        let signature: Data
+        do {
+            manifest = try await fetch(manifestURL)
+            signature = try await fetch(signatureURL)
+        } catch UpdateError.http(404) {
+            throw UpdateError.invalidUpdateSignature
+        }
+        let expected = try signingKey.verifiedChecksum(manifest: manifest, signature: signature, version: version)
         let manager = FileManager.default
         try manager.createDirectory(
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
 
-        let expected = try Self.checksum(in: try await fetch(checksumURL))
-        let image = directory.appendingPathComponent("Jit-\(release.version).dmg")
+        let image = directory.appendingPathComponent("Jit-\(version).dmg")
         try? manager.removeItem(at: image)
         defer { try? manager.removeItem(at: image) }
         try await download(imageURL, image)
@@ -76,7 +87,7 @@ public struct DiskImageInstaller: UpdateInstalling {
             let app = staging.appendingPathComponent(target.lastPathComponent)
             do {
                 try Self.copyApplication(from: image, to: app, workDirectory: staging)
-                try validate(app, version: release.version)
+                try validate(app, version: version)
             } catch {
                 try? manager.removeItem(at: staging)
                 throw error
@@ -127,7 +138,7 @@ public struct DiskImageInstaller: UpdateInstalling {
         else { throw UpdateError.cannotReplace(parent.path) }
     }
 
-    func validate(_ app: URL, version: String) throws {
+    private func validate(_ app: URL, version: AppVersion) throws {
         let plist = app.appendingPathComponent("Contents/Info.plist")
         guard let data = try? Data(contentsOf: plist),
             let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
@@ -135,14 +146,13 @@ public struct DiskImageInstaller: UpdateInstalling {
         guard info["CFBundleIdentifier"] as? String == bundleIdentifier else {
             throw UpdateError.wrongApplication("it is not Jit")
         }
-        guard let found = (info["CFBundleShortVersionString"] as? String).flatMap(AppVersion.init),
-            let wanted = AppVersion(version), found == wanted
+        guard let found = (info["CFBundleShortVersionString"] as? String).flatMap(AppVersion.init), found == version
         else { throw UpdateError.wrongApplication("its version is not \(version)") }
-        guard found > currentVersion else {
-            throw UpdateError.wrongApplication("it is not newer than this Jit")
-        }
         guard Self.hasValidSignature(app, team: requiredTeam) else {
             throw UpdateError.wrongApplication("its code signature is not valid")
+        }
+        guard info[UpdateSigningKey.bundleKey] as? String == signingKey.hex else {
+            throw UpdateError.wrongApplication("its update signing key differs from the installed app")
         }
     }
 
@@ -158,15 +168,6 @@ public struct DiskImageInstaller: UpdateInstalling {
         }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate)
         return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
-    }
-
-    /// The first 64 hex digits of a `shasum -a 256` line.
-    static func checksum(in data: Data) throws -> String {
-        guard data.count <= 4_096, let text = String(data: data, encoding: .utf8),
-            let token = text.split(whereSeparator: { $0 == " " || $0 == "\t" || $0.isNewline }).first,
-            token.count == 64, token.allSatisfy(\.isHexDigit)
-        else { throw UpdateError.checksumMismatch }
-        return token.lowercased()
     }
 
     static func sha256(of file: URL) throws -> String {

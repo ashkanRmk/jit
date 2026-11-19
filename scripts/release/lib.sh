@@ -5,6 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../build" && pwd)/common.sh"
 RELEASE_DIR="$REPO_ROOT/scripts/release"
 source "$RELEASE_DIR/release.env"
 [[ -f "$RELEASE_DIR/release.local.env" ]] && source "$RELEASE_DIR/release.local.env"
+export JIT_UPDATE_OPENSSL="${JIT_UPDATE_OPENSSL:-openssl}"
 VERSION_XCCONFIG="$MACOS_DIR/App/Config/Version.xcconfig"
 
 # Value of KEY in Version.xcconfig (`KEY = value`).
@@ -25,6 +26,11 @@ OUT="$REPO_ROOT/build/release/$JIT_VERSION"
 APP="$OUT/stage/Jit.app"
 DMG="$OUT/Jit-$JIT_VERSION.dmg"
 mkdir -p "$OUT"
+
+require_update_public_key() {
+    [[ "${JIT_UPDATE_PUBLIC_KEY:-}" =~ ^[0-9a-f]{64}$ ]] \
+        || die "set JIT_UPDATE_PUBLIC_KEY to the release owner's Ed25519 public key (see docs/release.md)"
+}
 
 # Ad-hoc mode (no Developer ID): JIT_ADHOC=1, or no identity configured.
 is_adhoc() { [[ "${JIT_ADHOC:-0}" == 1 || -z "$JIT_SIGN_IDENTITY" ]]; }

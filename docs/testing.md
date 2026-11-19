@@ -9,11 +9,27 @@ How Jit is tested, and how to run, record and re-baseline each suite. Rules: rea
 |---|---|---|
 | Package tests (GitCore, Services, Features, DesignSystem) | `scripts/build/test-core.sh` | Swift Testing; parallel. Timing assertions get headroom in debug (`PerfBudget`) and with `JIT_TEST_TIMING_SCALE`. |
 | Native history actions | `scripts/testing/native-rebase-acceptance.sh` | Separate XCUITest scheme; foreground desktop and Developer Tools authorization required. |
+| Signed in-app updates | `scripts/testing/signed-update-acceptance.sh /path/to/stage/Jit.app` | Native updater UI, real DMG and restarted release executable. |
 | App tests | `scripts/build/test-app.sh` | Xcode test target hosted in the app. |
 | Lint | `scripts/build/lint.sh` | swift-format, GitCore import rule, styling/glass rule. |
 | Snapshot (visual regression) | `swift test --package-path macos/Packages/JitKit --filter SnapshotTests` | ADR-0040; see below. |
 | Benchmark tooling | `python3 -m unittest discover -s scripts/benchmarks/tests` | `results.py` parse/compare. |
 | Rig (enterprise) | `JIT_RIG=1 swift test … --filter "Rig\|Diagnostics"` | needs `scripts/testing/enterprise-rig/up.sh`. |
+
+## Signed in-app updates
+
+Run the package tests with `scripts/build/test-core.sh --filter UpdateTests`. Coverage includes a missing
+or altered signature, a different signing key, a valid signature for another version, malformed signed
+bytes, a tampered DMG, a different bundle signing pin, wrong bundle metadata and a valid swap.
+
+Run `scripts/testing/signed-update-acceptance.sh /path/to/stage/Jit.app` against a packaged candidate,
+using an unlocked macOS desktop with Developer Tools authorization and OpenSSL 3. It generates a
+disposable key and a local GitHub-shaped release feed, then tests **Install and Restart** with native
+macOS UI events. First it changes the signed DMG and replaces the legacy checksum. Jit rejects it and
+the app bundle stays intact. Then it uses the genuine signed DMG and checks that the new app starts at
+the same installation path with a different process ID and the expected version. The resulting
+`.xcresult` is retained in a temporary directory printed by the script. The transport is local and the
+outgoing debug app is test-specific. For broader compatibility, run the clean-machine protocol in ADR-0048.
 
 ## Visual regression (ADR-0040)
 
