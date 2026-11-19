@@ -74,7 +74,31 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.ashkanrmk.jit.tests
+  JitNativeInputUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [NativeInputUITests]
+    dependencies:
+      - target: Jit
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.ashkanrmk.jit.nativeinputtests
+        TEST_TARGET_NAME: Jit
+        # An ad-hoc UI runner cannot load an ad-hoc test bundle under library validation.
+        # This is test-only; Jit's own hardened-runtime configuration remains unchanged.
+        ENABLE_HARDENED_RUNTIME: NO
+        OTHER_CODE_SIGN_FLAGS: ""
+        ENABLE_APP_SANDBOX: NO
 schemes:
+  JitNativeInputAcceptance:
+    build:
+      targets:
+        Jit: all
+        JitNativeInputUITests: [test]
+    test:
+      config: Debug
+      targets: [JitNativeInputUITests]
   Jit:
     build:
       targets:

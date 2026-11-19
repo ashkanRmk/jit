@@ -115,6 +115,10 @@ public struct ProcessRunner: Sendable {
 private final class ChildProcess: @unchecked Sendable {
     typealias Continuation = CheckedContinuation<Result<ProcessOutput, GitCoreError>, Never>
 
+    // Concurrent posix_spawn calls can make Dispatch create many replacement workers while the
+    // kernel launches children. Serialize only that short syscall/setup phase, never child I/O or exit.
+    private static let launchQueue = DispatchQueue(label: "jit.process.launch", qos: .userInitiated)
+
     private let spec: ProcessSpec
     private let grace: Duration
     private let queue = DispatchQueue(label: "jit.process", qos: .userInitiated)
@@ -152,7 +156,10 @@ private final class ChildProcess: @unchecked Sendable {
                 complete(.failure(.cancelled))
                 return
             }
-            launch()
+            Self.launchQueue.async { [self] in
+                let result = SpawnedChild.spawn(spec)
+                queue.async { [self] in finishLaunch(result) }
+            }
         }
     }
 
@@ -169,14 +176,11 @@ private final class ChildProcess: @unchecked Sendable {
 
     // MARK: Launch
 
-    private func launch() {
-        #if DEBUG
-            dispatchPrecondition(condition: .notOnQueue(.main))
-        #endif
+    private func finishLaunch(_ result: Result<SpawnedChild, GitCoreError>) {
         let spawned: SpawnedChild
-        switch SpawnedChild.spawn(spec) {
+        switch result {
         case .success(let child): spawned = child
-        case .failure(let error): return complete(.failure(error))
+        case .failure(let error): return complete(.failure(cancelRequested ? .cancelled : error))
         }
         pid = spawned.pid
         liveGroups.insert(spawned.pid)
@@ -191,6 +195,10 @@ private final class ChildProcess: @unchecked Sendable {
         exit.setRegistrationHandler { [self] in reap() }
         exitSource = exit
         exit.activate()
+
+        // Cancellation can arrive while this child waits on the launch queue. Arm its readers and
+        // exit source first, then terminate it so the operation still drains/closes/reaps normally.
+        if cancelRequested { terminate(because: .cancelled) }
 
         if let timeout = spec.timeout {
             schedule(after: timeout) { [self] in

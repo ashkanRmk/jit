@@ -70,6 +70,9 @@ struct OperationBanner: View {
         case .rebasing(let head, _, let step, let total, let stopped, let count):
             // The subject goes last so a narrow bar truncates it, never the step or conflict count.
             let commit = stopped.map { " · \($0.shortOID) \($0.subject)" } ?? ""
+            if controller.session.rebaseStoppedForEdit {
+                return "Editing \(stopped?.shortOID ?? "commit") · amend in Working Directory, then Continue"
+            }
             return "Rebasing \(head) · commit \(step) of \(total)\(conflicts(count))\(commit)"
         case .cherryPicking(let commit, _, let count):
             return

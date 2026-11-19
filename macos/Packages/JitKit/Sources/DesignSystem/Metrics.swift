@@ -1,5 +1,10 @@
 import CoreGraphics
 
+public enum CommitMessageMetrics {
+    public static let editorHeight: CGFloat = 180
+    public static let previewHeight: CGFloat = 80
+}
+
 /// 4 pt grid. `Space.s4` = 8 pt.
 public enum Space {
     public static let s1: CGFloat = 2

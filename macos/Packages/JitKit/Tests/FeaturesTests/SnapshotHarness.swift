@@ -56,6 +56,12 @@ enum Snapshot {
     /// Whether references match this macOS version (or we are recording).
     nonisolated static var isComparable: Bool { recording || pinnedOS == currentOS }
 
+    nonisolated static func isComparable(versionFile: String) -> Bool {
+        let pinned = (try? String(contentsOf: directory.appendingPathComponent(versionFile), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return recording || pinned == currentOS
+    }
+
     /// Renders `view` at `size` (points) in an offscreen window with `variant`'s appearance.
     static func render(_ view: NSView, size: NSSize, variant: Variant) -> NSBitmapImageRep {
         _ = NSApplication.shared
@@ -100,13 +106,15 @@ enum Snapshot {
     }
 
     /// Compares (or records) `name-variant.png`; returns a failure message or nil.
-    static func verify(_ rep: NSBitmapImageRep, name: String, variant: Variant) -> String? {
+    static func verify(_ rep: NSBitmapImageRep, name: String, variant: Variant, versionFile: String = "os-version.txt")
+        -> String?
+    {
         let file = directory.appendingPathComponent("\(name)-\(variant.rawValue).png")
         guard let data = rep.representation(using: .png, properties: [:]) else { return "could not encode" }
         if recording {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try? data.write(to: file)
-            try? Data(currentOS.utf8).write(to: directory.appendingPathComponent("os-version.txt"))
+            try? Data(currentOS.utf8).write(to: directory.appendingPathComponent(versionFile))
             return nil
         }
         guard let referenceData = try? Data(contentsOf: file), let reference = NSBitmapImageRep(data: referenceData)

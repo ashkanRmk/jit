@@ -36,13 +36,15 @@ let package = Package(
             name: "JitBench", dependencies: ["GitCore", "GitTestKit", "Features", "DesignSystem"], swiftSettings: strict
         ),
         .testTarget(
-            name: "GitCoreTests", dependencies: ["GitCore", "GitTestKit"], exclude: ["Resources"], swiftSettings: strict
+            name: "GitCoreTests", dependencies: ["GitCore", "GitTestKit", "JitGitHelper"], exclude: ["Resources"],
+            swiftSettings: strict
         ),
         .testTarget(
             name: "ServicesTests", dependencies: ["Services", "GitCore", "GitTestKit", "JitGitHelper"],
             swiftSettings: strict),
         .testTarget(
-            name: "FeaturesTests", dependencies: ["Features", "Services", "GitCore", "GitTestKit", "DesignSystem"],
+            name: "FeaturesTests",
+            dependencies: ["Features", "Services", "GitCore", "GitTestKit", "DesignSystem", "JitGitHelper"],
             exclude: ["__Snapshots__"], swiftSettings: strict),
         .testTarget(name: "DesignSystemTests", dependencies: ["DesignSystem"], swiftSettings: strict),
     ],

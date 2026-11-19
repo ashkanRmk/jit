@@ -1,0 +1,21 @@
+{
+  "git": "git version 2.56.1",
+  "results": [
+    {
+      "mode": "native-editors",
+      "commits": 50,
+      "elapsed_seconds": 2.063,
+      "all_messages_exact": true,
+      "tree_unchanged": true,
+      "author_preserved": true
+    },
+    {
+      "mode": "exec-amend",
+      "commits": 50,
+      "elapsed_seconds": 1.779,
+      "all_messages_exact": true,
+      "tree_unchanged": true,
+      "author_preserved": true
+    }
+  ]
+}

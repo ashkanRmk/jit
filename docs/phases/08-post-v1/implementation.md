@@ -103,48 +103,55 @@ Implemented as Phase 4 milestones P4.15 (core) and P4.16 (UI); see that phase's 
 
 ### Epic `rebase-interactive` — Interactive rebase
 
+Status: implemented locally/unreleased. [Report](progress-rebase-interactive.md); ADR-0059/0060.
+
 **P8.rebase-interactive.1 — Spike + ADR-0059/0060**
 - Tasks:
-  - [ ] Prototype helper-as-editor vs `exec` lines on a 50-commit fixture; record results.
-  - [ ] Decide empty-commit policy and `--update-refs` default; write ADR-0059, ADR-0060.
-- Done when: ADRs merged with measured/observed evidence.
+  - [x] Prototype helper-as-editor vs `exec` lines on a 50-commit fixture; record results.
+  - [x] Decide empty-commit policy and `--update-refs` default; write ADR-0059, ADR-0060.
+- ADRs and observed spike results are recorded locally; branch not yet merged.
 
 **P8.rebase-interactive.2 — Plan, validation, helper**
 - Tasks:
-  - [ ] `GitCore/Rebase/InteractiveRebase.swift`: `rebasePlan` (merge detection, published flags,
+  - [x] `GitCore/Rebase/InteractiveRebase.swift`: `rebasePlan` (merge detection, published flags,
         unsupported reasons), `rebaseValidate`.
-  - [ ] `jit-git-helper` subcommands `sequence-editor` and `message-editor` in the `JitGitHelper`
+  - [x] `jit-git-helper` subcommands `sequence-editor` and `message-editor` in the `JitGitHelper`
         Swift target (amend ADR-0016); temp dir 0700.
-  - [ ] State-machine additions: interactive rebase, stopped-for-edit, progress from `msgnum`/`end`.
-- Tests: `planRejectsRangeWithMerge`, `validateRejectsLeadingSquash`, `reorderTwoIndependentCommits`,
-  `rewordMessageWithQuotesNewlinesAndUnicode`, `squashCombinesMessages`, `fixupDiscardsMessage`,
-  `dropRemovesCommitTreeMatchesExpected`, `editStopsAndContinueAfterAmend`,
-  `conflictMidRebaseThenAbortRestoresOriginalHead`, `updateRefsMovesStackedBranch`,
-  `committerIdentityFromProfileSnapshot`, `helperNeverReceivesUserTextInArgv`.
+  - [x] State-machine additions: interactive rebase, stopped-for-edit, progress from `msgnum`/`end`.
+- Tests: `InteractiveRebaseTests` (17 tests): all actions, malformed/stale plans, identity, message
+  quoting, private modes, conflicts, reopened edit/continue, skip/abort, unchanged stacked refs and
+  empty-commit behavior. Exact results/caveats are in the report.
 
 **P8.rebase-interactive.3 — Editor UI**
 - Tasks:
-  - [ ] Focused editor: action pickers, drag + ⌥⌘↑/↓ reorder, letter shortcuts, inline reword editor,
+  - [x] Focused editor: action pickers, drag + ⌥⌘↑/↓ reorder, letter shortcuts, inline reword editor,
         squash message preview, result preview graph, rewrite banner.
-  - [ ] Run with progress; resolver labels for rebase ours/theirs; edit-stop WD state; operation bar.
-  - [ ] Relaunch recovery: detect in-progress rebase and show Continue/Abort.
-- Tests: UI `testReorderAndRewordThenRun`, `testConflictDuringInteractiveRebaseResolveContinue`,
-  `testAbortRestoresBranch`; VoiceOver labels audit; snapshots light/dark.
-- Done when: demo — on a 10-commit branch: reorder, reword, squash two, drop one, resolve one conflict, finish;
-  then abort a second run and confirm the branch is unchanged.
+  - [x] Run with progress; resolver labels for rebase ours/theirs; edit-stop WD state; operation bar.
+  - [x] Relaunch recovery: detect in-progress rebase and show Continue/Abort.
+- Tests: `InteractiveRebaseFeatureTests`: reorder/reword execution, confirmation cancellation,
+  model selection, actual conflict resolver → Continue/Abort, native NSItemProvider transfer. Four
+  `InteractiveRebaseSnapshotTests` light/dark/opaque variants.
+- Real-repository demo: mixed ten-commit workflow completed in integration tests. Native light/dark
+  XCUITest acceptance covers both drag directions, keyboard reorder/literal typing, confirmation
+  cancellation and execution. Live VoiceOver and release idle/memory benchmarks remain carry-overs.
 
 ### Epic `commit-surgery` — Direct commit actions
 
-**P8.commit-surgery.1 — Plan generators**
-- Tasks: `reword(oid,msg)`, `drop(oid)`, `move(oid, after)`, `squash(oid, into)` generating validated plans;
-  HEAD reword routes to amend.
-- Tests: `surgeryDropMiddleCommit`, `surgeryMoveUpIndependentCommit`, `surgeryRewordOlderCommit`,
-  `surgerySquashIntoParent`, `surgeryRefusesMergeInRange`.
+Status: Edit Message and Drop Commit implemented locally/unreleased. [Report](progress-commit-surgery.md),
+[spec](specs/P8.commit-surgery.1-edit-message-and-drop.md), ADR-0063.
 
-**P8.commit-surgery.2 — Graph actions**
-- Tasks: context menu items, in-lane drag to reorder (current branch only), message sheet, destructive drop sheet.
-- Tests: UI `testEditOlderCommitMessageFromGraph`, `testDragCommitToReorder`.
-- Done when: demo — edit an older message, drop a commit and recover it through reflog. "Split commit" stays listed as Planned.
+**P8.commit-surgery.1 — Edit Message and Drop Commit**
+- [x] Immutable direct-action provenance and exact confirmation binding; older edits/drops generate
+  validated rebase plans, HEAD messages use a message-only amend.
+- [x] Single-commit graph menu actions, multiline editor, replacement-message review and destructive
+  drop confirmation; known unsupported selections are disabled with explanations.
+- [x] Reuse operation progress, conflict handling, Continue/Skip/Abort and persistent reflog recovery.
+- Tests: `CommitSurgeryTests`, `CommitSurgeryFeatureTests`, `CommitSurgerySnapshotTests` and
+  `CommitSurgeryNativeAcceptanceTests`; verification details and limits are in the report.
+
+**Later slices — planned**
+- Move up/down, graph drag reorder, squash/fixup target selection and split. No unimplemented action
+  buttons are exposed in the graph menu.
 
 ### Epic `history-filters` — Additional filtering
 

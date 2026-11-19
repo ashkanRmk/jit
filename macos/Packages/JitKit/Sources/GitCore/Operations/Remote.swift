@@ -343,10 +343,26 @@ extension RepositoryHandle {
     /// outcome, not an error.
     static func runIntegration(
         _ arguments: [String], identity: IdentitySnapshot?, use: IdentityUse, engine: GitEngine, topLevel: String,
-        gitDirectory: String, headBefore: String, ahead: Int = 0, isRebase: Bool = false
+        gitDirectory: String, headBefore: String, ahead: Int = 0, isRebase: Bool = false,
+        environment: [String: String] = [:],
+        progress: AsyncStream<OperationProgress>.Continuation? = nil
     ) async throws(GitCoreError) -> IntegrationOutcome {
-        let command = GitEnvironment.integrationCommand(
+        var command = GitEnvironment.integrationCommand(
             arguments, in: topLevel, identity: identity, use: use, acceptedExitCodes: [0, 1])
+        command.environment.merge(environment) { _, prepared in prepared }
+        if let progress {
+            let sink = ProgressSink(progress)
+            command.stderrObserver = { _ in
+                let directory = gitDirectory + "/rebase-merge/"
+                func number(_ name: String) -> Int? {
+                    guard let bytes = FileManager.default.contents(atPath: directory + name) else { return nil }
+                    return Int(String(decoding: bytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+                }
+                if let step = number("msgnum"), let total = number("end"), total > 0 {
+                    sink.consume(Array("Rebasing: \(step * 100 / total)% (\(step)/\(total))\n".utf8))
+                }
+            }
+        }
         let output: ProcessOutput
         do {
             output = try await engine.run(command)
@@ -366,6 +382,12 @@ extension RepositoryHandle {
                 return .stoppedInProgress(message: Redaction.redact(text))
             }
             throw .failed(GitErrorClassifier.classify(exitCode: output.exitCode, stderr: text))
+        }
+        if case .rebasing = OperationStateDetector.detect(gitDirectory: gitDirectory) {
+            return .stoppedInProgress(
+                message:
+                    "Rebase paused. Amend the current commit if this is an Edit step, then Continue; Skip or Abort are also available."
+            )
         }
         let head = try await readHead(engine: engine, in: topLevel) ?? ""
         if head == headBefore { return .upToDate }

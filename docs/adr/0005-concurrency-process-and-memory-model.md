@@ -30,7 +30,11 @@ The package is good, but its monitor thread stays alive for the process lifetime
 ## Decision
 
 **Process execution — own `ProcessRunner` (no `swift-subprocess`).**
-- `posix_spawn` with an argv array; there is no API that takes a shell string.
+- `posix_spawn` with an argv array; there is no API that takes a shell string. Its short launch/setup
+  phase runs on one shared serial Dispatch queue (2026-11-19): concurrent kernel launches caused
+  Dispatch to overcommit replacement workers. Each launched child's I/O, exit and cancellation run
+  independently on its own state queue; children still run concurrently. Cancellation during queued
+  launch is applied after readers/exit observation are armed, and returns only after cleanup/reaping.
 - Working directory via `posix_spawn_file_actions_addchdir` (macOS 26); stdin `/dev/null`.
 - `POSIX_SPAWN_SETSID`: the child gets a new session and process group (pgid = pid) and **no
   controlling terminal**, so neither Git nor ssh can prompt on a tty. (Stronger than `SETPGROUP` alone,

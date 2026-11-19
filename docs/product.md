@@ -83,3 +83,19 @@ success in shipped UI — unbuilt features are absent or labelled "Planned".
 - Remote repository browser (File ▸ Browse Remote Repositories…) and clone with the active profile.
 - Known limitations: no proxy authentication for SSH; host-key scanning can't use a proxy; OAuth requires
   registered client IDs; unsigned dev builds may ask for the login keychain password after a rebuild.
+
+## Interactive rebase (local development build, unreleased)
+
+Open from a commit's **Interactive Rebase from Here…** action (includes that commit through HEAD),
+**Branch → Interactive Rebase…**, or ⌘K. The chooser takes an excluded base and optional onto target.
+The focused workbench lists oldest first with author and diffstat. Drag or ⌥⌘↑/↓ reorders; p/r/e/s/f/d
+select Pick/Reword/Edit/Squash/Fixup/Drop while message fields retain ordinary typing. Reword/squash
+messages are editable, dropped rows remain visible, and a small graph previews resulting commits.
+Reordered edits to the same path and known published history show warnings.
+
+**Review Rewrite…** opens a specific confirmation with the previous tip and recovery instructions.
+Run requires a clean tracked tree, an unchanged plan snapshot and a local branch. Authors are retained;
+the captured profile becomes committer. Conflict stops open the resolver. Edit stops use Working
+Directory's Amend, then Continue; Skip/Abort stay available. Prepared messages/identity persist across
+relaunch. Other branches never move implicitly. Linear ranges of 1–500 commits are supported;
+merge-preserving and root-inclusive ranges are refused. [Implementation report](phases/08-post-v1/progress-rebase-interactive.md).

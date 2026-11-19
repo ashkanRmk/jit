@@ -88,6 +88,11 @@
                     if let query = defaults.string(forKey: "JitPaletteQuery") { controller?.setPaletteQuery(query) }
                 }
             }
+            if let base = defaults.string(forKey: "JitInteractiveRebaseBase") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    controller?.showInteractiveRebaseForScreenshot(after: base)
+                }
+            }
             if defaults.bool(forKey: "JitShowReflog") {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) { controller?.showReflog(nil) }
             }

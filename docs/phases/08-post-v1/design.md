@@ -1,6 +1,6 @@
 # Phase 8 — Post-V1: design
 
-> Status (2026-11-18): **reflog/recovery implemented in 0.0.7** ([report](progress-reflog.md)); remaining epics planned. Phase 8 is not one linear phase. It is a set of independent **epics** that
+> Status (2026-11-18): **reflog/recovery implemented in 0.0.7** ([report](progress-reflog.md)); reset and tags also shipped; **interactive rebase implemented locally/unreleased** ([report](progress-rebase-interactive.md), ADR-0059/0060). Other epics planned. Phase 8 is not one linear phase. It is a set of independent **epics** that
 > extend V1 (§9.2, §22 Phase 8). Each epic starts only after V1 has shipped (Phase 7 exit gate) and
 > runs on its own branch `epic/<name>` with its own progress report. None of this may delay V1.
 
@@ -131,7 +131,7 @@ Stashing selected hunks (via the patch builder) stays here, in the `patches` epi
   lease; the local tag stays intact. Both confirmations default to Cancel (ADR-0062).
 - Implemented locally/unreleased: [specs and verification](progress-tags.md). Signing remains planned.
 
-### 3.5 Interactive rebase (`rebase-interactive`)
+### 3.5 Interactive rebase (`rebase-interactive`) — implemented locally/unreleased
 - **Start:** context menu on a commit "Interactive rebase from here…" or Branch ▸ Interactive Rebase
   onto…. Opens a focused editor occupying the main content area.
 - **Editor:** a list of commits oldest→newest (Git todo order, labelled clearly), each row: action
@@ -149,13 +149,16 @@ Stashing selected hunks (via the patch builder) stays here, in the `patches` epi
   submodule pointer conflicts) are disabled with an explanation, not attempted.
 
 ### 3.6 Commit surgery (`commit-surgery`)
-Direct graph actions on the current branch's unpublished-or-confirmed history, each executing the
-interactive-rebase engine with a generated todo and no editor:
-- **Edit message…** (any commit on the current branch) → message sheet → reword.
-- **Drop commit** → destructive sheet (recoverable via reflog).
-- **Move up / Move down**, or drag a commit row within the branch lane → reorder.
-- **Squash into parent / Fixup into…** (pick target).
-- **Split commit** is deferred to a later iteration (needs edit-stop UX); listed as Planned.
+Edit Message and Drop Commit are implemented locally/unreleased ([report](progress-commit-surgery.md),
+ADR-0063). Direct graph actions operate on the current branch with clean tracked files and explicit
+confirmation:
+- **Edit Message…** → focused multiline sheet → review. HEAD uses a message-only amend preserving its
+  tree, parents and author (including root/merge HEAD). Older edits generate a reword plan over the
+  existing linear interactive-rebase engine.
+- **Drop Commit…** → destructive review → generated drop plan. Recover the previous tip through Reflog;
+  conflicts reuse Continue/Skip/Abort. Root/merge drops and older ranges containing merges are refused.
+- **Move up / Move down**, graph drag reorder, **Squash into parent / Fixup into…** and **Split commit**
+  remain planned. These actions are absent from the shipped graph menu until implemented.
 
 ### 3.7 Additional history filtering (`history-filters`)
 - Filter bar extension (⌘F context): author/committer, date range, path(s) (drag files in), message

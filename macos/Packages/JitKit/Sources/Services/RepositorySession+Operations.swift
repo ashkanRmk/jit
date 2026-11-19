@@ -55,6 +55,9 @@ extension RepositorySession {
         operationStateTask = Task {
             guard let state = try? await handle.operationState(), !Task.isCancelled else { return }
             if state != self.operationState { self.operationState = state }
+            let stoppedForEdit = (try? await handle.rebaseIsStoppedForEdit()) ?? false
+            guard !Task.isCancelled else { return }
+            self.rebaseStoppedForEdit = stoppedForEdit
         }
     }
 
@@ -234,6 +237,29 @@ extension RepositorySession {
         }
     }
 
+    public func startInteractiveRebase(_ plan: InteractiveRebasePlan, token: ConfirmationToken, context: ExecContext)
+        async
+        -> Result<IntegrationOutcome, PresentableError>
+    {
+        let helper = gitHelperPath ?? ""
+        return await perform("Interactive rebase", summarize: OutcomeText.describe) {
+            handle, progress throws(GitCoreError) in
+            try await handle.startInteractiveRebase(
+                plan, token: token, helperPath: helper, context: context, progress: progress)
+        }
+    }
+
+    public func applyCommitSurgery(_ plan: CommitSurgeryPlan, token: ConfirmationToken, context: ExecContext)
+        async -> Result<IntegrationOutcome, PresentableError>
+    {
+        let helper = gitHelperPath ?? ""
+        return await perform(plan.action.title, summarize: OutcomeText.describe) {
+            handle, progress throws(GitCoreError) in
+            try await handle.applyCommitSurgery(
+                plan, token: token, helperPath: helper, context: context, progress: progress)
+        }
+    }
+
     public func cherryPick(_ commits: [String], mainline: Int?, context: ExecContext, expected: RepoStateToken?) async
         -> Result<IntegrationOutcome, PresentableError>
     {
@@ -252,16 +278,19 @@ extension RepositorySession {
     }
 
     public func continueOperation(context: ExecContext) async -> Result<IntegrationOutcome, PresentableError> {
-        await perform("Continue", summarize: OutcomeText.describe) { handle, _ throws(GitCoreError) in
-            try await handle.continueOperation(context: context)
+        let helper = gitHelperPath
+        return await perform("Continue", summarize: OutcomeText.describe) { handle, progress throws(GitCoreError) in
+            try await handle.continueOperation(context: context, helperPath: helper, progress: progress)
         }
     }
 
     public func skipCurrent(context: ExecContext, token: ConfirmationToken, expected: RepoStateToken) async
         -> Result<IntegrationOutcome, PresentableError>
     {
-        await perform("Skip commit", summarize: OutcomeText.describe) { handle, _ throws(GitCoreError) in
-            try await handle.skipCurrent(context: context, token: token, expected: expected)
+        let helper = gitHelperPath
+        return await perform("Skip commit", summarize: OutcomeText.describe) { handle, progress throws(GitCoreError) in
+            try await handle.skipCurrent(
+                context: context, token: token, expected: expected, helperPath: helper, progress: progress)
         }
     }
 

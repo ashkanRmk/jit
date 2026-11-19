@@ -13,6 +13,9 @@ let environment = ProcessInfo.processInfo.environment
 if arguments.count >= 2 && arguments[1] == "credential" {
     exit(HelperMain.credential(action: arguments.count >= 3 ? arguments[2] : ""))
 }
+if arguments.count == 3, ["sequence-editor", "message-editor"].contains(arguments[1]) {
+    exit(RebaseEditor.run(mode: arguments[1], target: arguments[2]))
+}
 switch environment["JIT_HELPER_MODE"] {
 case "askpass":
     exit(HelperMain.askpass(prompt: arguments.count >= 2 ? arguments[1] : ""))

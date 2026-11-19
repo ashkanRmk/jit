@@ -341,6 +341,9 @@ public enum CommandRegistry {
                 "repo.copyPath", "Copy Repository Path", .repository, #selector(W.copyRepositoryPath(_:)), key: "c",
                 [.command, .option], group: 5, symbol: "doc.on.doc"),
             // Branch
+            C(
+                "branch.interactiveRebase", "Interactive Rebase…", .branch, #selector(W.interactiveRebase(_:)),
+                symbol: "arrow.triangle.branch", keywords: "reorder reword squash fixup drop history rewrite"),
             C("branch.new", "New Branch…", .branch, #selector(W.newBranch(_:)), symbol: "plus"),
             // Window
             C(

@@ -162,10 +162,16 @@ import Testing
                     viewport.layoutSubtreeIfNeeded()
                     await ClosedTabDeallocatesTests.spin(70)
                     let panes = workbench.splitViewItems.filter { !$0.isCollapsed }.map {
-                        $0.viewController.view.convert($0.viewController.view.bounds, to: workbench.splitView)
+                        $0.viewController.view.convert($0.viewController.view.bounds, to: nil)
                     }
+                    // Compare rendered window points: at 75% zoom a backing-pixel rounding difference
+                    // is larger in the workbench's logical coordinates, especially across displays.
+                    let roundingTolerance = 1 / window.backingScaleFactor + 0.001
                     for (left, right) in zip(panes, panes.dropFirst()) {
-                        #expect(left.maxX <= right.minX + 0.5)
+                        #expect(
+                            left.maxX <= right.minX + roundingTolerance,
+                            "appearance=\(appearance.rawValue), width=\(width), zoom=\(level.factor), left=\(left), right=\(right)"
+                        )
                     }
                     if let graph = controller.activeGraph,
                         let bar = graph.view.subviews.compactMap({ $0 as? WorkspaceHostingView<GraphBar> }).first
