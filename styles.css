@@ -200,6 +200,8 @@ p { margin: 0; }
 /* ---------- Hero ---------- */
 
 .hero { padding-top: clamp(2.5rem, 6vw, 4.5rem); }
+.hero [data-release-meta] { flex-basis: 100%; }
+.star-badge { gap: .4rem; padding: .55rem .9rem; font-size: .9rem; }
 
 .compare { margin: clamp(3rem, 6vw, 4.5rem) 0 0; }
 .compare-stage {
