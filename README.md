@@ -57,8 +57,9 @@ then go to **System Settings → Privacy & Security → Open Anyway** and confir
 
 ### Updating
 
-Open the bell icon in Jit and choose **Check for Updates**. When an update is available, choose
-**Install and Restart**. You can also enable automatic updates in **Settings → General**.
+Open the bell icon in Jit to read **What's New**. The changelog refreshes when its cached notes are
+missing or a day old. To check immediately, choose **Check for Updates**. When an update is available,
+choose **Install and Restart**. You can enable automatic updates in **Settings → General**.
 
 ## License
 
