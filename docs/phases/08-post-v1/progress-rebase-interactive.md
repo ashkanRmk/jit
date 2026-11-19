@@ -1,6 +1,6 @@
 # Phase 8 — Interactive rebase
 
-Status: implemented locally, unreleased; native drag acceptance is still pending.
+Status: implemented and verified locally, unreleased.
 Branch: `feat/interactive-rebase` (not merged or pushed).
 Environment: Apple silicon MacBook Pro, macOS 27.0.1 (26A434), Xcode 27.2 (27B52), Git 2.56.1.
 Work and verification: 2026-11-18–19.
@@ -49,18 +49,15 @@ Work and verification: 2026-11-18–19.
 - Debug app build and the 25 app tests passed. Swift formatting / styling / architecture lint and
   whitespace checks passed.
 - Full package run: Services 244, GitCore 484, Features 220 and DesignSystem 15 tests passed (963 total).
-  The original thread-count test measured 17 → 17 threads with a ~5 μs probe in that run. All 25 app
-  tests also passed. Four updated snapshots were reviewed and passed twice without recording; the
-  new native handle changes the glyph/frame, and the global OS pin remains unchanged. After the Tab/
-  ⌘Return follow-up, all 220 Features tests and the three native input tests passed again, and the
-  native acceptance target built successfully. Two final app-suite repeats stalled in Xcode's build
-  service before starting tests and were terminated; the earlier 25-test pass remains the app-suite
-  evidence, not a completed final rerun.
+  All 25 app tests passed in the final repeat. Four updated snapshots were reviewed and passed twice
+  without recording; the native handle changes the glyph/frame, and the global OS pin remains unchanged.
 - The runner now serializes only `posix_spawn` setup on one Dispatch queue. Child I/O, exit,
   cancellation and waiting remain concurrent. The original 64-child `<32` extra-thread assertion is
-  unchanged: a cold run measured 7 → 12 threads and a ~21 μs detached probe; the full GitCore run
-  measured 21 → 21 threads and ~92 μs. All 18 ProcessRunner tests passed, including a new queued-launch
-  cancellation/reaping regression. ADR-0005 records the launch change.
+  unchanged: a cold run measured 7 → 12 threads and a ~21 μs detached probe; the final full GitCore
+  run measured 18 → 18 threads and ~7 μs. All 18 ProcessRunner tests passed, including a new queued-launch
+  cancellation/reaping regression. PID fixture startup uses a bounded five-second readiness deadline
+  under parallel load, with task cancellation on early exit; kill/cancellation and thread limits remain
+  unchanged. ADR-0005 records the launch change.
 - Native keyboard verification in the isolated desktop app confirmed selection and ⌥⌘↑ reordering.
   Native responder tests cover all six action letters, both reorder directions, sheet suppression,
   Escape dismissal and literal `presfd` typing / arrow ownership inside NSTextView. Tab now enters
@@ -70,16 +67,19 @@ Work and verification: 2026-11-18–19.
   subjects, preserved tree/author, active-profile committer and clean worktree. The editor now uses
   scoped AppKit responder routing instead of hidden SwiftUI shortcut buttons.
 - Drag source and destination use AppKit with same-editor/source/pasteboard validation and synchronous
-  movement/cleanup. Desktop automation starts the drag and moves to the correct screen coordinates,
-  but no successful native drop has been observed. Diagnostics showed the test app inactive and its
-  window not key during those events. This is evidence of an acceptance blocker, not a drag pass.
-- A separate `JitNativeInputAcceptance` XCUITest scheme and
-  `scripts/testing/native-rebase-acceptance.sh` prepare a separately identified ad-hoc app copy and
-  disposable repository/state. The test covers both drag directions, keyboard reorder, literal message
-  entry, default confirmation cancellation, explicit rewrite and resulting Git history/tree/identity.
-  The runner compiled, but macOS timed out enabling automation before the test body ran. Developer
-  Tools authorization is disabled; no system permissions were changed. Owner authorization or a
-  foreground desktop handoff is needed to finish that acceptance run.
+  movement/cleanup. A click selects the handle; movement starts a drag using the retained mouse-down
+  event. The rendered-row regression verifies that native hit testing reaches the handle.
+- Both `JitNativeInputAcceptance` XCUITests passed, with zero failures or skips, in light and dark.
+  Each used actual mouse click-and-drag in both directions, keyboard reorder, Tab into the message,
+  literal multiline typing and arrow ownership, ⌘Return review, Return cancellation with HEAD unchanged,
+  then Tab/Space confirmation. Both reached Succeeded and checked Git subjects/tree/authors/committer
+  and a clean worktree. [Window-only evidence](screenshots/interactive-rebase-native/README.md) shows
+  the editor after drag, native text editing and completion; all six captures were reviewed.
+- `scripts/testing/native-rebase-acceptance.sh` prepares an ad-hoc app copy with a unique bundle ID,
+  uses its exact URL, and isolates repositories/app support. The script supplies the resolved Git
+  executable because the sandboxed UI runner cannot use the xcrun-backed `/usr/bin/git` shim.
+  macOS mouse tests use XCTest's `click(forDuration:thenDragTo:)`, not its touch-only press gesture.
+  Developer Tools authorization was enabled with owner approval on 2026-11-19.
 
 ## Performance
 
@@ -91,9 +91,7 @@ No release idle-CPU/memory regression benchmark or live VoiceOver walkthrough wa
 
 ## Limits / carry-overs
 
-- Native drag-to-drop remains open until the acceptance harness can run with foreground automation.
-  Keyboard-only editing, Tab/confirmation and execution are verified in the desktop app and native
-  adapter tests. Live VoiceOver acceptance also remains open.
+- Native drag and keyboard acceptance are complete. Live VoiceOver acceptance remains open.
 - The ProcessRunner thread-count failure is fixed without relaxing its threshold.
 - Merge-preserving and root-inclusive rebase, automatic stacked-branch updates and signing are outside
   this version. Newly empty commits can be skipped, or explicitly kept via Terminal before Continue.

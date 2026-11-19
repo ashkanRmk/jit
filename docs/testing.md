@@ -63,13 +63,18 @@ How Jit is tested, and how to run, record and re-baseline each suite. Rules: rea
 pasteboard drop validation. Tab enters the selected message; Command-Return opens review from the
 list or message. In the review sheet, Return cancels; Tab twice from Copy then Space explicitly
 confirms. It does not synthesize a WindowServer drag session. The separate
-`JitNativeInputAcceptance` XCUITest scheme uses pointer/keyboard events, drags both directions, edits a
-message, cancels the default confirmation, then explicitly executes and checks Git history/tree/identity.
+`JitNativeInputAcceptance` XCUITest scheme runs in light and dark appearances, uses pointer/keyboard
+events, drags both directions, edits a message, cancels the default confirmation, then explicitly
+executes and checks Git history/tree/identity. Native drag tests use `click(forDuration:thenDragTo:)`;
+`press(forDuration:thenDragTo:)` sends touch input and does not exercise AppKit mouse dragging.
 
 Run `scripts/testing/native-rebase-acceptance.sh` from an unlocked foreground desktop with macOS
 Developer Tools authorization enabled. The script refuses when authorization is disabled; it never
 changes that setting. It builds and registers a separately identified ad-hoc app copy, uses temporary
-repositories/app support, and retains `.xcresult` screenshots outside the checkout. Jit's normal signing,
+repositories/app support, and retains `.xcresult` screenshots outside the checkout. Each run has a
+unique bundle ID and passes its exact application URL to XCTest so older QA copies cannot intercept
+launches. The script resolves the actual Git binary with `xcrun --find git` before running the sandboxed
+UI runner, where the `/usr/bin/git` shim cannot invoke xcrun. Jit's normal signing,
 app support and repository remain untouched. UI test runner library validation is disabled only for the
 ad-hoc test bundle, not the Jit app. An automation-mode initialization timeout means the test body did
 not run; it is not evidence that drag passed or failed.

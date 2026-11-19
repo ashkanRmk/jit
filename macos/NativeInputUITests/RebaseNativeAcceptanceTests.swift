@@ -5,18 +5,25 @@ import XCTest
 /// These use macOS input events through XCTest, not calls to the editor model.
 @MainActor
 final class RebaseNativeAcceptanceTests: XCTestCase {
-    func testDragBothDirectionsKeyboardAndLiteralMessageThenExecute() throws {
+    func testDragBothDirectionsAndKeyboardExecutionLight() throws { try verifyNativeInput(appearance: "light") }
+    func testDragBothDirectionsAndKeyboardExecutionDark() throws { try verifyNativeInput(appearance: "dark") }
+
+    private func verifyNativeInput(appearance: String) throws {
         continueAfterFailure = false
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("jit-native-input-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         let repo = root.appendingPathComponent("repo")
         let state = root.appendingPathComponent("state")
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        // /usr/bin/git is an xcrun shim, which cannot run inside the XCUITest sandbox.
+        let fixtureGit = try XCTUnwrap(
+            ProcessInfo.processInfo.environment["JIT_NATIVE_FIXTURE_GIT"],
+            "Run scripts/testing/native-rebase-acceptance.sh to supply the actual Git executable")
         func git(_ arguments: String...) throws -> String {
             let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            task.executableURL = URL(fileURLWithPath: fixtureGit)
             task.arguments = arguments
             task.currentDirectoryURL = repo
             task.environment = [
@@ -62,14 +69,17 @@ final class RebaseNativeAcceptanceTests: XCTestCase {
             ],
         ]
         try JSONSerialization.data(withJSONObject: profile).write(to: state.appendingPathComponent("profiles.json"))
-        let app = XCUIApplication(bundleIdentifier: "com.ashkanrmk.jit.nativeacceptance")
+        let appPath = try XCTUnwrap(ProcessInfo.processInfo.environment["JIT_NATIVE_APP"])
+        let app = XCUIApplication(url: URL(fileURLWithPath: appPath))
         app.launchEnvironment["JIT_APP_SUPPORT"] = state.path
+        addTeardownBlock { @MainActor in app.terminate() }
         app.launchArguments = [
-            "-JitOpen", repo.path, "-JitAppearance", "light", "-JitInteractiveRebaseBase", "HEAD~6",
+            "-JitOpen", repo.path, "-JitAppearance", appearance, "-JitInteractiveRebaseBase", "HEAD~6",
             "-JitAssumeForeground", "YES",
         ]
         app.launch()
-        defer { app.terminate() }
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5), "Native input requires a foreground application")
         func row(_ position: Int, _ subject: String, action: String = "Pick") -> XCUIElement {
             app.descendants(matching: .any).matching(
                 NSPredicate(format: "label BEGINSWITH %@", "Commit \(position) of 6, \(action), \(subject)")
@@ -83,15 +93,22 @@ final class RebaseNativeAcceptanceTests: XCTestCase {
         let first = try handle("Alpha")
         let last = try handle("Foxtrot")
         XCTAssertTrue(last.isHittable)
-        last.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
+        last.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        let selected = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "selected == true"), object: row(6, "Foxtrot"))
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [selected], timeout: 10), .completed,
+            "Click selects the handle without starting a drag")
+        // Mouse interaction on macOS: press(forDuration:) synthesizes touch input instead.
+        last.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click(
             forDuration: 0.5, thenDragTo: first.coordinate(withNormalizedOffset: CGVector(dx: 10, dy: 0.5)))
-        XCTAssertTrue(row(1, "Foxtrot").waitForExistence(timeout: 5), app.debugDescription)
-        try handle("Foxtrot").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(
+        XCTAssertTrue(row(1, "Foxtrot").waitForExistence(timeout: 15), app.debugDescription)
+        try handle("Foxtrot").coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click(
             forDuration: 0.5,
             thenDragTo: try handle("Echo").coordinate(withNormalizedOffset: CGVector(dx: 10, dy: 0.5)))
-        XCTAssertTrue(row(6, "Foxtrot").waitForExistence(timeout: 5), app.debugDescription)
-        let dragCapture = XCTAttachment(screenshot: app.screenshot())
-        dragCapture.name = "Native drag in both directions"
+        XCTAssertTrue(row(6, "Foxtrot").waitForExistence(timeout: 15), app.debugDescription)
+        let dragCapture = XCTAttachment(screenshot: app.windows["main"].screenshot())
+        dragCapture.name = "Native drag in both directions — \(appearance)"
         dragCapture.lifetime = .keepAlways
         add(dragCapture)
 
@@ -112,8 +129,8 @@ final class RebaseNativeAcceptanceTests: XCTestCase {
         app.typeKey(.upArrow, modifierFlags: [])
         app.typeKey(.upArrow, modifierFlags: [.command, .option])
         XCTAssertTrue(row(2, "Bravo", action: "Reword").exists)
-        let typingCapture = XCTAttachment(screenshot: app.screenshot())
-        typingCapture.name = "Native keyboard and literal typing"
+        let typingCapture = XCTAttachment(screenshot: app.windows["main"].screenshot())
+        typingCapture.name = "Native keyboard and literal typing — \(appearance)"
         typingCapture.lifetime = .keepAlways
         add(typingCapture)
         app.typeKey(.return, modifierFlags: [.command])
@@ -133,5 +150,9 @@ final class RebaseNativeAcceptanceTests: XCTestCase {
         XCTAssertEqual(try git("rev-parse", "HEAD^{tree}"), previousTree)
         XCTAssertEqual(try git("log", "-1", "--format=%an|%cn"), "Fixture Author|Native QA")
         XCTAssertTrue(try git("status", "--porcelain").isEmpty)
+        let completedCapture = XCTAttachment(screenshot: app.windows["main"].screenshot())
+        completedCapture.name = "Native rebase completed — \(appearance)"
+        completedCapture.lifetime = .keepAlways
+        add(completedCapture)
     }
 }

@@ -119,6 +119,9 @@ import Testing
         #expect(handles.count == editor.plan.steps.count)
         let source = try #require(handles.first { $0.oid == editor.plan.steps[3].oid })
         let target = try #require(handles.first { $0.oid == editor.plan.steps[0].oid })
+        let hitPoint = source.convert(
+            NSPoint(x: source.bounds.midX, y: source.bounds.midY), to: controller.view.superview)
+        #expect(controller.view.hitTest(hitPoint) === source)
         let board = NSPasteboard.withUniqueName()
         defer { board.releaseGlobally() }
         board.setString(source.oid, forType: .string)

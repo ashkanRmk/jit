@@ -29,6 +29,7 @@ final class RebaseDragHandleView: NSImageView, NSDraggingSource {
     weak var model: RebaseEditorModel?
     var oid = ""
     var focusList: () -> Void = {}
+    private var mouseDownEvent: NSEvent?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -41,14 +42,22 @@ final class RebaseDragHandleView: NSImageView, NSDraggingSource {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        guard let model, let image else { return }
+        guard let model else { return }
         model.selection = oid
         focusList()
+        mouseDownEvent = event
+    }
+
+    override func mouseUp(with event: NSEvent) { mouseDownEvent = nil }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let model, let image, let mouseDownEvent else { return }
+        self.mouseDownEvent = nil
         model.draggedCommit = oid
         let item = NSDraggingItem(pasteboardWriter: oid as NSString)
         item.setDraggingFrame(bounds, contents: image)
-        // AppKit requires the initiating mouse-down event. It owns tracking and drag thresholding.
-        beginDraggingSession(with: [item], event: event, source: self)
+        // Start only after movement, and retain the initiating mouse-down event for AppKit.
+        beginDraggingSession(with: [item], event: mouseDownEvent, source: self)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext)
