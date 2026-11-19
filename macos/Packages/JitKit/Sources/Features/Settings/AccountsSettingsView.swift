@@ -264,7 +264,7 @@ struct AccountConnectForm: View {
             case .deviceCode(let code, let url):
                 VStack(alignment: .leading, spacing: Space.s3) {
                     Text("Enter this code on GitHub:").typeStyle(.callout)
-                    Text(code).typeStyle(.monoTitle).textSelection(.enabled)
+                    GitHubDeviceCodeView(code: code)
                     Link("Open \(url.host ?? "github.com")…", destination: url)
                     HStack(spacing: Space.s3) {
                         ProgressView().controlSize(.small)

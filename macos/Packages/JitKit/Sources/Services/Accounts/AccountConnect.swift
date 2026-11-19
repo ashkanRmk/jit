@@ -159,23 +159,17 @@ extension AccountsService {
         if let replacing, replacing.userID != user.id {
             return .failure(.differentUser(found: user.login, expected: replacing.login))
         }
-        let existing =
-            replacing
-            ?? profiles.accounts.first { $0.instanceID == instance.id && $0.userID == user.id }
-        let account = HostingAccount(
-            id: existing?.id ?? .new(), instanceID: instance.id, login: user.login, userID: user.id,
-            displayName: user.name, method: .pat, scopes: info.scopes, expiresAt: info.expiresAt, status: .ok,
-            lastCheckedAt: Date())
         // The server record goes in first so the account never points at an unknown instance; a Keychain
         // failure takes it out again.
         let isNewInstance = instance.isSelfManaged && profiles.instance(instance.id) == nil
         if isNewInstance { profiles.upsertInstance(instance) }
         do throws(KeychainError) {
-            try await saveAccount(account, secret: token, instanceName: instance.name)
+            let account = try await saveConnectedAccount(
+                user: user, instance: instance, method: .pat, info: info, secret: token, replacing: replacing)
+            return .success(account)
         } catch {
             if isNewInstance { profiles.removeInstance(instance.id) }
             return .failure(.keychain(error.description))
         }
-        return .success(account)
     }
 }

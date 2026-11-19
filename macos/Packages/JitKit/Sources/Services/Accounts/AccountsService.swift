@@ -77,12 +77,51 @@ public final class AccountsService {
 
     // MARK: Account lifecycle (Keychain first, then the non-secret record)
 
+    private struct AccountIdentity: Hashable {
+        let instanceID: ProviderInstanceID
+        let userID: String
+    }
+
+    @ObservationIgnored
+    private var accountWrites: [AccountIdentity: Task<Result<HostingAccount, KeychainError>, Never>] = [:]
+
+    /// Save a provider-verified sign-in under the same local ID, even if the user's login changed.
+    @discardableResult
+    public func saveConnectedAccount(
+        user: ProviderUser, instance: ProviderInstance, method: AuthMethod, info: TokenInfo, secret: SecretBytes,
+        replacing: HostingAccount? = nil
+    ) async throws(KeychainError) -> HostingAccount {
+        let identity = AccountIdentity(instanceID: instance.id, userID: user.id)
+        // Hold each identity's write slot across the Keychain hop so concurrent sign-ins use one ID.
+        while let pending = accountWrites[identity] { _ = await pending.value }
+        let write = Task<Result<HostingAccount, KeychainError>, Never> {
+            defer { accountWrites[identity] = nil }
+            let existing = replacing ?? profiles.accounts.first { $0.instanceID == instance.id && $0.userID == user.id }
+            let account = HostingAccount(
+                id: existing?.id ?? .new(), instanceID: instance.id, login: user.login, userID: user.id,
+                displayName: user.name, method: method, scopes: info.scopes, expiresAt: info.expiresAt,
+                status: .ok, lastCheckedAt: Date())
+            do throws(KeychainError) {
+                try await saveAccount(account, secret: secret, instanceName: instance.name)
+                return .success(account)
+            } catch {
+                return .failure(error)
+            }
+        }
+        accountWrites[identity] = write
+        return try await write.value.get()
+    }
+
     /// Saves a validated token and the account record. The token goes to the Keychain only.
-    public func saveAccount(_ account: HostingAccount, secret: SecretBytes, instanceName: String)
+    private func saveAccount(_ account: HostingAccount, secret: SecretBytes, instanceName: String)
         async throws(KeychainError)
     {
         try await secrets.store(secret, for: .account(account.id), label: "Jit — \(instanceName) @\(account.login)")
-        profiles.addAccount(account)
+        if profiles.account(account.id) == nil {
+            profiles.addAccount(account)
+        } else {
+            profiles.updateAccount(account)
+        }
     }
 
     /// Replaces the token of an existing account (rotation) atomically: the Keychain item is updated in place.
