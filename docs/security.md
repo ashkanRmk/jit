@@ -86,5 +86,5 @@ identity, the user's Git/SSH configuration.
   2026-11-09.
 - **Binary audit** (`scripts/release/` output, 1.0.0): no development-only targets, Swift modules, dSYMs, key
   files or `.DS_Store` in the app (`03-verify-archs.sh`). The `strings` scan results are in progress.md.
-- **OAuth**: no `OAuthClients.plist` is bundled, so GitHub/GitLab OAuth sign-in reports "not configured" in
-  1.0.0. Registering the public OAuth clients is an owner action (`docs/release.md`). PAT and SSH work.
+- **OAuth**: from 0.1.0 the bundle includes public client IDs for GitHub.com and GitLab.com. GitHub
+  uses Device Flow and GitLab uses authorization code with PKCE. Jit stores account tokens in Keychain.

@@ -9,7 +9,7 @@ A premium, ultra-lightweight native macOS Git client — 100% Swift (SwiftUI + A
 Glass design, driving the Git CLI. No Electron, web views, background daemons or telemetry.
 
 **[Website](https://ashkanrmk.github.io/jit/)** · **[Download the latest test build](https://github.com/ashkanRmk/jit/releases)**
-(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.0.9.md)
+(macOS 26+, Apple silicon, ~11 MB with Git included) · [Release notes](docs/releases/v0.1.0.md)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/assets/shots/graph-dark.webp">
@@ -24,9 +24,8 @@ Screenshots follow your GitHub light/dark appearance. They are real captures of 
 
 ## Status
 
-**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.0.9, a test build with
-tag management, precise graph sizing, safe local branch cleanup and sharp workspace zoom
-([notes](docs/releases/v0.0.9.md)).**
+**V1 (Phases 0–7) is implemented and merged to `main`. The current version is 0.1.0, a test build with
+browser sign-in for GitHub.com and GitLab.com ([release notes](docs/releases/v0.1.0.md)).**
 
 | Phase | State | Report |
 |---|---|---|
@@ -42,7 +41,7 @@ tag management, precise graph sizing, safe local branch cleanup and sharp worksp
 
 Builds are **ad-hoc signed and not notarized** (owner decision 2026-11-10: free distribution, no paid
 Apple Developer Program; ADR-0049). Developer ID signing and notarization are scripted but have never been run.
-Verification details and release checks are recorded in the [0.0.9 notes](docs/releases/v0.0.9.md)
+Verification details and release checks are recorded in the [0.1.0 notes](docs/releases/v0.1.0.md)
 and [workspace report](docs/phases/08-post-v1/progress-workspace-sizing.md).
 
 ## What Jit does (V1)

@@ -3,7 +3,8 @@
 Status (1.0.0, 2026-11-10): **distributed free as an ad-hoc-signed, non-notarized DMG** (owner decision,
 ADR-0049 addendum). The Developer ID path (steps 07–08) is implemented but unused; clean-VM acceptance pending. See
 [`phases/07-packaging-and-release/progress.md`](phases/07-packaging-and-release/progress.md).
-Current version: **0.0.9**, a test build ([`releases/v0.0.9.md`](releases/v0.0.9.md); earlier:
+Current version: **0.1.0**, a test build ([`releases/v0.1.0.md`](releases/v0.1.0.md); earlier:
+[`0.0.9`](releases/v0.0.9.md),
 [`0.0.8`](releases/v0.0.8.md),
 [`0.0.7`](releases/v0.0.7.md),
 [`0.0.6`](releases/v0.0.6.md),
@@ -27,10 +28,9 @@ and notarization), 0048 (clean-machine protocol), 0049 (versioning, arm64-only).
      ```
   4. Once per machine: allow Finder automation when macOS asks (DMG window layout), or set `JIT_DMG_LAYOUT=0`.
 - Optional: `brew install gnupg` and `JIT_GIT_VERIFY_SIGNATURE=1` to also check Git's PGP signature (ADR-0019).
-- Before 1.0 ships publicly (owner): register the public OAuth clients (GitHub OAuth app with Device Flow;
-  GitLab.com application, redirect `jit://oauth/gitlab`, scopes `read_api read_repository write_repository`) and
-  add `macos/Resources/OAuthClients.plist` (`GitHubClientID`, `GitLabClientID`). Without it OAuth sign-in shows
-  "not configured"; PAT and SSH work. Jit itself is MIT-licensed (`LICENSE`).
+- Releases from 0.1.0 bundle the public OAuth client IDs in `macos/App/Resources/OAuthClients.plist`.
+  GitHub.com uses Device Flow. GitLab.com uses PKCE with redirect `jit://oauth/gitlab` and scopes
+  `read_api read_repository write_repository`. Jit is MIT-licensed (`LICENSE`).
 
 ## 2. Building a release
 Change the version **only** in `macos/App/Config/Version.xcconfig` (`MARKETING_VERSION`, increase
