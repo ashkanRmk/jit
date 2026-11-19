@@ -140,6 +140,26 @@ import Testing
         #expect(fixture.accounts.connectInstance(tab: .githubEnterprise, host: "github.com")?.id == .github)
     }
 
+    @Test func repeatedOAuthSignInReusesTheAccountAndUpdatesItsCredential() async throws {
+        let fixture = Fixture(Self.gitlabStub())
+        let user = ProviderUser(id: "42", login: "octo")
+        let info = TokenInfo(scopes: ["repo", "read:org"])
+        async let first = fixture.accounts.saveConnectedAccount(
+            user: user, instance: .github, method: .oauth, info: info, secret: SecretBytes(utf8: "first"))
+        async let second = fixture.accounts.saveConnectedAccount(
+            user: user, instance: .github, method: .oauth, info: info, secret: SecretBytes(utf8: "second"))
+        let (firstAccount, secondAccount) = try await (first, second)
+        #expect(firstAccount.id == secondAccount.id)
+
+        let renamed = ProviderUser(id: user.id, login: "octocat")
+        let updated = try await fixture.accounts.saveConnectedAccount(
+            user: renamed, instance: .github, method: .oauth, info: info, secret: SecretBytes(utf8: "updated"))
+        #expect(updated.id == firstAccount.id)
+        #expect(updated.login == renamed.login)
+        #expect(fixture.store.accounts == [updated])
+        #expect(providerSecretText(try await fixture.secrets.read(.account(updated.id))) == "updated")
+    }
+
     @Test func replacingRequiresTheSameUser() async throws {
         let fixture = Fixture(Self.gitlabStub())
         let other = HostingAccount(instanceID: .gitlab, login: "grace", userID: "99", method: .pat)

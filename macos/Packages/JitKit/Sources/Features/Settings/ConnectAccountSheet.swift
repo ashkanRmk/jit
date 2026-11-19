@@ -108,10 +108,9 @@ final class ConnectAccountModel {
                     existing.expiresAt = expiresAt
                     try await accounts.replaceToken(existing, secret: secret, instanceName: instance.name)
                 } else {
-                    let account = HostingAccount(
-                        instanceID: instance.id, login: login, userID: userID, displayName: name, method: .pat,
-                        scopes: scopes, expiresAt: expiresAt, status: .ok, lastCheckedAt: Date())
-                    try await accounts.saveAccount(account, secret: secret, instanceName: instance.name)
+                    try await accounts.saveConnectedAccount(
+                        user: ProviderUser(id: userID, login: login, name: name), instance: instance, method: .pat,
+                        info: TokenInfo(scopes: scopes, expiresAt: expiresAt), secret: secret)
                 }
                 token = ""
                 finish()
@@ -128,6 +127,7 @@ final class ConnectAccountModel {
         oauthTask = Task {
             let transport = await accounts.transport(for: instance)
             do {
+                try Task.checkCancellation()
                 let tokens: OAuthTokens
                 switch instance.kind {
                 case .gitlab:
@@ -146,26 +146,25 @@ final class ConnectAccountModel {
                     ? GitHubProvider(instance: instance, transport: transport, token: { tokens.access })
                     : GitLabProvider(instance: instance, method: .oauth, transport: transport, token: { tokens.access })
                 let user = try await provider.currentUser()
-                if let replacing, replacing.login.lowercased() != user.login.lowercased() {
+                try Task.checkCancellation()
+                if let replacing, replacing.userID != user.id {
                     phase = .failed("You signed in as @\(user.login), not @\(replacing.login).")
                     return
                 }
-                let account = HostingAccount(
-                    id: replacing?.id ?? .new(), instanceID: instance.id, login: user.login, userID: user.id,
-                    displayName: user.name, method: .oauth, scopes: tokens.scopes, expiresAt: nil, status: .ok,
-                    lastCheckedAt: Date())
-                try await accounts.saveAccount(account, secret: tokens.keychainData(), instanceName: instance.name)
+                try await accounts.saveConnectedAccount(
+                    user: user, instance: instance, method: .oauth, info: TokenInfo(scopes: tokens.scopes),
+                    secret: tokens.keychainData(), replacing: replacing)
                 finish()
             } catch OAuthError.cancelled {
-                phase = .editing
+                if !Task.isCancelled { phase = .editing }
             } catch is CancellationError {
-                phase = .editing
+                if !Task.isCancelled { phase = .editing }
             } catch let error as OAuthError {
-                phase = .failed(error.description)
+                if !Task.isCancelled { phase = .failed(error.description) }
             } catch let error as ProviderError {
-                phase = .failed(error.description)
+                if !Task.isCancelled { phase = .failed(error.description) }
             } catch {
-                phase = .failed("Sign-in didn't complete.")
+                if !Task.isCancelled { phase = .failed("Sign-in didn't complete.") }
             }
         }
     }
@@ -177,35 +176,61 @@ final class ConnectAccountModel {
 }
 
 /// `ASWebAuthenticationSession` glue for `OAuthBrowserSession` (system browser, custom `jit` callback scheme).
-final class WebAuthenticationBrowser: NSObject, OAuthBrowserSession, ASWebAuthenticationPresentationContextProviding,
-    @unchecked Sendable
-{
-    weak var anchor: NSWindow?
+@MainActor
+final class WebAuthenticationBrowser: NSObject, OAuthBrowserSession, ASWebAuthenticationPresentationContextProviding {
+    private weak var anchor: NSWindow?
+    private var session: ASWebAuthenticationSession?
+    private var continuation: CheckedContinuation<URL, any Error>?
 
     init(anchor: NSWindow?) {
         self.anchor = anchor
     }
 
-    @MainActor
     func authenticate(url: URL, callbackScheme: String) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) { url, error in
-                if let url {
-                    continuation.resume(returning: url)
-                } else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
-                    continuation.resume(throwing: CancellationError())
-                } else {
-                    continuation.resume(throwing: error ?? CancellationError())
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                // The framework can call back on an XPC queue. Enter the main actor explicitly.
+                let session = ASWebAuthenticationSession(url: url, callback: .customScheme(callbackScheme)) {
+                    @Sendable [weak self] url, error in
+                    Task { @MainActor in
+                        self?.complete(url: url, error: error)
+                    }
+                }
+                self.session = session
+                session.presentationContextProvider = self
+                if !session.start() {
+                    finish(.failure(OAuthError.invalidResponse))
                 }
             }
-            session.presentationContextProvider = self
-            session.prefersEphemeralWebBrowserSession = false
-            session.start()
+        } onCancel: {
+            Task { @MainActor in
+                self.session?.cancel()
+                self.finish(.failure(CancellationError()))
+            }
         }
     }
 
+    private func complete(url: URL?, error: (any Error)?) {
+        if let url {
+            finish(.success(url))
+        } else if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
+            finish(.failure(CancellationError()))
+        } else {
+            finish(.failure(error ?? OAuthError.invalidResponse))
+        }
+    }
+
+    private func finish(_ result: Result<URL, any Error>) {
+        let continuation = self.continuation
+        self.continuation = nil
+        session = nil
+        continuation?.resume(with: result)
+    }
+
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        MainActor.assumeIsolated { anchor ?? NSApp.keyWindow ?? NSWindow() }
+        anchor ?? NSApp.keyWindow ?? NSWindow()
     }
 }
 
@@ -365,7 +390,7 @@ struct ConnectAccountSheet: View {
                 case .deviceCode(let code, let url):
                     VStack(alignment: .leading, spacing: Space.s3) {
                         Text("Enter this code on GitHub:").typeStyle(.callout)
-                        Text(code).typeStyle(.monoTitle).textSelection(.enabled)
+                        GitHubDeviceCodeView(code: code)
                         Link("Open \(url.host ?? "github.com")…", destination: url)
                         HStack(spacing: Space.s3) {
                             ProgressView().controlSize(.small)
@@ -414,5 +439,22 @@ struct ConnectAccountSheet: View {
             "Scopes: read_api (browse repositories), read_repository (fetch and clone), write_repository (push)."
         case nil: ""
         }
+    }
+}
+
+struct GitHubDeviceCodeView: View {
+    let code: String
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: Space.s3) {
+            Text(code).typeStyle(.monoTitle).textSelection(.enabled)
+            Button(copied ? "Copied" : "Copy Code") {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                copied = pasteboard.setString(code, forType: .string)
+            }
+        }
+        .onChange(of: code) { _, _ in copied = false }
     }
 }
