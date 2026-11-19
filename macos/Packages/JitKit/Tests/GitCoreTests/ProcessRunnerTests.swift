@@ -34,7 +34,10 @@ import Testing
     }
 
     func readPID(_ path: String) async throws -> pid_t {
-        for _ in 0..<50 {
+        // Fixture startup may queue behind other suites' launches. This is a readiness deadline,
+        // separate from the cancellation/kill and thread-count assertions below.
+        let deadline = ContinuousClock.now + TimingBudget.latency(.seconds(5))
+        while ContinuousClock.now < deadline {
             if let text = try? String(contentsOfFile: path, encoding: .utf8),
                 let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
             {
@@ -126,6 +129,7 @@ import Testing
         let pidFile = temporaryFile()
         let processSpec = spec("/bin/sh", ["-c", "sleep 30 & echo $! > '\(pidFile)'; wait"])
         let task = Task { try await runner.run(processSpec) }
+        defer { task.cancel() }
         let grandchild = try await readPID(pidFile)
         task.cancel()
         await #expect(throws: GitCoreError.cancelled) { try await task.value }
@@ -170,6 +174,7 @@ import Testing
         let groups = LiveProcessGroups()
         let isolated = ProcessRunner(terminationGrace: .milliseconds(300), liveGroups: groups)
         let task = Task { try await isolated.run(processSpec) }
+        defer { task.cancel() }
         let grandchild = try await readPID(pidFile)
         groups.killAll()
         await #expect(throws: GitCoreError.self) { try await task.value }
