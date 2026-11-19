@@ -136,11 +136,20 @@ public final class UpdateService {
         await check(userInitiated: true)
     }
 
+    /// Opening What's New explicitly requests notes when the cached list is stale or missing.
+    public func loadChangeLogIfNeeded(now: Date = Date()) async {
+        if isCheckDue(now: now) { await check() }
+    }
+
+    private func isCheckDue(now: Date) -> Bool {
+        lastChecked.map { now.timeIntervalSince($0) >= Self.automaticInterval } ?? true
+    }
+
     /// Start, app activation and switching the preference on. Does nothing unless "update automatically" is on.
     public func checkAutomaticallyIfDue(now: Date = Date()) {
         guard didStart, isAutomatic(), fetcher != nil, !isBusy else { return }
         if case .ready = phase { return }
-        if lastChecked.map({ now.timeIntervalSince($0) >= Self.automaticInterval }) ?? true {
+        if isCheckDue(now: now) {
             Task { await check(userInitiated: false) }
         } else if case .available(let release) = phase, installer != nil, release.isInstallable {
             Task { await install(release, relaunchWhenReady: false, userInitiated: false) }
@@ -148,7 +157,7 @@ public final class UpdateService {
     }
 
     func check(userInitiated: Bool) async {
-        guard let fetcher, !isBusy else { return }
+        guard let fetcher, !isBusy, userInitiated || isAutomatic() else { return }
         if case .ready = phase { return }
         let before = phase
         phase = .checking
@@ -167,10 +176,8 @@ public final class UpdateService {
             }
             return
         }
-        if !userInitiated, isAutomatic(), case .available(let release) = phase, installer != nil,
-            release.isInstallable
-        {
-            await install(release, relaunchWhenReady: false, userInitiated: false)
+        if isAutomatic(), case .available(let release) = phase, installer != nil, release.isInstallable {
+            await install(release, relaunchWhenReady: false, userInitiated: userInitiated)
         }
     }
 
@@ -182,7 +189,7 @@ public final class UpdateService {
     }
 
     private func install(_ release: AppRelease, relaunchWhenReady: Bool, userInitiated: Bool) async {
-        guard !isBusy else { return }
+        guard !isBusy, userInitiated || isAutomatic() else { return }
         if case .ready = phase {
             if relaunchWhenReady { relaunch?() }
             return

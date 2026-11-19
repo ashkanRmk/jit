@@ -764,7 +764,7 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         controller.open(over: window)
     }
 
-    /// The bell and Jit ▸ Check for Updates…: the change log as a standard sheet. `checkNow` also asks GitHub.
+    /// The bell opens the change log, refreshing stale notes. The menu command always checks GitHub.
     public func presentUpdates(checkNow: Bool = false) {
         guard let window else { return }
         if window.attachedSheet == nil {
@@ -784,7 +784,18 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         } else if window.attachedSheet?.identifier?.rawValue != "updates" {
             return
         }
-        if checkNow { Task { await model.updates.check() } }
+        Task {
+            if checkNow {
+                await model.updates.check()
+            } else {
+                await model.updates.loadChangeLogIfNeeded()
+            }
+        }
+    }
+
+    public func dismissUpdates() {
+        guard let window, let sheet = window.attachedSheet, sheet.identifier?.rawValue == "updates" else { return }
+        window.endSheet(sheet)
     }
 
     /// File ▸ Clone… (⇧⌘N) and the new-tab page: a standard sheet; the clone opens in a new tab.

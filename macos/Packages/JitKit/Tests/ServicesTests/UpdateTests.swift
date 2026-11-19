@@ -214,6 +214,38 @@ final class InstallerStub: UpdateInstalling {
         #expect(service.phase == .idle)
     }
 
+    @Test func openingChangeLogLoadsNotesWithAutomaticUpdatesOff() async throws {
+        let service = Self.service()
+        let stub = FeedStub(.success(try Self.feed(["0.0.9"])))
+        let installer = InstallerStub()
+        service.fetcher = stub.fetcher
+        service.installer = installer
+
+        await service.loadChangeLogIfNeeded()
+        #expect(service.newerRelease?.notes == "notes")
+        #expect(stub.requestCount == 1)
+        #expect(installer.stagedVersions.isEmpty)
+        await service.loadChangeLogIfNeeded()
+        #expect(stub.requestCount == 1)
+        await service.loadChangeLogIfNeeded(now: Date().addingTimeInterval(UpdateService.automaticInterval + 1))
+        #expect(stub.requestCount == 2)
+    }
+
+    @Test func manualCheckStagesTheUpdateWhenAutomaticUpdatesAreOn() async throws {
+        let service = Self.service()
+        let installer = InstallerStub()
+        service.fetcher = FeedStub(.success(try Self.feed(["0.0.9"]))).fetcher
+        service.installer = installer
+        service.isAutomatic = { true }
+        var relaunched = false
+        service.relaunch = { relaunched = true }
+
+        await service.check()
+        #expect(service.staged?.version == "0.0.9")
+        #expect(installer.stagedVersions == ["0.0.9"])
+        #expect(!relaunched)
+    }
+
     @Test func automaticChecksDownloadsAndInstallsOnQuit() async throws {
         let service = Self.service()
         let stub = FeedStub(.success(try Self.feed(["0.0.9"])))

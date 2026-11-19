@@ -120,8 +120,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
             }
         #endif
         updates.relaunch = { [weak self] in
-            self?.relaunchAfterQuit = true
-            NSApp.terminate(nil)
+            self?.windowController?.dismissUpdates()
+            // AppKit needs the update sheet to finish closing before it can quit.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.relaunchAfterQuit = true
+                NSApp.terminate(nil)
+            }
         }
         return updates
     }

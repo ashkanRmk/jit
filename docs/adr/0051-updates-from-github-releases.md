@@ -23,8 +23,8 @@ so far is published as one. A release is installable by Jit when it has `Jit-<ve
 URL in the feed is dropped. The release page link is built from the tag, not read from the feed.
 
 **When Jit asks.**
-- *Update automatically* **off (default)**: no request, ever, until the user chooses Jit ▸ Check for
-  Updates… or presses Check for Updates in the change log.
+- *Update automatically* **off (default)**: Jit requests releases only when the user opens the bell
+  with stale or missing notes, chooses Jit ▸ Check for Updates…, or presses Check for Updates in the change log.
 - **On**: at most one check per 24 hours, made when Jit starts or becomes the active app. No timer, no
   polling (hard rule). A newer installable release is downloaded and verified in the background and
   installed **when Jit quits**; Jit never restarts by itself. The bell shows a badge and the change log
@@ -50,7 +50,7 @@ Development (debug) builds have no installer: they show the change log and point
 **UI.** A bell toolbar item at the trailing end of the main window (standard item, system glass; badge
 while a newer release is known). It opens *What's New*, a standard sheet: updater state and its one action,
 the release notes of the last 20 releases (headings, paragraphs, bullets, inline bold/code/links; the list
-is saved in `Updates/releases.json` and shown without a request), the *Update automatically* switch, Check
+  is saved in `Updates/releases.json` and reused for 24 hours), the *Update automatically* switch, Check
 for Updates, Done. The same switch is in Settings ▸ General. Jit ▸ Check for Updates… is in the menu and the
 command palette.
 

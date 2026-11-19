@@ -123,7 +123,7 @@ struct UpdatesSheet: View {
 
     private var lastCheckedLine: String {
         guard let date = updates.lastChecked else {
-            return "Jit hasn't looked for updates yet. Nothing is requested until you check."
+            return "Jit hasn't checked for updates yet."
         }
         return "Last checked \(date.formatted(date: .abbreviated, time: .shortened))."
     }
