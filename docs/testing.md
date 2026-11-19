@@ -8,7 +8,7 @@ How Jit is tested, and how to run, record and re-baseline each suite. Rules: rea
 | Suite | Command | Notes |
 |---|---|---|
 | Package tests (GitCore, Services, Features, DesignSystem) | `scripts/build/test-core.sh` | Swift Testing; parallel. Timing assertions get headroom in debug (`PerfBudget`) and with `JIT_TEST_TIMING_SCALE`. |
-| Native rebase input | `scripts/testing/native-rebase-acceptance.sh` | Separate XCUITest scheme; foreground desktop and Developer Tools authorization required. |
+| Native history actions | `scripts/testing/native-rebase-acceptance.sh` | Separate XCUITest scheme; foreground desktop and Developer Tools authorization required. |
 | App tests | `scripts/build/test-app.sh` | Xcode test target hosted in the app. |
 | Lint | `scripts/build/lint.sh` | swift-format, GitCore import rule, styling/glass rule. |
 | Snapshot (visual regression) | `swift test --package-path macos/Packages/JitKit --filter SnapshotTests` | ADR-0040; see below. |
@@ -57,7 +57,7 @@ How Jit is tested, and how to run, record and re-baseline each suite. Rules: rea
   Do not run timing-sensitive suites alongside builds or benchmark generation. `JIT_TEST_SERIAL=1`
   is available for the package suite.
 
-## Interactive rebase native input
+## Native history actions
 
 `NativeRebaseInputTests` exercises real AppKit windows/responder routing, literal text input and native
 pasteboard drop validation. Tab enters the selected message; Command-Return opens review from the
@@ -78,3 +78,18 @@ UI runner, where the `/usr/bin/git` shim cannot invoke xcrun. Jit's normal signi
 app support and repository remain untouched. UI test runner library validation is disabled only for the
 ad-hoc test bundle, not the Jit app. An automation-mode initialization timeout means the test body did
 not run; it is not evidence that drag passed or failed.
+
+`CommitSurgeryNativeAcceptanceTests` adds light/dark graph context-menu workflows: older and HEAD
+message edits, literal multiline input, Return cancellation, explicit save/drop, and Reflog → Create
+Branch at Previous State. Git assertions verify messages, unchanged edit trees/parents, only the selected
+drop's file removal, author/profile committer, clean status and recovered branch contents. These run in
+the same isolated `JitNativeInputAcceptance` scheme (four cases total). Success notifications expire
+before the next same-named operation is checked, preventing stale-toast assertions.
+
+The script forwards xcodebuild arguments for focused runs, for example:
+`-only-testing:JitNativeInputUITests/CommitSurgeryNativeAcceptanceTests`.
+The shared native fixture moves a window that opened on another display onto the primary display
+using a native title-bar drag; secondary-display XCTest screenshot creation is unreliable on this setup.
+Do not run other GUI suites or interact with the pointer/keyboard during native acceptance.
+`CommitSurgerySnapshotTests` pins its four references separately to macOS 27.0; the global snapshot
+OS pin is unchanged.

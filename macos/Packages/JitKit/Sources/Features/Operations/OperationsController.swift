@@ -20,6 +20,7 @@ enum OperationSheet: Identifiable {
     case notFastForward(ahead: Int, behind: Int)
     case merge(source: String, label: String, conflicts: [String])
     case interactiveRebaseStart
+    case commitSurgery(CommitSurgeryPlan)
     case rebase(onto: String, label: String, plan: RebasePlan)
     case mainline(commit: String, parents: [CommitSummary], isRevert: Bool)
     case blockedSwitch(target: SwitchTarget, paths: [String], untracked: Bool)
@@ -47,6 +48,7 @@ enum OperationSheet: Identifiable {
         case .notFastForward: "nff"
         case .merge(let source, _, _): "merge-\(source)"
         case .interactiveRebaseStart: "interactive-rebase-start"
+        case .commitSurgery(let plan): "commit-surgery-\(plan.id)"
         case .rebase(let onto, _, _): "rebase-\(onto)"
         case .mainline(let commit, _, _): "mainline-\(commit)"
         case .blockedSwitch: "blocked"
@@ -90,6 +92,8 @@ final class OperationsController {
     /// Shows any commit (a stash) in the inspector, even when the graph doesn't list it.
     @ObservationIgnored var inspectCommit: (ObjectID) -> Void = { _ in }
     @ObservationIgnored private var pendingDestructive: ((ConfirmationToken) -> Void)?
+    @ObservationIgnored var surgeryPreparation: Task<Void, Never>?
+    @ObservationIgnored var surgeryGeneration: UUID?
     @ObservationIgnored private var retry: (() -> Void)?
     @ObservationIgnored private var lastHostKey: HostKeyTarget?
     /// URLs of the current repository's remotes (for explanations; masked when shown).
@@ -100,6 +104,8 @@ final class OperationsController {
         self.session = session
         self.model = model
     }
+
+    deinit { surgeryPreparation?.cancel() }
 
     // MARK: Context
 
@@ -212,6 +218,9 @@ final class OperationsController {
     }
 
     func cancelSheet() {
+        surgeryGeneration = nil
+        surgeryPreparation?.cancel()
+        surgeryPreparation = nil
         sheet = nil
         pendingDestructive = nil
     }
@@ -231,7 +240,7 @@ final class OperationsController {
         init(_ run: @escaping () -> Void) { self.run = run }
     }
 
-    private func handle<T>(
+    func handle<T>(
         _ result: Result<T, PresentableError>, retry: Retry? = nil, _ success: (T) -> Void = { _ in }
     ) {
         switch result {
@@ -240,7 +249,7 @@ final class OperationsController {
         }
     }
 
-    private func handleIntegration(_ outcome: IntegrationOutcome) {
+    func handleIntegration(_ outcome: IntegrationOutcome) {
         switch outcome {
         case .stoppedWithConflicts: openNextConflict()
         case .notFastForward(let ahead, let behind): sheet = .notFastForward(ahead: ahead, behind: behind)

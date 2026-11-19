@@ -149,13 +149,16 @@ Stashing selected hunks (via the patch builder) stays here, in the `patches` epi
   submodule pointer conflicts) are disabled with an explanation, not attempted.
 
 ### 3.6 Commit surgery (`commit-surgery`)
-Direct graph actions on the current branch's unpublished-or-confirmed history, each executing the
-interactive-rebase engine with a generated todo and no editor:
-- **Edit message…** (any commit on the current branch) → message sheet → reword.
-- **Drop commit** → destructive sheet (recoverable via reflog).
-- **Move up / Move down**, or drag a commit row within the branch lane → reorder.
-- **Squash into parent / Fixup into…** (pick target).
-- **Split commit** is deferred to a later iteration (needs edit-stop UX); listed as Planned.
+Edit Message and Drop Commit are implemented locally/unreleased ([report](progress-commit-surgery.md),
+ADR-0063). Direct graph actions operate on the current branch with clean tracked files and explicit
+confirmation:
+- **Edit Message…** → focused multiline sheet → review. HEAD uses a message-only amend preserving its
+  tree, parents and author (including root/merge HEAD). Older edits generate a reword plan over the
+  existing linear interactive-rebase engine.
+- **Drop Commit…** → destructive review → generated drop plan. Recover the previous tip through Reflog;
+  conflicts reuse Continue/Skip/Abort. Root/merge drops and older ranges containing merges are refused.
+- **Move up / Move down**, graph drag reorder, **Squash into parent / Fixup into…** and **Split commit**
+  remain planned. These actions are absent from the shipped graph menu until implemented.
 
 ### 3.7 Additional history filtering (`history-filters`)
 - Filter bar extension (⌘F context): author/committer, date range, path(s) (drag files in), message

@@ -249,6 +249,17 @@ extension RepositorySession {
         }
     }
 
+    public func applyCommitSurgery(_ plan: CommitSurgeryPlan, token: ConfirmationToken, context: ExecContext)
+        async -> Result<IntegrationOutcome, PresentableError>
+    {
+        let helper = gitHelperPath ?? ""
+        return await perform(plan.action.title, summarize: OutcomeText.describe) {
+            handle, progress throws(GitCoreError) in
+            try await handle.applyCommitSurgery(
+                plan, token: token, helperPath: helper, context: context, progress: progress)
+        }
+    }
+
     public func cherryPick(_ commits: [String], mainline: Int?, context: ExecContext, expected: RepoStateToken?) async
         -> Result<IntegrationOutcome, PresentableError>
     {

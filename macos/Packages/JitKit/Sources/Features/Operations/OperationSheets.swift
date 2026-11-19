@@ -55,6 +55,8 @@ struct OperationSheetsHost: View {
             MergeSheet(controller: controller, source: source, label: label, predicted: conflicts)
         case .interactiveRebaseStart:
             InteractiveRebaseStartSheet(controller: controller)
+        case .commitSurgery(let plan):
+            CommitSurgerySheet(controller: controller, plan: plan)
         case .rebase(let onto, let label, let plan):
             RebaseSheet(controller: controller, onto: onto, label: label, plan: plan)
         case .mainline(let commit, let parents, let isRevert):

@@ -360,7 +360,8 @@ sideways scrolling in side-by-side diffs. Details and what was verified: [`relea
 - Reference machine not confirmed by the owner; performance numbers were taken on a busy machine.
 
 **Known gaps**
-- No XCUITest target (palette navigation, keyboard-only commit and conflict resolution, accessibility audit).
+- Native XCUITest coverage exists for rebase/direct history actions; palette navigation, keyboard-only
+  commit/conflict resolution and an accessibility audit remain open.
 - Tab switch 17.4 ms median / 31.6 ms p90 against the 16 ms target.
 - In a short window with a diff open, the inspector split gives the file list little height.
 - Light-mode Finder screenshot of the DMG not taken.
@@ -372,7 +373,9 @@ actions from 0.0.6. Reset previews, keep mode and stash-first recovery are inclu
 in 0.0.9 ([report](phases/08-post-v1/progress-tags.md), ADR-0062). Interactive rebase is implemented
 locally/unreleased ([report](phases/08-post-v1/progress-rebase-interactive.md), ADR-0059/0060), with a
 validated editor, private prepared messages, restart-safe continuation and explicit rewrite confirmation.
-Next: direct commit surgery using this engine.
+Direct Edit Message and Drop Commit are implemented locally/unreleased using this engine plus a
+message-only HEAD amend ([report](phases/08-post-v1/progress-commit-surgery.md), ADR-0063). Move,
+squash/fixup and split actions remain planned. Next: additional history filtering or the next surgery slice.
 The original suggested order for the independent epics was reflog → reset → tags →
 interactive rebase → commit surgery → history filters → worktrees → patches → remotes → branch history →
 signing → submodules → LFS. Update checks and the change-log sheet shipped in 0.0.5 (ADR-0051).

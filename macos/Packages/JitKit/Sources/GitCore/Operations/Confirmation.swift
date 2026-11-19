@@ -12,6 +12,7 @@ public enum DestructiveAction: Sendable, Hashable {
     case deleteLocalAndRemoteBranch(branch: String, remote: String, remoteBranch: String)
     case reset(previewID: UUID, commit: String, mode: ResetMode, stashFirst: Bool)
     case interactiveRebase(planID: UUID, steps: [RebaseStep])
+    case editCommitMessage(planID: UUID, commit: String, message: String)
     case skipCurrent
     case abortOperation
     case resolveConflict(path: String, choice: String)

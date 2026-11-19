@@ -131,22 +131,27 @@ Status: implemented locally/unreleased. [Report](progress-rebase-interactive.md)
 - Tests: `InteractiveRebaseFeatureTests`: reorder/reword execution, confirmation cancellation,
   model selection, actual conflict resolver → Continue/Abort, native NSItemProvider transfer. Four
   `InteractiveRebaseSnapshotTests` light/dark/opaque variants.
-- Real-repository demo: mixed ten-commit workflow completed in integration tests; native clean
-  reorder/reword/confirmation/completion exercised. Manual drag-to-drop, latest-layout keyboard-only
-  walkthrough, live VoiceOver and release idle/memory benchmarks remain validation carry-overs.
+- Real-repository demo: mixed ten-commit workflow completed in integration tests. Native light/dark
+  XCUITest acceptance covers both drag directions, keyboard reorder/literal typing, confirmation
+  cancellation and execution. Live VoiceOver and release idle/memory benchmarks remain carry-overs.
 
 ### Epic `commit-surgery` — Direct commit actions
 
-**P8.commit-surgery.1 — Plan generators**
-- Tasks: `reword(oid,msg)`, `drop(oid)`, `move(oid, after)`, `squash(oid, into)` generating validated plans;
-  HEAD reword routes to amend.
-- Tests: `surgeryDropMiddleCommit`, `surgeryMoveUpIndependentCommit`, `surgeryRewordOlderCommit`,
-  `surgerySquashIntoParent`, `surgeryRefusesMergeInRange`.
+Status: Edit Message and Drop Commit implemented locally/unreleased. [Report](progress-commit-surgery.md),
+[spec](specs/P8.commit-surgery.1-edit-message-and-drop.md), ADR-0063.
 
-**P8.commit-surgery.2 — Graph actions**
-- Tasks: context menu items, in-lane drag to reorder (current branch only), message sheet, destructive drop sheet.
-- Tests: UI `testEditOlderCommitMessageFromGraph`, `testDragCommitToReorder`.
-- Done when: demo — edit an older message, drop a commit and recover it through reflog. "Split commit" stays listed as Planned.
+**P8.commit-surgery.1 — Edit Message and Drop Commit**
+- [x] Immutable direct-action provenance and exact confirmation binding; older edits/drops generate
+  validated rebase plans, HEAD messages use a message-only amend.
+- [x] Single-commit graph menu actions, multiline editor, replacement-message review and destructive
+  drop confirmation; known unsupported selections are disabled with explanations.
+- [x] Reuse operation progress, conflict handling, Continue/Skip/Abort and persistent reflog recovery.
+- Tests: `CommitSurgeryTests`, `CommitSurgeryFeatureTests`, `CommitSurgerySnapshotTests` and
+  `CommitSurgeryNativeAcceptanceTests`; verification details and limits are in the report.
+
+**Later slices — planned**
+- Move up/down, graph drag reorder, squash/fixup target selection and split. No unimplemented action
+  buttons are exposed in the graph menu.
 
 ### Epic `history-filters` — Additional filtering
 

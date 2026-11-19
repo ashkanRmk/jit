@@ -72,7 +72,7 @@ final class ReflogModel {
         let ref = session.status?.branch.head.map { "refs/heads/" + $0 } ?? "HEAD"
         let prefixes = [
             "Commit", "Amend commit", "Reset ", "Merge ", "Rebase ", "Cherry-pick", "Revert ", "Pull ", "Integrate ",
-            "Continue", "Skip commit",
+            "Continue", "Skip commit", "Interactive rebase", "Edit Message", "Drop Commit",
         ]
         return session.recoveryPoints.first { point in
             point.refName == ref && point.newOID == session.status?.branch.oid

@@ -56,7 +56,7 @@ enum RebaseEditor {
                 guard matches.count == 1, let source = matches.first, let key = messageKeys[source],
                     let message = messages[key]
                 else { throw CocoaError(.fileReadCorruptFile) }
-                data = Data((message + "\n").utf8)
+                data = Data((message.hasSuffix("\n") ? message : message + "\n").utf8)
             }
             stage = "write"
             try data.write(to: targetURL)

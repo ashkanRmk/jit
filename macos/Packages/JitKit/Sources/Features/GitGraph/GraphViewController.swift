@@ -1595,12 +1595,13 @@ extension GraphViewController: NSMenuDelegate {
             item("Solo \(branch.text)") { [weak self] in self?.solo(fullName) }
         }
         if let operations, session.info?.topLevel != nil {
-            commitWriteItems(commit.oid.hex(snapshot.format), operations: operations).forEach(menu.addItem)
+            commitWriteItems(commit.oid.hex(snapshot.format), parentCount: commit.parentCount, operations: operations)
+                .forEach(menu.addItem)
         }
     }
 
     /// Phase 4 write actions on a commit (design §3.6–§3.7, §3.10).
-    private func commitWriteItems(_ hex: String, operations: OperationsController) -> [NSMenuItem] {
+    private func commitWriteItems(_ hex: String, parentCount: Int, operations: OperationsController) -> [NSMenuItem] {
         let short = String(hex.prefix(7))
         let current = operations.currentBranch ?? "HEAD"
         let isHead = session.status?.branch.oid == hex
@@ -1616,6 +1617,11 @@ extension GraphViewController: NSMenuDelegate {
         items.append(ClosureMenuItem(title: "Create Patch from Commit…") { operations.exportPatch(hex) })
         items.append(ClosureMenuItem(title: "Create Worktree from Commit…") { operations.createWorktree(at: hex) })
         items.append(operations.resetMenu(at: hex))
+        items.append(.separator())
+        items.append(
+            contentsOf: operations.commitSurgeryMenuItems(
+                for: hex, parentCount: parentCount,
+                singleSelection: selected.count == 1))
         if !operations.headIsDetached, session.operationState == .clean, !session.isBusy {
             items.append(
                 ClosureMenuItem(title: "Interactive Rebase from Here…") { operations.beginInteractiveRebase(from: hex) }
@@ -1686,7 +1692,7 @@ extension GraphViewController: NSMenuDelegate {
 }
 
 /// A menu item that runs a closure (context menus built per click).
-final class ClosureMenuItem: NSMenuItem {
+final class ClosureMenuItem: NSMenuItem, NSMenuItemValidation {
     private let handler: () -> Void
 
     init(title: String, action handler: @escaping () -> Void) {
@@ -1699,6 +1705,7 @@ final class ClosureMenuItem: NSMenuItem {
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     @objc private func run() { handler() }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { isEnabled }
 }
 
 enum Pasteboard {

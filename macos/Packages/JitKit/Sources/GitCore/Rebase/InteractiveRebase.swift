@@ -64,6 +64,16 @@ extension RepositoryHandle {
         _ plan: InteractiveRebasePlan, token: ConfirmationToken, helperPath: String, context: ExecContext,
         progress: AsyncStream<OperationProgress>.Continuation? = nil
     ) async throws(GitCoreError) -> IntegrationOutcome {
+        try await executeInteractiveRebase(
+            plan, token: token, helperPath: helperPath, context: context,
+            operationName: "Interactive rebase", progress: progress)
+    }
+
+    /// Direct history actions reuse replay while retaining their own recovery-journal label.
+    func executeInteractiveRebase(
+        _ plan: InteractiveRebasePlan, token: ConfirmationToken, helperPath: String, context: ExecContext,
+        operationName: String, progress: AsyncStream<OperationProgress>.Continuation? = nil
+    ) async throws(GitCoreError) -> IntegrationOutcome {
         try token.verify(.interactiveRebase(planID: plan.id, steps: plan.steps))
         guard plan.validationIssues.isEmpty else {
             throw .refused(summary: plan.validationIssues.joined(separator: "\n"))
@@ -72,7 +82,7 @@ extension RepositoryHandle {
         let (engine, gitDirectory) = (gitEngine, info.gitDirectory)
         let identity = try context.requireIdentity()
         let environment = try RebasePreparation.environment(helperPath: helperPath, gitDirectory: gitDirectory)
-        return try await performExclusive("Interactive rebase", invalidating: Set(InvalidationKind.allCases)) {
+        return try await performExclusive(operationName, invalidating: Set(InvalidationKind.allCases)) {
             () throws(GitCoreError) -> IntegrationOutcome in
             try await Self.ensureCurrent(plan.expected, engine: engine, in: topLevel, gitDirectory: gitDirectory)
             try Self.refuseIfIndexLocked(gitDirectory: gitDirectory)

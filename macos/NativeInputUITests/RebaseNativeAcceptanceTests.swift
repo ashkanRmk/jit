@@ -10,76 +10,15 @@ final class RebaseNativeAcceptanceTests: XCTestCase {
 
     private func verifyNativeInput(appearance: String) throws {
         continueAfterFailure = false
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("jit-native-input-\(UUID())")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
-        let repo = root.appendingPathComponent("repo")
-        let state = root.appendingPathComponent("state")
-        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
-        // /usr/bin/git is an xcrun shim, which cannot run inside the XCUITest sandbox.
-        let fixtureGit = try XCTUnwrap(
-            ProcessInfo.processInfo.environment["JIT_NATIVE_FIXTURE_GIT"],
-            "Run scripts/testing/native-rebase-acceptance.sh to supply the actual Git executable")
-        func git(_ arguments: String...) throws -> String {
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: fixtureGit)
-            task.arguments = arguments
-            task.currentDirectoryURL = repo
-            task.environment = [
-                "PATH": "/usr/bin:/bin", "HOME": root.path, "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_AUTHOR_NAME": "Fixture Author",
-                "GIT_AUTHOR_EMAIL": "author@jit.invalid",
-                "GIT_COMMITTER_NAME": "Fixture Author", "GIT_COMMITTER_EMAIL": "author@jit.invalid",
-            ]
-            let output = Pipe()
-            task.standardOutput = output
-            task.standardError = output
-            try task.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            task.waitUntilExit()
-            let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard task.terminationStatus == 0 else {
-                throw NSError(
-                    domain: "GitFixture", code: Int(task.terminationStatus), userInfo: [NSLocalizedDescriptionKey: text]
-                )
-            }
-            return text
-        }
-        _ = try git("init", "-q", "-b", "feature/native")
-        _ = try git("commit", "--allow-empty", "-qm", "Base")
-        var ids: [String: String] = [:]
-        for subject in ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"] {
-            try (subject + "\n").write(
-                to: repo.appendingPathComponent(subject + ".txt"), atomically: true, encoding: .utf8)
-            _ = try git("add", "-A")
-            _ = try git("commit", "-qm", subject)
-            ids[subject] = try git("rev-parse", "HEAD")
-        }
+        let fixture = try NativeGitFixture()
+        addTeardownBlock { try? FileManager.default.removeItem(at: fixture.root) }
+        func git(_ arguments: String...) throws -> String { try fixture.runGit(arguments) }
+        let ids = fixture.ids
         let previousHead = try git("rev-parse", "HEAD")
         let previousTree = try git("rev-parse", "HEAD^{tree}")
-        let identity = UUID().uuidString
-        let profile: [String: Any] = [
-            "version": 2, "activeProfileID": identity,
-            "profiles": [
-                [
-                    "id": identity, "displayName": "Native QA", "colorIndex": 1,
-                    "author": ["name": "Native QA", "email": "native@jit.invalid"],
-                ]
-            ],
-        ]
-        try JSONSerialization.data(withJSONObject: profile).write(to: state.appendingPathComponent("profiles.json"))
-        let appPath = try XCTUnwrap(ProcessInfo.processInfo.environment["JIT_NATIVE_APP"])
-        let app = XCUIApplication(url: URL(fileURLWithPath: appPath))
-        app.launchEnvironment["JIT_APP_SUPPORT"] = state.path
+        let app = try fixture.application(appearance: appearance, arguments: ["-JitInteractiveRebaseBase", "HEAD~6"])
         addTeardownBlock { @MainActor in app.terminate() }
-        app.launchArguments = [
-            "-JitOpen", repo.path, "-JitAppearance", appearance, "-JitInteractiveRebaseBase", "HEAD~6",
-            "-JitAssumeForeground", "YES",
-        ]
-        app.launch()
-        app.activate()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5), "Native input requires a foreground application")
+        try fixture.launch(app)
         func row(_ position: Int, _ subject: String, action: String = "Pick") -> XCUIElement {
             app.descendants(matching: .any).matching(
                 NSPredicate(format: "label BEGINSWITH %@", "Commit \(position) of 6, \(action), \(subject)")

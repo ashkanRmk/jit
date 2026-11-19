@@ -809,6 +809,7 @@ struct InfoStrip: View {
 /// autocorrection — what is typed is exactly what is written to the file.
 struct PlainCodeEditor: NSViewRepresentable {
     @Binding var text: String
+    var accessibilityLabel: String?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSTextView.scrollableTextView()
@@ -829,6 +830,7 @@ struct PlainCodeEditor: NSViewRepresentable {
         textView.isAutomaticDataDetectionEnabled = false
         textView.smartInsertDeleteEnabled = false
         textView.string = text
+        if let accessibilityLabel { textView.setAccessibilityLabel(accessibilityLabel) }
         textView.delegate = context.coordinator
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
         return scroll
