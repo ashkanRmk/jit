@@ -2,21 +2,20 @@
 
 - Status: accepted
 - Date: 2026-11-09
+- Amended: 2026-11-19 for Finder-independent installer packaging
 - Phase: P7
 - Requirements: §20 steps 7–10; Phase 7 design §3.1, §4.6
 
 ## Decision
-- **DMG**: HFS+ read-write image → Finder layout → **ULFO** (LZFSE) read-only, `Jit-<version>.dmg`, volume
-  `Jit <version>`. Window 640×400 with icon size 128: Jit.app at (170, 190), an `Applications` symlink at
-  (470, 190), and a background (`.background/background.tiff`, 1×+2× via `tiffutil -cathidpicheck`) rendered by
-  `scripts/release/assets/dmg-background.swift`. The background is a teal surface in the icon's colours with a
-  frosted plate and a guide arrow, and the label band sits near luminance 0.19, so both of Finder's label
-  colours (black in light mode, white in dark mode) read at about 4.5:1. The volume icon is the app's
-  `AppIcon.icns`.
-- **Layout by AppleScript at build time**, not a committed `.DS_Store`: a stored `.DS_Store` records the volume
-  name, which contains the version. This needs Finder automation permission once on the release machine;
-  `JIT_DMG_LAYOUT=0` skips it. Finding: Finder deletes an existing `.VolumeIcon.icns` while it writes the layout,
-  so the volume icon is added after the Finder pass.
+- **DMG**: HFS+ read-write image converted to a read-only **ULFO** (LZFSE) image named `Jit-<version>.dmg`.
+  The installer pairs `Jit.app` with an `Applications` symlink and uses Jit's wordmark and app icon.
+  `dmg-layout.json` supplies window dimensions and icon coordinates to the metadata writer and Swift
+  background renderer. `tiffutil -cathidpicheck` combines the 1× and 2× backgrounds. The label plates
+  support both Finder label colors. The disk uses Jit's `AppIcon.icns` as its volume icon.
+- **Layout metadata** is generated on the mounted image with pinned `ds_store` and `mac_alias` wheels.
+  The background alias is created per image using the mounted volume's identity. This supports packaging
+  without a Finder session. The release validator reopens `.DS_Store` on the final read-only image and
+  checks the background alias, icon view, window bounds, icon placement and Applications link target.
 - **Signing**: the DMG is signed with the same identity (`codesign --timestamp`).
 - **Notarization**: notarize the signed **DMG** (one submission covers the app inside) with
   `xcrun notarytool submit --keychain-profile jit-notary --wait --output-format json`. The JSON is saved per

@@ -25,7 +25,14 @@ fi
 OUT="$REPO_ROOT/build/release/$JIT_VERSION"
 APP="$OUT/stage/Jit.app"
 DMG="$OUT/Jit-$JIT_VERSION.dmg"
+DMG_PYTHON="$REPO_ROOT/build/dmg-tools/bin/python3"
 mkdir -p "$OUT"
+
+require_dmg_tools() {
+    if [[ ! -x "$DMG_PYTHON" ]] || ! "$DMG_PYTHON" -c 'from ds_store import DSStore; from mac_alias import Alias' 2>/dev/null; then
+        die "install the pinned installer tools (see docs/release.md): python3 -m venv build/dmg-tools && build/dmg-tools/bin/python3 -m pip install --require-hashes -r scripts/release/dmg-requirements.txt"
+    fi
+}
 
 require_update_public_key() {
     [[ "${JIT_UPDATE_PUBLIC_KEY:-}" =~ ^[0-9a-f]{64}$ ]] \

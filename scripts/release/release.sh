@@ -21,6 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$DIR/lib.sh"
+if (( FROM <= 9 )); then require_dmg_tools; fi
 if is_adhoc; then SKIP_NOTARIZE=1; export JIT_ADHOC=1; fi
 start=$SECONDS
 for n in 01 02 03 04 05 06 07 08 09; do

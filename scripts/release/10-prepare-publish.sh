@@ -7,6 +7,8 @@ require_update_public_key
 grep -q '^Result: PASS' "$OUT/validation.txt" || die "release validation did not pass"
 grep -q '^\[ok\] App inside DMG pins the configured update key' "$OUT/validation.txt" \
     || die "release validation did not check the pinned update key"
+grep -q '^\[ok\] Finder installer layout' "$OUT/validation.txt" \
+    || die "release validation did not check the Finder installer layout"
 grep -Fxq "Update public key: $JIT_UPDATE_PUBLIC_KEY" "$OUT/validation.txt" \
     || die "configured update key differs from the validated DMG"
 digest="$(shasum -a 256 "$DMG" | awk '{print $1}')"

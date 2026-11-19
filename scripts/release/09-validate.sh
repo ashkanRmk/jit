@@ -6,6 +6,7 @@
 source "$(dirname "$0")/lib.sh"
 step "09 validate"
 require_update_public_key
+require_dmg_tools
 [[ -f "$DMG" ]] || die "run 06-create-dmg.sh first"
 REPORT="$OUT/validation.txt"
 failures=0
@@ -52,7 +53,7 @@ record "Architectures ($JIT_ARCHS)" pass sh -c '
         a="$(lipo -archs "$f")"; [ "$a" = "$2" ] || { echo "$a: $f"; exit 1; }
     done; echo "all Mach-O: $2"' _ "$INNER" "$JIT_ARCHS"
 record "Bundled Git runs from inside the app" pass sh -c '"$1/Contents/Resources/git/bin/git" --version && "$1/Contents/Resources/git/bin/git" --exec-path' _ "$INNER"
-record "Applications link" pass test -L "$MNT/Applications"
+record "Finder installer layout" pass "$DMG_PYTHON" "$RELEASE_DIR/assets/dmg-layout.py" verify "$MNT"
 record "Volume icon and background" pass test -f "$MNT/.VolumeIcon.icns" -a -f "$MNT/.background/background.tiff"
 hdiutil detach -quiet "$MNT"; trap - EXIT; rmdir "$MNT" 2>/dev/null || true
 

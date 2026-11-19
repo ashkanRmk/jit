@@ -17,7 +17,14 @@ Decisions: ADR-0019 (bundled Git), 0020 (no updater), 0045 (entitlements/sandbox
 and notarization), 0048 (clean-machine protocol), 0049 (versioning, arm64-only).
 
 ## 1. Prerequisites (release machine)
-- macOS 26+ on Apple silicon, **full Xcode 26+** selected, `brew install xcodegen`.
+- macOS 26+ on Apple silicon with full Xcode 26+ selected. For a fresh machine, follow
+  [Release from another Mac](release-from-another-mac.md).
+- XcodeGen and Python 3.11 or newer. Install the pinned installer tools once per checkout.
+
+  ```bash
+  python3 -m venv build/dmg-tools
+  build/dmg-tools/bin/python3 -m pip install --require-hashes -r scripts/release/dmg-requirements.txt
+  ```
 - OpenSSL 3 for offline signing and publish verification. Install the free `openssl@3` formula if needed
   and set `JIT_UPDATE_OPENSSL="$(brew --prefix openssl@3)/bin/openssl"`. Jit uses CryptoKit at runtime.
 - The official update signing public key is in `scripts/release/release.env`. An explicit
@@ -30,9 +37,10 @@ and notarization), 0048 (clean-machine protocol), 0049 (versioning, arm64-only).
   3. `scripts/release/release.local.env` (git-ignored):
      ```bash
      JIT_SIGN_IDENTITY="Developer ID Application: <Name> (<TEAMID>)"
-     JIT_TEAM_ID=<TEAMID>
+     JIT_TEAM_ID="TEAMID"
      ```
-- Allow Finder automation when macOS asks for DMG window layout, or set `JIT_DMG_LAYOUT=0`.
+- The release script writes Finder layout metadata directly to the image. Packaging can run in a terminal
+  without a Finder session or an Automation grant.
 - Optional: `brew install gnupg` and `JIT_GIT_VERIFY_SIGNATURE=1` to also check Git's PGP signature (ADR-0019).
 - Releases from 0.1.0 bundle the public OAuth client IDs in `macos/App/Resources/OAuthClients.plist`.
   GitHub.com uses Device Flow. GitLab.com uses PKCE with redirect `jit://oauth/gitlab` and scopes
@@ -54,10 +62,10 @@ scripts/release/release.sh --from-step 07           # resume, e.g. after a notar
 | — | `03-verify-archs.sh` | every Mach-O has exactly `JIT_ARCHS`; helper and Git present; no dev-only content | — |
 | 5 | `04-sign-embedded.sh` | inside-out: Git binaries, helper (runtime, timestamp, no entitlements) | — |
 | 6 | `05-sign-app.sh` | sign the app; strict deep verify; runtime/timestamp/Team ID on every Mach-O; no entitlements | — |
-| 7 | `06-create-dmg.sh` | styled DMG (background, layout, volume icon), ULFO, signed | `Jit-<v>.dmg` |
+| 7 | `06-create-dmg.sh` | Jit wordmark, Retina background, drag-to-Applications layout and volume icon. ULFO and code-signed | `Jit-<v>.dmg` |
 | 8 | `07-notarize.sh` | `notarytool submit --wait`; log on failure; skips an already-accepted DMG hash | `notary-<sha>.json`, `notary-log-<id>.json` |
 | 9 | `08-staple.sh` | `stapler staple` + `validate` | — |
-| 10 | `09-validate.sh` | DMG hash, embedded update key, signatures, ticket, Gatekeeper, runtime, architecture, bundled Git | `validation.txt` |
+| 10 | `09-validate.sh` | DMG hash, embedded update key, signatures, ticket, Gatekeeper, runtime, architecture, bundled Git and Finder layout | `validation.txt` |
 
 All outputs are in `build/release/<version>/` (git-ignored). dSYMs stay there, private — never in the DMG.
 
@@ -91,7 +99,8 @@ Tests and local release rehearsals use disposable keys. A public release uses th
 
 ### Publishing (owner approval required)
 
-1. Run the [signed-update acceptance test](testing.md#signed-in-app-updates) on the release candidate and
+1. Open the final DMG in Finder and confirm the Jit wordmark, both icons, drag arrow, and labels appear together.
+   Run the [signed-update acceptance test](testing.md#signed-in-app-updates) on the release candidate and
    confirm package and app tests pass for the commit you will tag.
 2. Tag the exact clean build commit as `X.Y.Z`. Create a GitHub draft prerelease with the notes from
    `docs/releases/vX.Y.Z.md` and all files from `build/release/X.Y.Z/publish/`. The repository must be public.
@@ -128,9 +137,8 @@ or `vX.Y.Z`. The signed version and `CFBundleShortVersionString` must match the 
   signing step, then `release.sh --from-step 04`.
 - **`spctl` rejects the app after stapling**: check `codesign -dv --verbose=4` on the app inside the
   mounted DMG (Authority chain, TeamIdentifier), and that the DMG and not just the app was stapled.
-- **Finder layout step times out**: macOS is waiting for the Automation permission prompt; answer it, or
-  `JIT_DMG_LAYOUT=0`.
-- **Finder removes `.VolumeIcon.icns`**: expected; `06` adds the volume icon after the layout pass.
+- If installer tools are missing, recreate `build/dmg-tools` from the pinned requirements in §1.
+  If the mounted image fails layout validation, rebuild from step 06 and sign the new final DMG.
 - **Git build pulls Homebrew libraries or Rust**: `build-git.sh` passes `NO_HOMEBREW` and `NO_RUST`; check
   with `test-bundled-git.sh` ("links only system libraries", "built without Rust").
 
