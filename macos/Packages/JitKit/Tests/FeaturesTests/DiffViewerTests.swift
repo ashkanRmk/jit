@@ -9,6 +9,110 @@ import Testing
 
 /// Diff viewer rows and navigation (P3.6) on real diffs.
 @Suite @MainActor struct DiffViewerTests {
+    @Test func markdownPreviewUsesTheSelectedFileVersion() async throws {
+        let sandbox = try GitSandbox()
+        let repo = try await sandbox.makeRepository()
+        let path = "doc/Guide.MD"
+        try repo.write(path, "# Original\n")
+        let original = try #require(ObjectID(hex: try await repo.commit("Original")))
+        try repo.write(path, "# Committed\n\nParagraph.\n")
+        let committed = try #require(ObjectID(hex: try await repo.commit("Change guide")))
+        try repo.write(path, "# Staged\n")
+        try await repo.git("add", "--", path)
+        try repo.write(path, "# Working copy\n")
+        try repo.write("notes.txt", "Plain text\n")
+
+        let session = RepositorySession(path: repo.path, engine: sandbox.engine, watchesFileSystem: false)
+        session.activate()
+        defer { session.close() }
+        try #require(await ClosedTabDeallocatesTests.waitUntil { session.repository != nil })
+        let model = DiffViewModel(session: session, defaults: .scratch())
+        let controller = DiffViewController(model: model)
+        controller.loadViewIfNeeded()
+        defer { controller.tearDown() }
+        let preview = try #require(controller.view.subviews.first { $0 is WorkspaceHostingView<MarkdownPreviewView> })
+
+        model.layout = .fullFile
+        for (target, heading): (DiffTarget, String) in [
+            (.commit(committed, path: path), "Committed"),
+            (.commits(from: original, to: committed, path: path), "Committed"),
+            (.staged(path: path), "Staged"),
+            (.unstaged(path: path), "Working copy"),
+            (.commitToWorktree(committed, path: path), "Working copy"),
+        ] {
+            model.open(target)
+            try #require(
+                await ClosedTabDeallocatesTests.waitUntil { model.showsCurrentTarget },
+                "Loading \(target) ended in \(model.state)")
+            #expect(model.markdownPreview == nil)
+            #expect(preview.isHidden)
+            #expect(model.canPreviewMarkdown)
+            model.toggleMarkdownPreview()
+            #expect(!preview.isHidden)
+            try #require(
+                await ClosedTabDeallocatesTests.waitUntil {
+                    switch model.markdownPreview {
+                    case .ready, .failed: true
+                    case nil, .loading: false
+                    }
+                }, "Preview for \(target) did not finish loading")
+            guard case .ready(let document) = model.markdownPreview else {
+                if case .failed(let error) = model.markdownPreview {
+                    Issue.record("Preview for \(target) failed: \(error)")
+                }
+                return
+            }
+            let block = try #require(document.blocks.first)
+            #expect(block.kind == .header(level: 1))
+            #expect(String(block.text.characters) == heading)
+        }
+
+        model.layout = .split
+        #expect(!model.canPreviewMarkdown)
+        #expect(model.markdownPreview == nil)
+        #expect(preview.isHidden)
+
+        model.layout = .fullFile
+        model.open(.unstaged(path: "notes.txt"))
+        try #require(await ClosedTabDeallocatesTests.waitUntil { model.showsCurrentTarget })
+        #expect(!model.canPreviewMarkdown)
+    }
+
+    @Test func markdownPreviewRetainsBlockStructureAndInlineFormatting() throws {
+        let document = try MarkdownPreviewDocument(
+            markdown: """
+                # Heading
+
+                A **bold** [link](https://example.com) and ![image description](https://example.com/image.png).
+
+                1. First
+                   - Nested
+                2. Second
+
+                > Quote
+
+                ```swift
+                let value = 1
+                ```
+
+                | Key | Value |
+                | --- | --- |
+                | one | two |
+                """)
+        let blocks = document.blocks
+        try #require(blocks.count == 6)
+        #expect(blocks[0].kind == .header(level: 1))
+        #expect(String(blocks[1].text.characters) == "A bold link and image description.")
+        #expect(blocks[1].text.runs.contains { $0.inlinePresentationIntent == .stronglyEmphasized })
+        #expect(blocks[1].text.runs.contains { $0.link?.scheme == "https" })
+        #expect(blocks[1].text.runs.allSatisfy { $0.imageURL == nil })
+        #expect(blocks[2].kind == .orderedList)
+        #expect(blocks[2].children.first?.children.last?.kind == .unorderedList)
+        #expect(blocks[3].kind == .blockQuote)
+        #expect(blocks[4].kind == .codeBlock(languageHint: "swift"))
+        #expect(blocks[5].children.map { $0.children.count } == [2, 2])
+    }
+
     func document(_ before: String, _ after: String, context: Int = 3) async throws -> (DiffDocument, TestRepo) {
         let sandbox = try GitSandbox()
         let repo = try await sandbox.makeRepository()

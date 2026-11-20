@@ -13,6 +13,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
     private let scrollView = NSScrollView()
     private var chrome: WorkspaceHostingView<DiffChromeView>?
     private var messageHost: WorkspaceHostingView<DiffMessageView>?
+    private var markdownHost: WorkspaceHostingView<MarkdownPreviewView>?
     /// Line selection (P3.8) hooks: clicks on line rows go here when set.
     var onLineClick: ((_ row: Int, _ column: Int, _ modifiers: NSEvent.ModifierFlags) -> Void)?
     var onLineDrag: ((_ row: Int, _ column: Int) -> Void)?
@@ -56,6 +57,11 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         chrome.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         root.addSubview(chrome)
         self.chrome = chrome
+        let markdownHost = WorkspaceHostingView(rootView: MarkdownPreviewView(model: model))
+        markdownHost.translatesAutoresizingMaskIntoConstraints = false
+        markdownHost.sizingOptions = []
+        root.addSubview(markdownHost, positioned: .below, relativeTo: chrome)
+        self.markdownHost = markdownHost
         let capsule = WorkspaceHostingView(rootView: SelectionCapsuleHost(model: model))
         capsule.translatesAutoresizingMaskIntoConstraints = false
         capsule.sizingOptions = [.intrinsicContentSize]
@@ -73,6 +79,10 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
             chrome.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             chrome.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             chrome.topAnchor.constraint(equalTo: root.topAnchor),
+            markdownHost.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            markdownHost.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            markdownHost.topAnchor.constraint(equalTo: chrome.bottomAnchor),
+            markdownHost.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             capsule.centerXAnchor.constraint(equalTo: root.centerXAnchor),
             capsule.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             capsule.widthAnchor.constraint(lessThanOrEqualTo: root.widthAnchor),
@@ -113,7 +123,8 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         codeView.wrapsLines = model.wrapsLines
         scrollView.hasHorizontalScroller = !model.wrapsLines
         codeView.dataSource = model.source
-        scrollView.isHidden = model.source == nil
+        scrollView.isHidden = model.source == nil || model.markdownPreview != nil
+        markdownHost?.isHidden = model.markdownPreview == nil
         let target = model.source?.document.target
         if model.source != nil, target != shownTarget {
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: -scrollView.contentInsets.top))
@@ -147,7 +158,9 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         return codeView.rows(in: visible).lowerBound
     }
 
-    public func focusBody() { view.window?.makeFirstResponder(codeView) }
+    public func focusBody() {
+        if model.markdownPreview == nil { view.window?.makeFirstResponder(codeView) }
+    }
 
     // MARK: CodeLinesDelegate
 
@@ -254,7 +267,7 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
     // MARK: Menu actions
 
     @objc public func jitFind(_ sender: Any?) {
-        guard model.source != nil else { return }
+        guard model.source != nil, model.markdownPreview == nil else { return }
         findRequested &+= 1
     }
 
@@ -264,16 +277,24 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
         // (chrome is nil after tearDown, so a late find request cannot recreate the cycle.)
     }
 
-    @objc public func jitFindNext(_ sender: Any?) { model.nextMatch(forward: true) }
-    @objc public func jitFindPrevious(_ sender: Any?) { model.nextMatch(forward: false) }
-    @objc public func diffNextChange(_ sender: Any?) { model.nextChange(from: firstVisibleRow, forward: true) }
-    @objc public func diffPreviousChange(_ sender: Any?) { model.nextChange(from: firstVisibleRow, forward: false) }
+    @objc public func jitFindNext(_ sender: Any?) {
+        if model.markdownPreview == nil { model.nextMatch(forward: true) }
+    }
+    @objc public func jitFindPrevious(_ sender: Any?) {
+        if model.markdownPreview == nil { model.nextMatch(forward: false) }
+    }
+    @objc public func diffNextChange(_ sender: Any?) {
+        if model.markdownPreview == nil { model.nextChange(from: firstVisibleRow, forward: true) }
+    }
+    @objc public func diffPreviousChange(_ sender: Any?) {
+        if model.markdownPreview == nil { model.nextChange(from: firstVisibleRow, forward: false) }
+    }
     /// View ▸ Close Diff (⌥⌘↩): back to the graph.
     @objc public func toggleFocusDiff(_ sender: Any?) { model.requestClose() }
     @objc public func showBlame(_ sender: Any?) { model.blame() }
 
     @objc public func diffGoToLine(_ sender: Any?) {
-        guard let window = view.window, model.source != nil else { return }
+        guard let window = view.window, model.source != nil, model.markdownPreview == nil else { return }
         let alert = NSAlert()
         alert.messageText = "Go to Line"
         alert.informativeText = "Line number in the new version of the file."
@@ -293,11 +314,14 @@ public final class DiffViewController: NSViewController, CodeLinesDelegate, NSMe
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(jitFindNext(_:)), #selector(jitFindPrevious(_:)): return !model.matches.isEmpty
-        case #selector(diffNextChange(_:)), #selector(diffPreviousChange(_:)): return !model.changeRows.isEmpty
+        case #selector(jitFindNext(_:)), #selector(jitFindPrevious(_:)):
+            return model.markdownPreview == nil && !model.matches.isEmpty
+        case #selector(diffNextChange(_:)), #selector(diffPreviousChange(_:)):
+            return model.markdownPreview == nil && !model.changeRows.isEmpty
         case #selector(toggleFocusDiff(_:)):
             return model.target != nil
-        case #selector(diffGoToLine(_:)), #selector(jitFind(_:)): return model.source != nil
+        case #selector(diffGoToLine(_:)), #selector(jitFind(_:)):
+            return model.markdownPreview == nil && model.source != nil
         case #selector(showBlame(_:)): return model.document?.files.first?.newPath != nil
         default: return true
         }
@@ -380,6 +404,11 @@ struct DiffChromeView: View {
             .scaledFont(TypeToken.body.font)
             .help(path)
             Spacer(minLength: Space.s4)
+            if model.canPreviewMarkdown {
+                Button(model.markdownPreview == nil ? "Preview" : "Source") { model.toggleMarkdownPreview() }
+                    .outlineButton(.neutral)
+                    .help(model.markdownPreview == nil ? "Render Markdown" : "Show Markdown source")
+            }
             if let action = model.fileStageAction, model.onStageFile != nil {
                 Button(action.stage ? "Stage File" : "Unstage File") { model.stageFile() }
                     .outlineButton(action.stage ? .success : .danger)
@@ -426,19 +455,21 @@ struct DiffChromeView: View {
             if model.source != nil {
                 viewPicker
                 Spacer(minLength: Space.s2)
-                if compact {
-                    navigator(showsCount: false)
-                    findGroup
-                    compactMenu
-                } else {
-                    Button("Blame") { model.blame() }
-                        .outlineButton(.neutral)
-                        .help("Blame this file")
-                    navigator(showsCount: true)
-                    layoutButtons
-                    displayToggles
-                    findGroup
-                    optionsMenu
+                if model.markdownPreview == nil {
+                    if compact {
+                        navigator(showsCount: false)
+                        findGroup
+                        compactMenu
+                    } else {
+                        Button("Blame") { model.blame() }
+                            .outlineButton(.neutral)
+                            .help("Blame this file")
+                        navigator(showsCount: true)
+                        layoutButtons
+                        displayToggles
+                        findGroup
+                        optionsMenu
+                    }
                 }
             }
         }

@@ -179,6 +179,19 @@ import Testing
                         #expect(bar.convert(bar.bounds, to: nil).maxY <= window.contentLayoutRect.maxY + 1)
                         #expect(bar.safeAreaRegions.isEmpty)
                     }
+                    let inspector = try #require(workbench.splitViewItems.last)
+                    #expect(!inspector.isCollapsed)
+                    let inspectorView = try #require(
+                        inspector.viewController.view.subviews.first { $0 is WorkspaceHostingView<CommitInspectorView> }
+                    )
+                    #expect(
+                        inspectorView.convert(inspectorView.bounds, to: nil).maxY <= window.contentLayoutRect.maxY + 1)
+                    let sidebar = try #require(workbench.splitViewItems.first?.viewController.view)
+                    let logo = try #require(sidebar.subviews.first { $0 is WorkspaceHostingView<JitLogotype> })
+                    let logoRect = logo.convert(logo.bounds, to: nil)
+                    #expect(logoRect.maxY <= window.contentLayoutRect.maxY + 1)
+                    #expect(logoRect.minY >= 0 && !logoRect.isEmpty)
+                    #expect(window.titlebarSeparatorStyle == (level.factor > 1 ? .none : .automatic))
                     #expect(abs(viewport.contentView.bounds.minX) < 1)
                     #expect(abs(workbench.view.convert(NSPoint.zero, to: nil).x) < 1)
                     #expect(abs(workbench.splitView.frame.minX) < 1)
