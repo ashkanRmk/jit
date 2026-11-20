@@ -83,7 +83,7 @@ final class WorkbenchController: NSSplitViewController {
         main.minimumThickness = PanelMetrics.contentColumnMax - 160
 
         let inspector = NSSplitViewItem(
-            inspectorWithViewController: Self.host(CommitInspectorView(model: inspectorModel)))
+            inspectorWithViewController: makeInspectorController())
         inspector.minimumThickness = PanelMetrics.inspectorMin
         inspector.maximumThickness = PanelMetrics.inspectorMax
         inspector.canCollapse = true
@@ -258,10 +258,22 @@ final class WorkbenchController: NSSplitViewController {
         }
     }
 
-    private static func host<V: View>(_ view: V) -> NSViewController {
-        let host = WorkspaceHostingController(rootView: view)
+    private func makeInspectorController() -> NSViewController {
+        let controller = NSViewController()
+        let root = NSView()
+        let host = WorkspaceHostingView(rootView: CommitInspectorView(model: inspectorModel))
         host.sizingOptions = []
-        return host
+        host.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(host)
+        // Keep the inspector's contents below native window chrome at every workspace scale.
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            host.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
+            host.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        controller.view = root
+        return controller
     }
 
     /// Called when the tab is shown again (its view stays in the hierarchy while hidden); widths are shared

@@ -739,7 +739,9 @@ public final class MainWindowController: NSWindowController, NSWindowDelegate, N
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeZoom() }
         }
-        container.setZoom(CGFloat(model.preferences.zoomLevel.factor))
+        let factor = CGFloat(model.preferences.zoomLevel.factor)
+        window?.titlebarSeparatorStyle = factor > 1 ? .none : .automatic
+        container.setZoom(factor)
         updateChromeWidth()
     }
 

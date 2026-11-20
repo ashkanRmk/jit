@@ -104,16 +104,12 @@ final class NavigatorViewController: NSViewController {
         footer.safeAreaRegions = []
         root.addSubview(footer)
         profileAnchor = footer
-        // The logotype sits in the toolbar's height at the sidebar's top right (0.0.4).
+        // Keep the logotype beside the filter, inside the sidebar's zoomed content area.
         let logotype = WorkspaceHostingView(rootView: JitLogotype(height: SidebarMetrics.logotypeHeight))
         logotype.translatesAutoresizingMaskIntoConstraints = false
         logotype.sizingOptions = [.intrinsicContentSize]
         logotype.safeAreaRegions = []
         root.addSubview(logotype)
-        NSLayoutConstraint.activate([
-            logotype.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Space.s6),
-            logotype.topAnchor.constraint(equalTo: root.topAnchor, constant: SidebarMetrics.logotypeTop),
-        ])
         var filterTop = filterField.topAnchor.constraint(
             equalTo: root.safeAreaLayoutGuide.topAnchor, constant: Space.s4)
         if let graph {
@@ -130,6 +126,8 @@ final class NavigatorViewController: NSViewController {
             ])
             filterTop = filterField.topAnchor.constraint(equalTo: header.bottomAnchor, constant: Space.s4)
         }
+        let scrollTop = scroll.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: Space.s4)
+        scrollTop.priority = .defaultHigh
         NSLayoutConstraint.activate([
             filterTop,
             footer.leadingAnchor.constraint(equalTo: root.leadingAnchor),
@@ -137,8 +135,12 @@ final class NavigatorViewController: NSViewController {
             footer.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             footer.heightAnchor.constraint(equalToConstant: SidebarMetrics.footerHeight),
             filterField.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: Space.s5),
-            filterField.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Space.s5),
-            scroll.topAnchor.constraint(equalTo: filterField.bottomAnchor, constant: Space.s4),
+            filterField.trailingAnchor.constraint(equalTo: logotype.leadingAnchor, constant: -Space.s3),
+            logotype.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -Space.s5),
+            logotype.centerYAnchor.constraint(equalTo: filterField.centerYAnchor),
+            scroll.topAnchor.constraint(greaterThanOrEqualTo: logotype.bottomAnchor, constant: Space.s4),
+            scroll.topAnchor.constraint(greaterThanOrEqualTo: filterField.bottomAnchor, constant: Space.s4),
+            scrollTop,
             scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: footer.topAnchor),

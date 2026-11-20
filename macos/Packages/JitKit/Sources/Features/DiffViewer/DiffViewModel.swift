@@ -30,6 +30,7 @@ public final class DiffViewModel {
     public var layout: DiffLayout = .unified {
         didSet {
             guard layout != oldValue else { return }
+            if layout != .fullFile { clearMarkdownPreview() }
             defaults.set(Self.name(layout), forKey: Self.layoutKey)
             rebuildSource()
         }
@@ -107,6 +108,8 @@ public final class DiffViewModel {
     }
     /// The rows the view shows.
     public private(set) var source: DiffRowsSource?
+    private(set) var markdownPreview: MarkdownPreviewDocument.LoadingState?
+    @ObservationIgnored private var markdownPreviewTask: Task<Void, Never>?
 
     // Search.
     public var query = "" { didSet { if query != oldValue { runSearch() } } }
@@ -186,6 +189,7 @@ public final class DiffViewModel {
             guard document != nil || state == .loading else { return }
             loadTask?.cancel()
             highlightTask?.cancel()
+            clearMarkdownPreview()
             highlight = nil
             document = nil
             source = nil
@@ -266,6 +270,7 @@ public final class DiffViewModel {
     }
 
     public func close() {
+        clearMarkdownPreview()
         selection.clear()
         banner = nil
         pendingDiscard = nil
@@ -293,6 +298,7 @@ public final class DiffViewModel {
     @ObservationIgnored public var switchSignpost: Signposts.Token?
 
     private func load(_ target: DiffTarget, keepPosition: Bool) {
+        if !keepPosition { clearMarkdownPreview() }
         self.target = target
         if !keepPosition {
             switchSignpost.map(Signposts.end)
@@ -366,6 +372,7 @@ public final class DiffViewModel {
             )
             .withGaps(of: document)
             state = .loaded
+            if markdownPreview != nil { loadMarkdownPreview() }
             return
         }
         // Different bytes: line indices changed, so a pending selection would point at other lines.
@@ -375,6 +382,7 @@ public final class DiffViewModel {
         selection.clear()
         document = newDocument
         state = .loaded
+        if markdownPreview != nil { loadMarkdownPreview() }
         wordPairs = WordDiff.pairs(in: newDocument)
         wordCache = [:]
         rebuildSource()
@@ -415,6 +423,65 @@ public final class DiffViewModel {
     }
 
     // MARK: Layout
+
+    private var markdownPath: String? {
+        guard layout == .fullFile, showsCurrentTarget, let document, document.files.count <= 1,
+            let targetPath = target?.path
+        else { return nil }
+        let file = document.files.first
+        guard file?.status != .deleted, file?.isBinary != true, file?.isSymlink != true, file?.isSubmodule != true
+        else { return nil }
+        let path = file?.newPath ?? targetPath
+        return SyntaxLanguage.detect(path: path) == .markdown ? path : nil
+    }
+
+    var canPreviewMarkdown: Bool { markdownPath != nil && !isTooLarge }
+
+    func toggleMarkdownPreview() {
+        if markdownPreview == nil {
+            selection.clear()
+            selectionChanged()
+            loadMarkdownPreview()
+        } else {
+            clearMarkdownPreview()
+        }
+    }
+
+    private func clearMarkdownPreview() {
+        markdownPreviewTask?.cancel()
+        markdownPreviewTask = nil
+        guard markdownPreview != nil else { return }
+        markdownPreview = nil
+        onSourceChange?()
+    }
+
+    private func loadMarkdownPreview() {
+        markdownPreviewTask?.cancel()
+        guard canPreviewMarkdown, let path = markdownPath, let target, let repository = session.repository else {
+            clearMarkdownPreview()
+            return
+        }
+        if markdownPreview == nil {
+            markdownPreview = .loading
+            onSourceChange?()
+        }
+        markdownPreviewTask = Task { [weak self] in
+            do {
+                let preview = try await MarkdownPreviewDocument.load(from: repository, target: target, path: path)
+                guard !Task.isCancelled else { return }
+                self?.markdownPreview = .ready(preview)
+            } catch {
+                guard !Task.isCancelled else { return }
+                let message =
+                    switch error {
+                    case GitCoreError.outputTooLarge: "Markdown preview is limited to 1 MB."
+                    case let error as GitCoreError: error.summary
+                    default: "Couldn’t render this Markdown file."
+                    }
+                self?.markdownPreview = .failed(message)
+            }
+        }
+    }
 
     public var isTooLarge: Bool { (document?.storage.bytes.count ?? 0) > Self.maxBytes }
 
