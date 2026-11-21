@@ -127,16 +127,22 @@ final class WorkspaceHostingView<Content: View>: NSView, WorkspaceZoomAware {
     override func layout() {
         super.layout()
         let nextFactor = canvasFactor
-        if factor != nextFactor || lastWidth != frame.width {
+        let size = frame.size
+        let hasIntrinsicSize = sizingOptions.contains(.intrinsicContentSize)
+        if factor != nextFactor || lastWidth != size.width {
             factor = nextFactor
-            lastWidth = frame.width
+            lastWidth = size.width
             naturalSize = nil
-            invalidateIntrinsicContentSize()
+            if hasIntrinsicSize { invalidateIntrinsicContentSize() }
         }
-        let physical = NSSize(width: frame.width * factor, height: frame.height * factor)
+        let physical = NSSize(width: size.width * factor, height: size.height * factor)
         if bounds.size != physical { setBoundsSize(physical) }
-        hosting.frame = bounds
-        updateRoot()
+        if hosting.frame != bounds { hosting.frame = bounds }
+        // Replacing the SwiftUI root schedules another layout pass. Only do it when its inputs change.
+        let hosted = hosting.rootView
+        if hosted.logicalSize != size || hosted.factor != factor || hosted.naturalHeight != hasIntrinsicSize {
+            updateRoot()
+        }
     }
 
     private func updateRoot() {
@@ -144,7 +150,9 @@ final class WorkspaceHostingView<Content: View>: NSView, WorkspaceZoomAware {
             content: rootView, logicalSize: frame.size, factor: factor,
             naturalHeight: sizingOptions.contains(.intrinsicContentSize),
             measured: { [weak self] size in
-                guard let self, self.naturalSize != size else { return }
+                guard let self, self.sizingOptions.contains(.intrinsicContentSize), self.naturalSize != size else {
+                    return
+                }
                 self.naturalSize = size
                 self.invalidateIntrinsicContentSize()
             })
@@ -152,7 +160,6 @@ final class WorkspaceHostingView<Content: View>: NSView, WorkspaceZoomAware {
 }
 
 private struct ScaledWorkspaceContent<Content: View>: View {
-    @Environment(\.displayScale) private var displayScale
     let content: Content
     var logicalSize: NSSize?
     var factor: CGFloat = 1
@@ -163,9 +170,6 @@ private struct ScaledWorkspaceContent<Content: View>: View {
     var body: some View {
         content
             .environment(\.workspaceZoomFactor, factor)
-            // SwiftUI lays this out in logical points, then zooms it below. Round layout to the
-            // displayed pixel grid so text and AppKit controls don't land between backing pixels.
-            .environment(\.displayScale, displayScale * factor)
             .frame(width: logicalSize?.width, height: naturalHeight ? nil : logicalSize?.height, alignment: .topLeading)
             .onGeometryChange(for: NSSize.self) {
                 $0.size

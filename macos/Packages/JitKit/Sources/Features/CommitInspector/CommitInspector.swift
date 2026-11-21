@@ -202,6 +202,8 @@ final class InspectorModel {
 /// Inspector content (opaque `surface.panel`, design §3.4).
 struct CommitInspectorView: View {
     let model: InspectorModel
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.workspaceZoomFactor) private var zoom
 
     var body: some View {
         Group {
@@ -261,6 +263,9 @@ struct CommitInspectorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ColorToken.surfacePanel.color.ignoresSafeArea())
+        // The workspace scales this view after SwiftUI lays it out. Round the inspector's layout
+        // against the display pixels its text and AppKit controls will occupy at this zoom.
+        .environment(\.displayScale, displayScale * zoom)
     }
 }
 
