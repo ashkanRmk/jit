@@ -108,7 +108,21 @@ struct UpdatesSheet: View {
                 }
             }
         case .downloading(let release):
-            statusRow(progress: true, text: "Downloading and checking Jit \(release.version)…")
+            switch updates.installProgress {
+            case .downloading(let percent):
+                ProgressView(value: Double(percent), total: 100) {
+                    Text("Downloading Jit \(release.version)…").typeStyle(.body)
+                } currentValueLabel: {
+                    Text((Double(percent) / 100).formatted(.percent))
+                        .typeStyle(.caption)
+                        .monospacedDigit()
+                }
+                .accessibilityIdentifier("update-download-progress")
+            case .verifying:
+                statusRow(progress: true, text: "Verifying Jit \(release.version)…")
+            case nil:
+                statusRow(progress: true, text: "Downloading Jit \(release.version)…")
+            }
         case .ready(let release):
             statusRow(
                 symbol: "checkmark.circle", tint: .statusSuccess,

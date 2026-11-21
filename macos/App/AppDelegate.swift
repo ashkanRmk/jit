@@ -124,9 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                     target: Bundle.main.bundleURL, bundleIdentifier: identifier, currentVersion: version,
                     directory: directory, signingKey: signingKey, requiredTeam: nil,
                     fetch: { try Data(contentsOf: fixture.appendingPathComponent($0.lastPathComponent)) },
-                    download: { url, destination in
+                    download: { url, destination, reportPercent in
                         // Let XCTest finish the click before the update can terminate the app.
                         if let permit {
+                            reportPercent(35)
                             for _ in 0..<200 {
                                 if FileManager.default.fileExists(atPath: permit.path) { break }
                                 try await Task.sleep(for: .milliseconds(100))

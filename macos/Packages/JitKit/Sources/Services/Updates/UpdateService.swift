@@ -14,10 +14,16 @@ public struct StagedUpdate: Sendable, Equatable {
 
 /// Downloads and verifies a release, and swaps it in. The app installs `DiskImageInstaller`; tests use stubs.
 public protocol UpdateInstalling: Sendable {
-    func stage(_ release: AppRelease) async throws -> StagedUpdate
+    func stage(_ release: AppRelease, progress: @escaping @Sendable (UpdateInstallProgress) -> Void) async throws
+        -> StagedUpdate
     func apply(_ staged: StagedUpdate) throws
     /// Removes downloads and staged copies left by an earlier run.
     func cleanUp()
+}
+
+public enum UpdateInstallProgress: Equatable, Sendable {
+    case downloading(percent: Int)
+    case verifying
 }
 
 /// Updates from Jit's GitHub releases and the change log behind the toolbar bell (ADR-0051).
@@ -44,6 +50,7 @@ public final class UpdateService {
     public nonisolated static let automaticInterval: TimeInterval = 86_400
 
     public private(set) var phase: Phase = .idle
+    public private(set) var installProgress: UpdateInstallProgress?
     /// Known releases, newest first (from the last check, kept on disk).
     public private(set) var releases: [AppRelease] = []
     public private(set) var lastChecked: Date?
@@ -204,8 +211,19 @@ public final class UpdateService {
             return
         }
         phase = .downloading(release)
+        let (changes, reporter) = AsyncStream<UpdateInstallProgress>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let observeProgress = Task {
+            for await change in changes where installProgress != change {
+                installProgress = change
+            }
+        }
+        defer {
+            reporter.finish()
+            observeProgress.cancel()
+            installProgress = nil
+        }
         do {
-            staged = try await installer.stage(release)
+            staged = try await installer.stage(release) { reporter.yield($0) }
             phase = .ready(release)
             if relaunchWhenReady { relaunch?() }
         } catch let error as UpdateError where error.isVerificationFailure {

@@ -158,7 +158,9 @@ final class InstallerStub: UpdateInstalling {
     var stagedVersions: [String] { staged.withLock { $0 } }
     var appliedVersions: [String] { applied.withLock { $0 } }
 
-    func stage(_ release: AppRelease) async throws -> StagedUpdate {
+    func stage(_ release: AppRelease, progress: @escaping @Sendable (UpdateInstallProgress) -> Void) async throws
+        -> StagedUpdate
+    {
         if let failure { throw failure }
         staged.withLock { $0.append(release.version) }
         return StagedUpdate(version: release.version, app: URL(fileURLWithPath: "/nonexistent/Jit.app"))
@@ -442,7 +444,7 @@ final class InstallerStub: UpdateInstalling {
                 guard FileManager.default.fileExists(atPath: file.path) else { throw UpdateError.http(404) }
                 return try Data(contentsOf: file)
             },
-            download: { _, destination in
+            download: { _, destination, _ in
                 downloads.withLock { $0 += 1 }
                 try FileManager.default.copyItem(at: image, to: destination)
             })

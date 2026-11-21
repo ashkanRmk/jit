@@ -46,6 +46,7 @@ final class SignedUpdateAcceptanceTests: XCTestCase {
         let originalPID = try XCTUnwrap(
             NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier)
         try requestInstall(in: valid)
+        XCTAssertTrue(valid.progressIndicators["update-download-progress"].waitForExistence(timeout: 5))
         try Data().write(to: permit)
         let predicate = NSPredicate { _, _ in
             NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).contains { process in

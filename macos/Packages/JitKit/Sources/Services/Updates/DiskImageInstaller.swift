@@ -16,7 +16,9 @@ public struct DiskImageInstaller: UpdateInstalling {
     /// The Team ID the new app must be signed with; `nil` for ad-hoc builds (no team to compare).
     public let requiredTeam: String?
     public let fetch: @Sendable (URL) async throws -> Data
-    public let download: @Sendable (_ from: URL, _ to: URL) async throws -> Void
+    public let download:
+        @Sendable (_ from: URL, _ to: URL, _ reportPercent: @escaping @Sendable (Int) -> Void)
+            async throws -> Void
 
     public static let maxImageBytes: UInt64 = 1_000_000_000
     /// The Team ID the running Jit is signed with (`nil`: ad-hoc or development build).
@@ -27,7 +29,8 @@ public struct DiskImageInstaller: UpdateInstalling {
         signingKey: UpdateSigningKey,
         requiredTeam: String? = DiskImageInstaller.runningTeam,
         fetch: @escaping @Sendable (URL) async throws -> Data = UpdateNetwork.fetch,
-        download: @escaping @Sendable (URL, URL) async throws -> Void = UpdateNetwork.download
+        download: @escaping @Sendable (URL, URL, @escaping @Sendable (Int) -> Void) async throws -> Void =
+            UpdateNetwork.download
     ) {
         self.target = target
         self.bundleIdentifier = bundleIdentifier
@@ -50,7 +53,9 @@ public struct DiskImageInstaller: UpdateInstalling {
         }
     }
 
-    public func stage(_ release: AppRelease) async throws -> StagedUpdate {
+    public func stage(
+        _ release: AppRelease, progress: @escaping @Sendable (UpdateInstallProgress) -> Void = { _ in }
+    ) async throws -> StagedUpdate {
         guard let imageURL = release.diskImageURL, let manifestURL = release.manifestURL,
             let signatureURL = release.signatureURL, let version = release.parsedVersion
         else {
@@ -74,7 +79,8 @@ public struct DiskImageInstaller: UpdateInstalling {
         let image = directory.appendingPathComponent("Jit-\(version).dmg")
         try? manager.removeItem(at: image)
         defer { try? manager.removeItem(at: image) }
-        try await download(imageURL, image)
+        try await download(imageURL, image) { progress(.downloading(percent: $0)) }
+        progress(.verifying)
 
         let staging = stagingDirectory
         let app = try await Task.detached(priority: .utility) { () -> URL in
@@ -224,7 +230,7 @@ public struct DiskImageInstaller: UpdateInstalling {
 }
 
 /// The updater's two requests (ADR-0051): the release list from api.github.com and the release's files from
-/// github.com. One ephemeral session — no cookies, no credentials, no cache; redirects stay on HTTPS.
+/// github.com. Ephemeral sessions have no cookies, credentials or cache, and redirects stay on HTTPS.
 public enum UpdateNetwork {
     public static let fetch: @Sendable (URL) async throws -> Data = { url in
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
@@ -240,26 +246,91 @@ public enum UpdateNetwork {
         return data
     }
 
-    public static let download: @Sendable (URL, URL) async throws -> Void = { url, destination in
+    public static func download(
+        _ url: URL, _ destination: URL, _ reportPercent: @escaping @Sendable (Int) -> Void
+    ) async throws {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.httpShouldHandleCookies = false
         request.setValue("Jit", forHTTPHeaderField: "User-Agent")
-        let (file, response) = try await session.download(for: request, delegate: HTTPSRedirects.shared)
-        defer { try? FileManager.default.removeItem(at: file) }
-        guard let http = response as? HTTPURLResponse else { throw UpdateError.offline }
-        guard http.statusCode == 200 else { throw UpdateError.http(http.statusCode) }
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.moveItem(at: file, to: destination)
+        let (result, completion) = AsyncThrowingStream<Void, any Error>.makeStream()
+        let delegate = UpdateDownload(destination: destination, reportPercent: reportPercent, completion: completion)
+        let downloadSession = URLSession(configuration: configuration(), delegate: delegate, delegateQueue: nil)
+        defer { downloadSession.finishTasksAndInvalidate() }
+        let task = downloadSession.downloadTask(with: request)
+        let finished = Task.detached {
+            for try await _ in result {}
+        }
+        try await withTaskCancellationHandler {
+            task.resume()
+            try await finished.value
+            try Task.checkCancellation()
+        } onCancel: {
+            task.cancel()
+        }
     }
 
-    private static let session: URLSession = {
+    private static let session = URLSession(configuration: configuration())
+
+    private static func configuration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil
         configuration.urlCache = nil
         configuration.timeoutIntervalForResource = 900
-        return URLSession(configuration: configuration)
-    }()
+        return configuration
+    }
+}
+
+private final class UpdateDownload: NSObject, URLSessionDownloadDelegate, Sendable {
+    let destination: URL
+    let reportPercent: @Sendable (Int) -> Void
+    let completion: AsyncThrowingStream<Void, any Error>.Continuation
+
+    init(
+        destination: URL, reportPercent: @escaping @Sendable (Int) -> Void,
+        completion: AsyncThrowingStream<Void, any Error>.Continuation
+    ) {
+        self.destination = destination
+        self.reportPercent = reportPercent
+        self.completion = completion
+    }
+
+    func urlSession(
+        _ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0,
+            (downloadTask.response as? HTTPURLResponse)?.statusCode == 200
+        else { return }
+        let fraction = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        reportPercent(Int(min(1, max(0, fraction)) * 100))
+    }
+
+    func urlSession(
+        _ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL
+    ) {
+        do {
+            guard let http = downloadTask.response as? HTTPURLResponse else { throw UpdateError.offline }
+            guard http.statusCode == 200 else { throw UpdateError.http(http.statusCode) }
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: location, to: destination)
+            completion.finish()
+        } catch {
+            completion.finish(throwing: error)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        if let error { completion.finish(throwing: error) }
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        await HTTPSRedirects.shared.urlSession(
+            session, task: task, willPerformHTTPRedirection: response, newRequest: request)
+    }
 }
 
 private final class HTTPSRedirects: NSObject, URLSessionTaskDelegate, Sendable {
