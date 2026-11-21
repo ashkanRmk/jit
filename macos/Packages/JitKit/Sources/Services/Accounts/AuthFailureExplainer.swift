@@ -34,7 +34,12 @@ public enum AuthFailureExplainer {
             case .keyFile(let path, let fingerprint):
                 key = "the key \((path as NSString).lastPathComponent) (\(fingerprint))"
             case .agent: key = "the keys in ssh-agent"
-            case nil: key = "the keys in ssh-agent (the profile has no SSH key configured)"
+            case nil:
+                result.title = "SSH authentication failed for \(host)."
+                result.explanation =
+                    "Jit used your system SSH settings. Check that the correct key is available to SSH and registered with the server, or choose a key file in the profile’s Authentication settings."
+                result.actions = switchActions + [.editProfile]
+                return result
             }
             result.title = "\(host) refused \(profileName)'s SSH key."
             result.explanation =

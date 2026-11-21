@@ -173,7 +173,8 @@ public enum AccessResolver {
                     ssh = SSHPlan(
                         keyPath: keyPath, useAgent: environment.agentAvailable,
                         knownHostsFiles: [environment.userKnownHosts, environment.jitKnownHosts],
-                        strictConfig: !auth.useUserSSHConfig, proxy: sshProxy)
+                        strictConfig: auth.ssh != nil && !auth.useUserSSHConfig,
+                        proxy: sshProxy, useDefaultIdentities: auth.ssh == nil)
                 }
             }
         }

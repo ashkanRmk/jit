@@ -19,7 +19,7 @@ struct ProfileAuthDraft: Equatable {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .none: "Not used"
+            case .none: "System SSH settings"
             case .agent: "Keys in ssh-agent"
             case .keyFile: "Key file"
             }

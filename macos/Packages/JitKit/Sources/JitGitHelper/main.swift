@@ -83,7 +83,7 @@ enum HelperMain {
         if let key = environment["JIT_SSH_KEY"], !key.isEmpty {
             argv += ["-o", "IdentitiesOnly=yes", "-i", key]
             if !useAgent { argv += ["-o", "IdentityAgent=none"] }
-        } else {
+        } else if environment["JIT_SSH_DEFAULT_IDENTITIES"] != "1" {
             // Agent-only: no default ~/.ssh/id_* files.
             argv += ["-o", "IdentityFile=none"]
         }

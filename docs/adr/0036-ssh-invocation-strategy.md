@@ -6,16 +6,17 @@
 - Requirements: §10.3, §13.5, §19
 
 ## Context
-SSH must use exactly the profile's key (or agent), never another account's `IdentityFile` from
-`~/.ssh/config`, never accept host keys silently, never write the user's `~/.ssh` files, and handle key paths
-with spaces or quotes safely.
+An explicitly selected SSH identity is isolated from the user's SSH config by default. Profiles with no
+SSH identity use the system's SSH config and identity selection. Jit requires trusted host keys, keeps its
+own trust file, and handles key paths with spaces or quotes safely.
 
 ## Decision
 - Git gets `GIT_SSH_COMMAND='<quoted helper path>'` and `GIT_SSH_VARIANT=ssh` (deviation from the design's
   `GIT_SSH`: `core.sshCommand` in a user's config outranks `GIT_SSH` but not `GIT_SSH_COMMAND`). The only shell
   word is Jit's own path; keys, known_hosts files and proxy travel in `JIT_SSH_*` variables. The helper
   `execv`s `/usr/bin/ssh` with an argv array.
-- Options: strict mode `-F none` (default; the profile can opt into the user's config), key mode
+- Options: system SSH settings honor `~/.ssh/config` and allow OpenSSH's default key files.
+  An explicit key or agent uses `-F none` by default (the profile can opt into the user's config). Key mode uses
   `-o IdentitiesOnly=yes -i <key>` (+ `IdentityAgent=none` without an agent), agent mode `IdentityFile=none`,
   `StrictHostKeyChecking=yes`, `UpdateHostKeys=no`, `UserKnownHostsFile="<~/.ssh/known_hosts>" "<Jit file>"`,
   `PasswordAuthentication=no`, `KbdInteractiveAuthentication=no`, `BatchMode=no`, `ConnectTimeout=30`.

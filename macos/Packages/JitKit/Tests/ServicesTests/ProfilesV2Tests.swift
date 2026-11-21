@@ -126,6 +126,44 @@ import Testing
         #expect(other.mismatches == [.sshHostNotInstance(host: "gitlab.com")])
     }
 
+    @Test func oauthProfileUsesSystemSSHIdentity() async throws {
+        let sandbox = TempLocation()
+        let helper = try #require(HelperBinary.path)
+        let account = HostingAccount(instanceID: .gitlab, login: "ada", userID: "1", method: .oauth)
+        let profile = GitProfile(
+            displayName: "Work", colorIndex: 0, author: Self.ada,
+            auth: ProfileAuth(instanceID: .gitlab, accountID: account.id))
+        let provider = ProfileAccessProvider(
+            snapshot: ProfileSnapshot(profile, account: account, instance: .gitlab),
+            environment: Self.env, helperPath: helper, credentials: FakeCredentialSource(token: "unused"))
+        let lease = try await provider.prepare(for: ["git@gitlab.com:acme/app.git"], purpose: .fetch)
+        let access = try #require(lease.access)
+        #expect(access.ssh?.strictConfig == false)
+        #expect(!access.httpsCredentials)
+
+        // OpenSSH reads ~/.ssh/config from the login home. Pass an isolated config to inspect the
+        // effective options without using any real keys or contacting GitLab.
+        try sandbox.location.ensureDirectory()
+        let config = sandbox.location.url("ssh_config")
+        try "Host gitlab.com\n  HostName ssh.gitlab.com\n  Port 443\n".write(
+            to: config, atomically: true, encoding: .utf8)
+        let process = Process()
+        let stdout = Pipe()
+        process.executableURL = URL(fileURLWithPath: helper)
+        process.arguments = ["-G", "-F", config.path, "git@gitlab.com"]
+        process.environment = GitEnvironment.remoteVariables(access)
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let options = String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(options.contains("hostname ssh.gitlab.com\n"))
+        #expect(options.contains("port 443\n"))
+        #expect(options.contains("identityfile ~/.ssh/id_ed25519\n"))
+        #expect(options.contains("stricthostkeychecking true\n") || options.contains("stricthostkeychecking yes\n"))
+    }
+
     @Test func snapshotImmutableAfterProfileEdit() {
         let store = ProfileStore(location: TempLocation().location)
         let account = HostingAccount(instanceID: .github, login: "ada", userID: "1", method: .pat)

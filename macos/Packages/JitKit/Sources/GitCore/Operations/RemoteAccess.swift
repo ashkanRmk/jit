@@ -36,24 +36,27 @@ public struct SSHProxy: Sendable, Hashable {
 
 /// How SSH runs for one invocation (design §4.6, ADR-0036). Paths and flags only — never secrets.
 public struct SSHPlan: Sendable, Hashable {
-    /// `nil` = agent-only (`SSH_AUTH_SOCK` passed through, `IdentitiesOnly` not forced).
+    /// The private key explicitly selected in the profile, if any.
     public var keyPath: String?
     public var useAgent: Bool
     /// Read by ssh (user's file first, then Jit's). Only Jit's is ever written, only via the trust sheet.
     public var knownHostsFiles: [String]
-    /// `-F none`: the user's `~/.ssh/config` is ignored unless the profile opted in.
+    /// `-F none`: ignore the user's SSH config for an explicitly configured identity.
     public var strictConfig: Bool
     public var proxy: SSHProxy?
+    /// Let OpenSSH discover its default key files when no profile identity is selected.
+    public var useDefaultIdentities: Bool
 
     public init(
         keyPath: String?, useAgent: Bool, knownHostsFiles: [String], strictConfig: Bool = true,
-        proxy: SSHProxy? = nil
+        proxy: SSHProxy? = nil, useDefaultIdentities: Bool = false
     ) {
         self.keyPath = keyPath
         self.useAgent = useAgent
         self.knownHostsFiles = knownHostsFiles
         self.strictConfig = strictConfig
         self.proxy = proxy
+        self.useDefaultIdentities = useDefaultIdentities
     }
 }
 
@@ -89,7 +92,7 @@ public struct RemoteAccess: Sendable, Hashable {
     public var broker: BrokerEndpoint?
     /// Install the helper as Git's only credential helper (HTTPS with an account, or proxy auth).
     public var httpsCredentials: Bool
-    /// `nil` → the non-interactive Phase 4 SSH command (agent keys only, `BatchMode=yes`).
+    /// `nil` → system SSH with `BatchMode=yes` and strict host-key checking.
     public var ssh: SSHPlan?
     public var network: [ScopedNetwork]
 

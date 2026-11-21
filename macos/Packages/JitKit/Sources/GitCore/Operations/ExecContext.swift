@@ -78,6 +78,7 @@ public enum GitEnvironment {
             variables["GIT_SSH_VARIANT"] = "ssh"
             variables["JIT_HELPER_MODE"] = "ssh"
             if let key = ssh.keyPath { variables["JIT_SSH_KEY"] = key }
+            if ssh.useDefaultIdentities { variables["JIT_SSH_DEFAULT_IDENTITIES"] = "1" }
             variables["JIT_SSH_AGENT"] = ssh.useAgent ? "1" : "0"
             variables["JIT_SSH_KNOWN_HOSTS"] = ssh.knownHostsFiles.joined(separator: "\n")
             variables["JIT_SSH_STRICT"] = ssh.strictConfig ? "1" : "0"

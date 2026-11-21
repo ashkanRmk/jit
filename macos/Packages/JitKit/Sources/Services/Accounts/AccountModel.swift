@@ -251,8 +251,9 @@ public struct ProfileAuth: Codable, Sendable, Hashable {
     /// The HTTPS/API account; `nil` = SSH only.
     public var accountID: HostingAccountID?
     public var preferredTransport: Transport
+    /// `nil` leaves identity selection to the system SSH client.
     public var ssh: SSHIdentity?
-    /// Off by default: SSH runs with `-F none` so another identity's `~/.ssh/config` rules can't apply.
+    /// Allow the user's SSH config to apply even when the profile specifies an SSH identity.
     public var useUserSSHConfig: Bool
 
     public init(
