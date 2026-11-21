@@ -26,6 +26,8 @@ public struct HistoryQuery: Sendable, Hashable {
     /// Full ref names pinned to the leftmost lanes, in order.
     public var pinned: [String]
 
+    public var showsStashes: Bool { scope == .all && path == nil && temporaryTip == nil }
+
     public init(
         scope: HistoryScope = .all, path: String? = nil, follow: Bool = false, pinned: [String] = [],
         temporaryTip: String? = nil
@@ -56,8 +58,8 @@ public struct HistoryQuery: Sendable, Hashable {
     }
 
     /// The full `git` argument list (ADR-0023: display-only reads neutralise program-executing config).
-    func arguments(refs: RefSnapshot, skip: Int) -> [String]? {
-        var revisions = revisions(refs: refs)
+    func arguments(refs: RefSnapshot, skip: Int, stashBases: [String] = []) -> [String]? {
+        var revisions = revisions(refs: refs) + stashBases
         if let temporaryTip, ObjectID(hex: temporaryTip) != nil { revisions.append(temporaryTip) }
         let options = revisions.filter { $0.hasPrefix("--") }
         let names = revisions.filter { !$0.hasPrefix("--") }
@@ -103,6 +105,8 @@ public actor HistoryLoader {
     private var stream: ProcessStream?
     /// After a reader restart with `--skip`, the first record must be this commit (drift check).
     private var expectedFirst: ObjectID?
+    private var logRows = 0
+    private var lastLogOID: ObjectID?
     private var target = 0
     private var readTask: Task<Void, Never>?
     private var failure: GitCoreError?
@@ -111,6 +115,10 @@ public actor HistoryLoader {
     private var headRow: Int?
     private let headCommit: ObjectID?
     private let isShallow: Bool
+    private let stashBases: [String]
+    private var stashesByBase: [ObjectID: [ObjectID]] = [:]
+    private var stashes: [ObjectID: StashEntry] = [:]
+    private var seenStashes: Set<ObjectID> = []
     public private(set) var snapshot: HistorySnapshot
     /// Reader processes started (tests, diagnostics).
     public private(set) var readerStarts = 0
@@ -120,7 +128,7 @@ public actor HistoryLoader {
     /// Bumped when the reader is suspended; a read that resolves afterwards is discarded, not parsed.
     private var readerGeneration = 0
 
-    public init(repository: RepositoryHandle, query: HistoryQuery, refs: RefSnapshot) {
+    public init(repository: RepositoryHandle, query: HistoryQuery, refs: RefSnapshot, stashes: [StashEntry] = []) {
         self.query = query
         self.refs = refs
         engine = repository.gitEngine
@@ -134,6 +142,16 @@ public actor HistoryLoader {
         }
         layouter = LaneLayouter(refs: refs, pinned: pinnedTips)
         snapshot = .empty(refs: refs)
+        var bases: [String] = []
+        for entry in stashes where query.showsStashes {
+            guard let oid = ObjectID(hex: entry.oid), let baseHex = entry.parents.first,
+                let base = ObjectID(hex: baseHex), self.stashes[oid] == nil
+            else { continue }
+            self.stashes[oid] = entry
+            if stashesByBase[base] == nil { bases.append(baseHex) }
+            stashesByBase[base, default: []].append(oid)
+        }
+        stashBases = bases
     }
 
     /// Process id of the running reader (tests).
@@ -233,23 +251,17 @@ public actor HistoryLoader {
 
     private func currentStream() async throws(GitCoreError) -> ProcessStream {
         if let stream { return stream }
-        let skip = max(0, builder.count - 1)
-        guard let arguments = query.arguments(refs: refs, skip: skip) else {
+        let skip = max(0, logRows - 1)
+        guard let arguments = query.arguments(refs: refs, skip: skip, stashBases: stashBases) else {
             complete = true
             throw .cancelled  // nothing to read; caught as a non-failure
         }
-        expectedFirst = builder.count > 0 ? lastOID() : nil
+        expectedFirst = lastLogOID
         let stream = try await engine.stream(GitCommand(arguments, in: directory, kind: .read, timeout: nil))
         readerStarts += 1
         self.stream = stream
         parser = LogParser()
         return stream
-    }
-
-    private func lastOID() -> ObjectID? {
-        let chunks = builder.chunksForSnapshot()
-        guard let last = chunks.last, last.count > 0 else { return nil }
-        return last.oids[last.count - 1]
     }
 
     private func ingest(_ bytes: [UInt8]) throws(GitCoreError) {
@@ -261,18 +273,41 @@ public actor HistoryLoader {
                 }
                 return
             }
+            if stashes[record.oid] != nil { seenStashes.insert(record.oid) }
+            // The first parent is the checked-out commit when the stash was created. Git's other
+            // stash parents are internal snapshots and aren't needed for this graph connection.
+            if let entries = stashesByBase.removeValue(forKey: record.oid) {
+                for oid in entries where !seenStashes.contains(oid) {
+                    if let entry = stashes[oid] { appendStash(entry, oid: oid, base: record.oid) }
+                }
+            }
             let author = builder.internAuthor(name: record.name, email: record.email)
             layouter.layout(oid: record.oid, parents: record.parents, subject: record.subject)
             if record.oid == headCommit, headRow == nil { headRow = builder.count }
             builder.append(
                 oid: record.oid, parents: record.parents, author: author, time: record.time, subject: record.subject,
                 lane: layouter.output)
+            lastLogOID = record.oid
+            logRows += 1
+        }
+    }
+
+    private func appendStash(_ entry: StashEntry, oid: ObjectID, base: ObjectID) {
+        let parents = [base]
+        let empty = UnsafeRawBufferPointer(start: nil, count: 0)
+        let author = builder.internAuthor(name: empty, email: empty)
+        let subject = entry.message.isEmpty ? entry.subject : entry.message
+        Array(subject.utf8).withUnsafeBytes { bytes in
+            layouter.layout(oid: oid, parents: parents, subject: bytes, stashBase: base)
+            builder.append(
+                oid: oid, parents: parents, author: author, time: Int64(entry.date.timeIntervalSince1970),
+                subject: bytes, lane: layouter.output)
         }
     }
 
     private func publish() {
         snapshot = HistorySnapshot(
             chunks: builder.chunksForSnapshot(), count: builder.count, complete: complete, authors: builder.authors,
-            format: refs.format, refs: refs, isShallow: isShallow, headRow: headRow)
+            format: refs.format, refs: refs, isShallow: isShallow, headRow: headRow, stashes: stashes)
     }
 }

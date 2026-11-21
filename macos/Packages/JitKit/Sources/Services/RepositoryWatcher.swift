@@ -87,6 +87,8 @@ public enum FSEventClassifier {
 
     private static func classifyInGitDirectory(_ relative: String, isCommonOnly: Bool) -> Outcome {
         if relative.hasSuffix(".lock") { return .ignore }
+        // Dropping an older stash rewrites its reflog without moving the refs/stash tip.
+        if ["logs", "logs/refs", "logs/refs/stash"].contains(relative) { return .invalidate([.refs]) }
         let first = relative.split(separator: "/", maxSplits: 1).first.map(String.init) ?? relative
         switch first {
         case "objects", "logs", "hooks", "lfs", "fsmonitor--daemon", "ORIG_HEAD", "FETCH_HEAD", "COMMIT_EDITMSG",

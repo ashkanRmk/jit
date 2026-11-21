@@ -1,7 +1,7 @@
 import Foundation
 
 /// One edge piece inside one row (design §4.2). Rows are drawn independently: every segment is fully
-/// described by its row. Packed into 4 bytes: 13-bit lanes (up to 8,191 lanes), 3-bit colour, 2-bit half.
+/// described by its row. Packed into 4 bytes: 13-bit lanes, 3-bit colour, 2-bit half and 1 stash bit.
 public struct EdgeSegment: Sendable, Hashable {
     public enum Half: UInt8, Sendable {
         /// Row top → row centre (an incoming edge, straight or curving into the node lane).
@@ -16,16 +16,17 @@ public struct EdgeSegment: Sendable, Hashable {
 
     var bits: UInt32
 
-    public init(fromLane: UInt16, toLane: UInt16, color: UInt8, half: Half) {
+    public init(fromLane: UInt16, toLane: UInt16, color: UInt8, half: Half, isStash: Bool = false) {
         bits =
             UInt32(min(fromLane, Self.maxLane)) | UInt32(min(toLane, Self.maxLane)) << 13 | UInt32(color & 7) << 26
-            | UInt32(half.rawValue) << 29
+            | UInt32(half.rawValue) << 29 | (isStash ? 1 << 31 : 0)
     }
 
     public var fromLane: UInt16 { UInt16(bits & 0x1FFF) }
     public var toLane: UInt16 { UInt16(bits >> 13 & 0x1FFF) }
     public var color: UInt8 { UInt8(bits >> 26 & 7) }
     public var half: Half { Half(rawValue: UInt8(bits >> 29 & 3)) ?? .full }
+    public var isStash: Bool { bits >> 31 != 0 }
 }
 
 /// Per-row node flags.
@@ -223,10 +224,11 @@ public struct HistorySnapshot: Sendable {
     public let isShallow: Bool
     /// Lane HEAD's commit sits in, once loaded (the WIP row draws on it).
     public let headRow: Int?
+    public let stashes: [ObjectID: StashEntry]
 
     public init(
         chunks: [CommitChunk], count: Int, complete: Bool, authors: [CommitAuthor], format: ObjectFormat,
-        refs: RefSnapshot, isShallow: Bool, headRow: Int?
+        refs: RefSnapshot, isShallow: Bool, headRow: Int?, stashes: [ObjectID: StashEntry] = [:]
     ) {
         self.chunks = chunks
         self.count = count
@@ -236,6 +238,7 @@ public struct HistorySnapshot: Sendable {
         self.refs = refs
         self.isShallow = isShallow
         self.headRow = headRow
+        self.stashes = stashes
     }
 
     public static func empty(refs: RefSnapshot = .empty) -> HistorySnapshot {

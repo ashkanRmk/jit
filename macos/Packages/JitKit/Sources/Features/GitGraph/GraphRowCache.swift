@@ -170,7 +170,12 @@ struct GraphRowDisplay {
         var hash = StableHash()
         hash.combine(author.email.lowercased())
         let shortSHA = row.oid.hex(snapshot.format, length: 7)
-        var spoken = "Commit \(shortSHA), \(subject), by \(author.name), \(dateText)"
+        var spoken: String
+        if let stash = snapshot.stashes[row.oid] {
+            spoken = "Stash \(stash.name), \(subject), \(dateText)"
+        } else {
+            spoken = "Commit \(shortSHA), \(subject), by \(author.name), \(dateText)"
+        }
         if !labels.isEmpty { spoken += ", " + labels.map(\.text).joined(separator: ", ") }
         if row.parentCount > 1 { spoken += ", merge of \(row.parentCount) parents" }
         return GraphRowDisplay(

@@ -89,7 +89,7 @@ final class OperationsController {
     @ObservationIgnored var selectCommit: (ObjectID) -> Void = { _ in }
     @ObservationIgnored var showReflog: () -> Void = {}
     @ObservationIgnored var showWorkingDirectory: () -> Void = {}
-    /// Shows any commit (a stash) in the inspector, even when the graph doesn't list it.
+    /// Opens a commit in the inspector when the current graph view doesn't contain it.
     @ObservationIgnored var inspectCommit: (ObjectID) -> Void = { _ in }
     @ObservationIgnored private var pendingDestructive: ((ConfirmationToken) -> Void)?
     @ObservationIgnored var surgeryPreparation: Task<Void, Never>?

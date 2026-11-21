@@ -127,15 +127,16 @@ struct NodeDecor: Equatable {
     var toolTip = ""
     /// The row has ref labels: a connector runs from the ref column to the node.
     var hasRefs = false
-    var wipAbove = false
+    var wipConnection: EdgeSegment?
     var dimmed = false
     var isRecoveryTip = false
+    var isStash = false
 }
 
 /// What a graph cell draws for one row.
 enum GraphCellContent {
     case commit(CommitRow, NodeDecor)
-    /// The working-directory row: dashed node on HEAD's lane, dashed edge down into HEAD's row.
+    /// The working-directory row: dotted node and connection to HEAD.
     case wip(lane: Int, color: UInt8)
     /// "Show only matches": topology is meaningless, a node on lane 0 only.
     case flat(isMerge: Bool, color: UInt8, NodeDecor)
@@ -237,6 +238,18 @@ final class GraphCellView: GraphDrawingCellView {
             GraphMetrics.snap(metrics.laneX(lane), width: metrics.edgeWidth, scale: scale)
         }
         func alpha(_ lane: Int) -> CGFloat { lane >= metrics.maxVisibleLanes ? 0.5 : 1 }
+        func drawEdge(_ segment: EdgeSegment, dotted: Bool = false, dashed: Bool = false) {
+            let from = Int(segment.fromLane)
+            let to = Int(segment.toLane)
+            let color = colors.lane(segment.color)
+            context.setStrokeColor(color.copy(alpha: alpha(max(from, to))) ?? color)
+            context.setLineWidth(metrics.edgeWidth)
+            context.setLineCap(dotted ? .round : .butt)
+            context.setLineDash(phase: 0, lengths: dotted ? Self.dotSpacing : dashed ? GraphMetrics.recoveryDash : [])
+            context.addPath(
+                GraphEdgeGeometry.path(x0: x(from), x1: x(to), half: segment.half, mid: mid, height: height))
+            context.strokePath()
+        }
 
         switch content {
         case .empty:
@@ -248,9 +261,11 @@ final class GraphCellView: GraphDrawingCellView {
         case .wip(let lane, let color):
             let cx = x(lane)
             let radius = metrics.nodeDiameter / 2
+            drawBand(context, x: cx, mid: mid, color: color, hasRefs: false, style: style, showsBar: false)
             context.setStrokeColor(colors.lane(color))
             context.setLineWidth(metrics.edgeWidth)
-            context.setLineDash(phase: 0, lengths: [3, 3])
+            context.setLineCap(.round)
+            context.setLineDash(phase: 0, lengths: Self.dotSpacing)
             context.move(to: CGPoint(x: cx, y: mid + radius))
             context.addLine(to: CGPoint(x: cx, y: height))
             context.strokePath()
@@ -266,29 +281,13 @@ final class GraphCellView: GraphDrawingCellView {
             let lane = Int(row.nodeLane)
             let cx = x(lane)
             drawBand(context, x: cx, mid: mid, color: row.nodeColor, hasRefs: decor.hasRefs, style: style)
-            context.setLineWidth(metrics.edgeWidth)
             for segment in row.segments {
-                let from = Int(segment.fromLane)
-                let to = Int(segment.toLane)
-                context.setStrokeColor(
-                    colors.lane(segment.color).copy(alpha: alpha(max(from, to))) ?? colors.lane(segment.color))
-                context.setLineDash(
-                    phase: 0,
-                    lengths: decor.isRecoveryTip && (from == lane || to == lane)
-                        ? GraphMetrics.recoveryDash : [])
-                context.addPath(
-                    GraphEdgeGeometry.path(x0: x(from), x1: x(to), half: segment.half, mid: mid, height: height))
-                context.strokePath()
+                drawEdge(
+                    segment, dotted: segment.isStash,
+                    dashed: decor.isRecoveryTip && (segment.fromLane == row.nodeLane || segment.toLane == row.nodeLane))
             }
+            if let connection = decor.wipConnection { drawEdge(connection, dotted: true) }
             context.setLineDash(phase: 0, lengths: [])
-            if decor.wipAbove {
-                context.setStrokeColor(colors.lane(row.nodeColor))
-                context.setLineDash(phase: 0, lengths: [3, 3])
-                context.move(to: CGPoint(x: cx, y: 0))
-                context.addLine(to: CGPoint(x: cx, y: mid))
-                context.strokePath()
-                context.setLineDash(phase: 0, lengths: [])
-            }
             if lane >= metrics.maxVisibleLanes { context.setAlpha(decor.dimmed ? 0.25 : 0.5) }
             drawNode(
                 context, lane: lane, x: cx, mid: mid, color: row.nodeColor, isMerge: row.isMerge, decor: decor,
@@ -296,10 +295,13 @@ final class GraphCellView: GraphDrawingCellView {
         }
     }
 
+    private static let dotSpacing: [CGFloat] = [0, 4]
+
     /// Lane-tinted band from the node to the column's trailing edge, a trailing lane bar, and the connector
     /// from the ref column (drawn under the edges).
     private func drawBand(
-        _ context: CGContext, x cx: CGFloat, mid: CGFloat, color: UInt8, hasRefs: Bool, style: GraphStyle
+        _ context: CGContext, x cx: CGFloat, mid: CGFloat, color: UInt8, hasRefs: Bool, style: GraphStyle,
+        showsBar: Bool = true
     ) {
         let metrics = style.metrics
         let colors = style.colors
@@ -307,11 +309,13 @@ final class GraphCellView: GraphDrawingCellView {
         let top = mid - diameter / 2
         context.setFillColor(colors.laneFills[Int(color) % max(1, colors.laneFills.count)])
         context.fill(CGRect(x: cx, y: top, width: max(0, bounds.width - cx), height: diameter))
-        context.setFillColor(colors.lane(color))
-        context.fill(
-            CGRect(
-                x: bounds.width - GraphMetrics.laneBarWidth, y: top, width: GraphMetrics.laneBarWidth, height: diameter)
-        )
+        if showsBar {
+            context.setFillColor(colors.lane(color))
+            context.fill(
+                CGRect(
+                    x: bounds.width - GraphMetrics.laneBarWidth, y: top, width: GraphMetrics.laneBarWidth,
+                    height: diameter))
+        }
         if hasRefs {
             context.setStrokeColor(colors.laneOutlines[Int(color) % max(1, colors.laneOutlines.count)])
             context.setLineWidth(1)
@@ -331,13 +335,38 @@ final class GraphCellView: GraphDrawingCellView {
             if decor.dimmed { context.setAlpha(0.45) }
             drawBand(context, x: cx, mid: mid, color: color, hasRefs: decor.hasRefs, style: style)
         }
+        let diameter = metrics.nodeDiameter
+        if decor.isStash {
+            let tint = colors.lane(color)
+            let rect = CGRect(x: cx - diameter / 2, y: mid - diameter / 2, width: diameter, height: diameter)
+            let path = CGPath(roundedRect: rect.insetBy(dx: 1, dy: 1), cornerWidth: 3, cornerHeight: 3, transform: nil)
+            context.setFillColor(colors.canvas)
+            context.addPath(path)
+            context.fillPath()
+            context.setStrokeColor(tint)
+            context.setLineWidth(metrics.nodeRing)
+            context.setLineCap(.round)
+            context.setLineDash(phase: 0, lengths: Self.dotSpacing)
+            context.addPath(path)
+            context.strokePath()
+            if let image = style.symbol(
+                "tray", color: NSColor(cgColor: tint) ?? colors.textPrimary, slot: Int(color),
+                pointSize: diameter * 0.55, weight: .semibold)
+            {
+                image.draw(
+                    in: NSRect(
+                        x: cx - image.size.width / 2, y: mid - image.size.height / 2,
+                        width: image.size.width, height: image.size.height),
+                    from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
+            return
+        }
         if isMerge {
             let radius = metrics.mergeDotDiameter / 2
             context.setFillColor(colors.lane(color))
             context.fillEllipse(in: CGRect(x: cx - radius, y: mid - radius, width: radius * 2, height: radius * 2))
             return
         }
-        let diameter = metrics.nodeDiameter
         let photo = decor.email.isEmpty ? nil : style.photo?(decor.email)
         let key = GraphStyle.AvatarKey(
             initials: decor.initials, authorSlot: decor.avatarSlot, laneSlot: color, diameter: diameter, scale: scale,
@@ -365,12 +394,11 @@ extension GraphCellView: @MainActor NSViewToolTipOwner {
 final class SubjectCellView: GraphDrawingCellView {
     struct Content {
         var subject = ""
-        var trailing = ""
         var style: TextStyle = .normal
         var dimmed = false
     }
 
-    enum TextStyle { case normal, placeholder, footer }
+    enum TextStyle { case normal, wip(changedFiles: Int), footer }
 
     var style: GraphStyle?
     var content = Content() {
@@ -399,34 +427,53 @@ final class SubjectCellView: GraphDrawingCellView {
         case .normal:
             font = style.subjectFont
             color = colors.textPrimary
-        case .placeholder:
-            font = style.subjectFont
-            color = colors.textSecondary
+        case .wip(let changedFiles):
+            drawWIP(at: x, changedFiles: changedFiles, style: style)
+            return
         case .footer:
             font = style.secondaryFont
             color = colors.textTertiary
         }
-        let trailingAttributes: [NSAttributedString.Key: Any] = [
-            .font: style.secondaryFont, .foregroundColor: colors.textTertiary,
-        ]
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font, .foregroundColor: color, .paragraphStyle: paragraph,
         ]
         let lineHeight = ceil(font.ascender - font.descender)
-        // The subject wins; trailing counts take what is left (truncated if needed).
-        let subjectWidth = ceil((content.subject as NSString).size(withAttributes: attributes).width)
-        let available = max(0, min(subjectWidth + 1, bounds.width - x - Space.s2))
-        let textRect = NSRect(x: x, y: (bounds.height - lineHeight) / 2, width: available, height: lineHeight)
+        let width = max(0, bounds.width - x - Space.s2)
+        let textRect = NSRect(x: x, y: (bounds.height - lineHeight) / 2, width: width, height: lineHeight)
         (content.subject as NSString).draw(
             with: textRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attributes)
-        if !content.trailing.isEmpty {
-            let secondaryHeight = ceil(style.secondaryFont.ascender - style.secondaryFont.descender)
-            (content.trailing as NSString).draw(
-                at: NSPoint(x: x + available + Space.s5, y: (bounds.height - secondaryHeight) / 2),
-                withAttributes: trailingAttributes)
+    }
+
+    private func drawWIP(at x: CGFloat, changedFiles: Int, style: GraphStyle) {
+        let height = style.metrics.pillHeight
+        let badge = NSRect(x: x, y: ((bounds.height - height) / 2).rounded(), width: 88, height: height)
+        let shape = NSBezierPath(roundedRect: badge, xRadius: 3, yRadius: 3)
+        ColorToken.surfaceCanvas.nsColor.setFill()
+        shape.fill()
+        ColorToken.borderSubtle.nsColor.setStroke()
+        shape.lineWidth = Border.hairline
+        shape.stroke()
+
+        func draw(_ text: String, at x: CGFloat, font: NSFont, color: NSColor) {
+            let textHeight = ceil(font.ascender - font.descender)
+            (text as NSString).draw(
+                at: NSPoint(x: x, y: (bounds.height - textHeight) / 2),
+                withAttributes: [.font: font, .foregroundColor: color])
         }
+        draw(content.subject, at: badge.minX + Space.s3, font: style.monoFont, color: style.colors.textSecondary)
+        let countX = badge.maxX + Space.s4
+        if let pencil = style.symbol(
+            "pencil", color: ColorToken.statusWarning.nsColor, slot: 0, pointSize: 11, weight: .semibold)
+        {
+            pencil.draw(
+                in: NSRect(
+                    x: countX, y: (bounds.height - pencil.size.height) / 2, width: pencil.size.width,
+                    height: pencil.size.height),
+                from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        draw(changedFiles.formatted(), at: countX + 16, font: style.subjectFont, color: style.colors.textPrimary)
     }
 }
 

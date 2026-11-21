@@ -45,8 +45,10 @@ final class GraphViewController: NSViewController {
     private var snapshot: HistorySnapshot = .empty()
     private var rowCount = 0
     private var showsWIP = false
+    private var wipLane: UInt16 = 0
     private var showsFooter = false
     private var maxLanes = 1
+    private var stashLanes = 0
     private var scannedRows = 0
     private var matchSet = Set<Int32>()
     private var hoveredRow: Int?
@@ -64,6 +66,7 @@ final class GraphViewController: NSViewController {
     private var lastQuery: HistoryQuery?
     private var revealedInitialHead = false
     private var pendingReveal: ObjectID?
+    private var pendingStashReveal: ObjectID?
     /// The exact pill clicked, so keyboard actions do not choose another branch on the same commit.
     private var selectedRefName: String?
 
@@ -480,6 +483,7 @@ final class GraphViewController: NSViewController {
                 matchSet = Set(viewModel.matches)
             }
             maxLanes = 1
+            stashLanes = 0
             scannedRows = 0
             scanLanes(from: 0)
             reloadPreservingSelection(previous: previous)
@@ -499,6 +503,7 @@ final class GraphViewController: NSViewController {
             select(oid: oid)
         }
         revealRequestedCommit()
+        revealPendingStash()
         visibleRangeChanged()
         #if DEBUG
             applyDebugLaunchState()
@@ -509,29 +514,48 @@ final class GraphViewController: NSViewController {
     /// `automaticLaneLimit` lanes): it can grow when more history loads, and never changes with the scroll
     /// position. A width the user dragged replaces it.
     private func scanLanes(from start: Int) {
-        var widest = maxLanes
         let first = max(0, min(start, scannedRows))
         if first < snapshot.count {
-            for index in first..<snapshot.count { widest = max(widest, Int(snapshot.row(index).width)) }
+            for index in first..<snapshot.count {
+                let row = snapshot.row(index)
+                maxLanes = max(maxLanes, Int(row.width))
+                if snapshot.stashes[row.oid] != nil { stashLanes = max(stashLanes, Int(row.nodeLane) + 1) }
+            }
+        }
+        if let head = snapshot.headRow, head >= scannedRows {
+            let lane = snapshot.row(head).nodeLane
+            var prefixWidth = Int(lane) + 1
+            var occupied = false
+            for index in 0..<head {
+                let row = snapshot.row(index)
+                prefixWidth = max(prefixWidth, Int(row.width))
+                occupied =
+                    occupied || row.nodeLane == lane
+                    || row.segments.contains {
+                        min($0.fromLane, $0.toLane) <= lane && lane <= max($0.fromLane, $0.toLane)
+                    }
+            }
+            wipLane = occupied ? UInt16(clamping: prefixWidth) : lane
         }
         scannedRows = snapshot.count
-        if widest != maxLanes {
-            maxLanes = widest
-            updateGraphColumnWidth()
-        }
+        updateGraphColumnWidth()
     }
 
     private func updateGraphColumnWidth() {
         guard let column = tableView.tableColumn(withIdentifier: Self.columnGraph) else { return }
-        let flat = viewModel.filterMode == .onlyMatches && viewModel.isSearching
+        let metrics = style.metrics
+        let limit = max(GraphColumnLayout.Column.graph.minWidth, tableView.bounds.width * metrics.maxGraphShare)
+        func automaticWidth(lanes: Int) -> CGFloat {
+            let needed = metrics.columnWidth(lanes: min(lanes, Self.automaticLaneLimit))
+            return max(GraphColumnLayout.Column.graph.minWidth, min(needed, limit))
+        }
         let width: CGFloat
-        if let chosen = columns.widths[.graph], !flat {
-            width = chosen.rounded()
+        if let chosen = columns.widths[.graph], !isFlat {
+            // Keep stash nodes visible in a graph column that was narrowed before a stash lane appeared.
+            width = max(chosen, automaticWidth(lanes: stashLanes)).rounded()
         } else {
-            let needed = style.metrics.columnWidth(lanes: flat ? 1 : min(maxLanes, Self.automaticLaneLimit))
-            let limit = max(
-                GraphColumnLayout.Column.graph.minWidth, tableView.bounds.width * style.metrics.maxGraphShare)
-            width = max(GraphColumnLayout.Column.graph.minWidth, min(needed, limit)).rounded()
+            let lanes = wantsWIP ? max(maxLanes, Int(wipLane) + 1) : maxLanes
+            width = automaticWidth(lanes: isFlat ? 1 : lanes).rounded()
         }
         if abs(column.width - width) > 0.5 {
             let wasFitting = isFittingColumns
@@ -592,6 +616,7 @@ final class GraphViewController: NSViewController {
             return
         }
         showsWIP = wanted
+        updateGraphColumnWidth()
         rowCount = computeRowCount()
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0
@@ -601,10 +626,15 @@ final class GraphViewController: NSViewController {
                 tableView.removeRows(at: [0], withAnimation: [])
             }
         }
-        // The HEAD row draws the dashed top half when WIP sits above it.
-        if let head = snapshot.headRow, let row = tableRow(forCommit: head) {
-            tableView.reloadData(
-                forRowIndexes: [row], columnIndexes: IndexSet(0..<tableView.numberOfColumns))
+        // Refresh the visible cells along the WIP connection when the row appears or disappears.
+        if let head = snapshot.headRow, let last = tableRow(forCommit: head) {
+            let visible = tableView.rows(in: tableView.visibleRect)
+            let first = max(visible.location, wanted ? 1 : 0)
+            let end = min(last + 1, NSMaxRange(visible))
+            let column = tableView.column(withIdentifier: Self.columnGraph)
+            if first < end, column >= 0 {
+                tableView.reloadData(forRowIndexes: IndexSet(first..<end), columnIndexes: [column])
+            }
         }
     }
 
@@ -1136,6 +1166,20 @@ final class GraphViewController: NSViewController {
         }
     }
 
+    @discardableResult
+    func revealStash(_ oid: ObjectID) -> Bool {
+        guard viewModel.query.showsStashes, !isFlat else { return false }
+        pendingStashReveal = oid
+        revealPendingStash()
+        return true
+    }
+
+    private func revealPendingStash() {
+        guard let oid = pendingStashReveal, snapshot.stashes[oid] != nil else { return }
+        pendingStashReveal = nil
+        select(oid: oid)
+    }
+
     private func confirmDeepLoad() -> Bool {
         let alert = NSAlert()
         alert.messageText = "Load more history?"
@@ -1360,23 +1404,32 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
             let cell = reuse(GraphCellView.self, id: id)
             switch kind {
             case .wip:
-                let lane = Int(snapshot.headLane() ?? 0)
-                cell.content = .wip(lane: lane, color: snapshot.headRow.map { snapshot.row($0).nodeColor } ?? 0)
+                cell.content = .wip(lane: Int(wipLane), color: snapshot.headRow.map { snapshot.row($0).nodeColor } ?? 0)
             case .commit(let index):
                 let commit = snapshot.row(index)
                 var decor = NodeDecor()
                 decor.isRecoveryTip = viewModel.recoveryTip == commit.oid.hex(snapshot.format)
+                decor.isStash = snapshot.stashes[commit.oid] != nil
                 if let display = cache.display(index) {
                     decor.initials = display.initials
                     decor.email = display.authorEmail
-                    decor.toolTip = "\(display.authorName)\n\(display.authorEmail)\n\(display.date)"
+                    if let stash = snapshot.stashes[commit.oid] {
+                        decor.toolTip = "\(stash.name)\n\(DisplayText.sanitize(stash.subject))"
+                    } else {
+                        decor.toolTip = "\(display.authorName)\n\(display.authorEmail)\n\(display.date)"
+                    }
                     decor.avatarSlot = display.avatarSlot
                     decor.hasRefs = !display.labels.isEmpty && refsConnectToGraph
                 }
                 if isFlat {
                     cell.content = .flat(isMerge: commit.isMerge, color: 0, decor)
                 } else {
-                    decor.wipAbove = showsWIP && index == snapshot.headRow
+                    if showsWIP, let head = snapshot.headRow, index <= head {
+                        let target = snapshot.row(head)
+                        decor.wipConnection = EdgeSegment(
+                            fromLane: wipLane, toLane: index == head ? target.nodeLane : wipLane,
+                            color: target.nodeColor, half: index == head ? .top : .full)
+                    }
                     cell.content = .commit(commit, decor)
                 }
             case .footer:
@@ -1386,20 +1439,24 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
         case Self.columnSubject:
             let cell = reuse(SubjectCellView.self, id: id)
             var content = SubjectCellView.Content()
+            cell.toolTip = nil
             switch kind {
             case .wip:
-                content.subject = "Uncommitted changes"
-                content.style = .placeholder
+                content.subject = "// WIP"
+                content.style = .wip(changedFiles: session.status?.summary?.changedFiles ?? 0)
                 if let summary = session.status?.summary {
                     var parts: [String] = []
                     if summary.staged > 0 { parts.append("\(summary.staged) staged") }
                     if summary.unstaged > 0 { parts.append("\(summary.unstaged) unstaged") }
                     if summary.untracked > 0 { parts.append("\(summary.untracked) untracked") }
                     if summary.conflicted > 0 { parts.append("\(summary.conflicted) conflicted") }
-                    content.trailing = parts.joined(separator: " · ")
+                    cell.toolTip = parts.joined(separator: " · ")
                 }
             case .commit(let index):
                 if let display = cache.display(index) { content.subject = display.subject }
+                if let stash = snapshot.stashes[snapshot.row(index).oid] {
+                    cell.toolTip = "\(stash.name) · \(DisplayText.sanitize(stash.subject))"
+                }
             case .footer:
                 content.style = .footer
                 let count = snapshot.count.formatted()
@@ -1428,7 +1485,7 @@ extension GraphViewController: NSTableViewDataSource, NSTableViewDelegate {
             let cell = reuse(AuthorCellView.self, id: id)
             if case .commit(let index) = kind, let display = cache.display(index) {
                 cell.name = display.authorName
-                cell.toolTip = "\(display.authorName) <\(display.authorEmail)>"
+                cell.toolTip = display.authorName.isEmpty ? nil : "\(display.authorName) <\(display.authorEmail)>"
             } else {
                 cell.name = ""
                 cell.toolTip = nil
@@ -1546,6 +1603,14 @@ extension GraphViewController: NSMenuDelegate {
         let commit = snapshot.row(index)
         func item(_ title: String, _ action: @escaping () -> Void) {
             menu.addItem(ClosureMenuItem(title: title, action: action))
+        }
+        if let stash = snapshot.stashes[commit.oid], let operations {
+            item("Apply \(stash.name)") { operations.apply(stash, pop: false) }
+            item("Pop \(stash.name)") { operations.apply(stash, pop: true) }
+            menu.addItem(.separator())
+            item("Copy SHA") { Pasteboard.copy(stash.oid) }
+            item("Drop \(stash.name)…") { operations.drop(stash) }
+            return
         }
         // A ref label under the cursor adds label actions first.
         selectedRefName = pill?.label?.fullName

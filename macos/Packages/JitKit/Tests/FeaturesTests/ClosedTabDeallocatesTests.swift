@@ -19,13 +19,13 @@ import Testing
         }
     }
 
-    static func makeModel(_ sandbox: GitSandbox) -> AppModel {
+    static func makeModel(_ sandbox: GitSandbox, watchesFileSystem: Bool = false) -> AppModel {
         let location = StoreLocation(directory: URL(fileURLWithPath: sandbox.root + "/AppSupport"))
         let defaults = UserDefaults(suiteName: "jit.dealloc.\(UUID().uuidString)") ?? .standard
         return AppModel(
             engine: sandbox.engine, preferences: PreferencesStore(defaults: defaults),
             recents: RecentsStore(location: location), profiles: ProfileStore(location: location),
-            sessionStore: nil, watchesFileSystem: false)
+            sessionStore: nil, watchesFileSystem: watchesFileSystem)
     }
 
     static func spin(_ milliseconds: Int) async {

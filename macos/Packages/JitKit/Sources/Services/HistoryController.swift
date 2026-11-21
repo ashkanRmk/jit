@@ -48,6 +48,7 @@ public final class HistoryController {
     @ObservationIgnored private var isActive = true
     @ObservationIgnored private var refsDirty = false
     @ObservationIgnored private var refreshQueued = false
+    @ObservationIgnored private var stashes: [StashEntry] = []
 
     public static let firstPage = 300
     public static let pageSize = 2000
@@ -141,6 +142,14 @@ public final class HistoryController {
         reload(minimumRows: Self.firstPage)
     }
 
+    func setStashes(_ entries: [StashEntry]) {
+        guard stashes != entries else { return }
+        stashes = entries
+        if query.showsStashes, loader != nil || refreshTask != nil {
+            reload(minimumRows: max(Self.firstPage, min(snapshot.count, 5000)))
+        }
+    }
+
     /// Retry after an error.
     public func retry() {
         error = nil
@@ -231,6 +240,7 @@ public final class HistoryController {
         pageTask?.cancel()
         pageTask = nil
         refreshTask?.cancel()
+        refreshQueued = false
         refreshGeneration += 1
         let generation = refreshGeneration
         refreshTask = Task { [weak self] in
@@ -246,14 +256,21 @@ public final class HistoryController {
                 self.refreshTask = nil
                 return
             }
+            guard self.refreshGeneration == generation else { return }
             await self.replace(refs: refs, minimumRows: minimumRows)
-            if self.refreshGeneration == generation { self.refreshTask = nil }
+            if self.refreshGeneration == generation {
+                self.refreshTask = nil
+                if self.refreshQueued {
+                    self.refreshQueued = false
+                    self.refsMayHaveChanged()
+                }
+            }
         }
     }
 
     /// Loads a new history in the background and swaps it in when its first rows are ready.
     private func replace(refs newRefs: RefSnapshot, minimumRows: Int) async {
-        let replacement = HistoryLoader(repository: handle, query: query, refs: newRefs)
+        let replacement = HistoryLoader(repository: handle, query: query, refs: newRefs, stashes: stashes)
         let firstLoad = snapshot.count == 0 && loader == nil
         isLoading = true
         slowTask?.cancel()

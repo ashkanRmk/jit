@@ -24,7 +24,7 @@ struct LaneLayouter {
     static let paletteSize: UInt8 = 8
 
     enum SlotState: UInt8 {
-        case free, active, reserved
+        case free, active, reserved, stash
     }
 
     private var expected: [ObjectID] = []
@@ -88,7 +88,9 @@ struct LaneLayouter {
 
     /// Lays out the next row. `subject` is used only to name second-parent lanes of merges
     /// (`Merge branch 'x'`) so they get the branch's colour.
-    mutating func layout(oid: ObjectID, parents: some Collection<ObjectID>, subject: UnsafeRawBufferPointer) {
+    mutating func layout(
+        oid: ObjectID, parents: some Collection<ObjectID>, subject: UnsafeRawBufferPointer, stashBase: ObjectID? = nil
+    ) {
         let r = row
         row += 1
         output.segments.removeAll(keepingCapacity: true)
@@ -106,14 +108,29 @@ struct LaneLayouter {
         let node: Int
         var nodeColor: UInt8
         var anyDrawn = false
-        if let first = matches.first {
+        if let stashBase {
+            let base: Int
+            if let existing = states.indices.first(where: {
+                (states[$0] == .active || states[$0] == .reserved) && expected[$0] == stashBase
+            }) {
+                base = existing
+            } else {
+                base = allocate(from: 0, row: r)
+                expected[base] = stashBase
+                states[base] = .reserved
+            }
+            node = allocate(from: base + 1, row: r)
+            nodeColor = colorFor(key: tipKey(oid), slot: node)
+            states[node] = .stash
+        } else if let first = matches.first(where: { states[$0] != .stash }) {
             node = first
-            for index in matches where states[index] == .active {
-                anyDrawn = true
+            for index in matches where states[index] != .reserved {
+                let isStash = states[index] == .stash
+                if !isStash { anyDrawn = true }
                 output.segments.append(
                     EdgeSegment(
                         fromLane: UInt16(clamping: index), toLane: UInt16(clamping: node), color: colors[index],
-                        half: .top))
+                        half: .top, isStash: isStash))
             }
             if states[node] == .reserved {
                 nodeColor = oid == headCommit ? 0 : colorFor(key: tipKey(oid), slot: node)
@@ -131,11 +148,12 @@ struct LaneLayouter {
         if !anyDrawn { output.flags.insert(.tip) }
 
         // 2. Lanes passing by.
-        for index in states.indices where states[index] == .active && index != node && !matches.contains(index) {
+        for index in states.indices
+        where (states[index] == .active || states[index] == .stash) && index != node && !matches.contains(index) {
             output.segments.append(
                 EdgeSegment(
                     fromLane: UInt16(clamping: index), toLane: UInt16(clamping: index), color: colors[index],
-                    half: .full))
+                    half: .full, isStash: states[index] == .stash))
         }
 
         // 3. Parents.
@@ -145,7 +163,8 @@ struct LaneLayouter {
             colors[node] = nodeColor
             output.segments.append(
                 EdgeSegment(
-                    fromLane: UInt16(clamping: node), toLane: UInt16(clamping: node), color: nodeColor, half: .bottom))
+                    fromLane: UInt16(clamping: node), toLane: UInt16(clamping: node), color: nodeColor, half: .bottom,
+                    isStash: stashBase != nil))
             var mergeOrdinal = 0
             while let parent = parentIterator.next() {
                 mergeOrdinal += 1
@@ -283,11 +302,13 @@ struct LaneLayouter {
         if let headKey, key == headKey { return 0 }
         var color = UInt8(key % UInt64(Self.paletteSize - 1)) + 1
         for _ in 0..<(Self.paletteSize - 1) {
-            let left = slot > 0 && states[slot - 1] == .active && colors[slot - 1] == color
-            let right = slot + 1 < states.count && states[slot + 1] == .active && colors[slot + 1] == color
+            let left = slot > 0 && isDrawn(slot - 1) && colors[slot - 1] == color
+            let right = slot + 1 < states.count && isDrawn(slot + 1) && colors[slot + 1] == color
             if !left && !right { break }
             color = color % (Self.paletteSize - 1) + 1
         }
         return color
     }
+
+    private func isDrawn(_ slot: Int) -> Bool { states[slot] == .active || states[slot] == .stash }
 }

@@ -43,7 +43,7 @@ extension RepositorySession {
         scheduleRefresh(refresh, reason: .user)
         if !refresh.isDisjoint(with: [.refs, .head]) { history?.refsMayHaveChanged() }
         refreshOperationState()
-        if refresh.contains(.refs) { refreshStashesIfLoaded() }
+        if refresh.contains(.refs) { loadStashes() }
     }
 
     // MARK: State
@@ -65,14 +65,12 @@ extension RepositorySession {
     public func loadStashes() {
         guard let handle else { return }
         stashTask?.cancel()
-        stashTask = Task {
-            guard let list = try? await handle.stashes(), !Task.isCancelled else { return }
+        stashTask = Task { [weak self] in
+            guard let list = try? await handle.stashes(), !Task.isCancelled, let self, self.handle === handle
+            else { return }
             if list != self.stashes { self.stashes = list }
+            self.history?.setStashes(list)
         }
-    }
-
-    func refreshStashesIfLoaded() {
-        if stashes != nil { loadStashes() }
     }
 
     // MARK: Remote

@@ -110,6 +110,65 @@ import Testing
         #expect(inspector.openedFilePath == "a.txt")
     }
 
+    @Test func graphShowsSavedStashesAndCountsEachChangedFileOnce() async throws {
+        _ = NSApplication.shared
+        let sandbox = try GitSandbox()
+        let repo = try await sandbox.makeRepository()
+        try repo.write("a.txt", "base\n")
+        try await repo.commit("Initial commit")
+        for message in ["Older stash", "Newest stash"] {
+            try repo.write("a.txt", message + "\n")
+            try await repo.git("stash", "push", "-m", message)
+        }
+        try repo.write("a.txt", "staged\n")
+        try await repo.git("add", "a.txt")
+        try repo.write("a.txt", "unstaged too\n")
+        try repo.write("b.txt", "untracked\n")
+
+        let model = ClosedTabDeallocatesTests.makeModel(sandbox, watchesFileSystem: true)
+        var columns = GraphColumnLayout()
+        columns.widths[.graph] = 43
+        model.preferences.graphColumns = try JSONEncoder().encode(columns.json)
+        model.restore(nil)
+        let window = MainWindowController(model: model)
+        window.showWindow(nil)
+        defer { window.close() }
+        model.setForeground(true)
+        model.open(URL(fileURLWithPath: repo.path))
+        await model.settleOpen()
+        #expect(
+            await ClosedTabDeallocatesTests.waitUntil {
+                window.activeGraph?.loadedCount == 3 && window.activeGraph?.displayRow(0) == .wip
+            })
+        let graph = try #require(window.activeGraph)
+        let session = try #require(graph.tab.session)
+        let older = try #require(session.stashes?.last)
+        let oid = try #require(ObjectID(hex: older.oid))
+        #expect(graph.revealStash(oid))
+        #expect(graph.selectedOID == older.oid)
+        let graphColumn = try #require(graph.tableView.tableColumn(withIdentifier: GraphViewController.columnGraph))
+        let history = try #require(graph.history?.snapshot)
+        let stashIndex = try #require(history.row(for: oid))
+        let metrics = GraphMetrics.forDensity(model.preferences.graphDensity == .compact ? .compact : .comfortable)
+        #expect(graphColumn.width >= metrics.laneX(Int(history.row(stashIndex).nodeLane)) + metrics.nodeDiameter / 2)
+        let subjectColumn = try #require(graph.tableView.tableColumn(withIdentifier: GraphViewController.columnSubject))
+        let cell = try #require(graph.tableView(graph.tableView, viewFor: subjectColumn, row: 0) as? SubjectCellView)
+        #expect(cell.content.subject == "// WIP")
+        guard case .wip(let count) = cell.content.style else {
+            Issue.record("Expected the working-tree row to use the WIP style")
+            return
+        }
+        #expect(count == 2)
+
+        // The newest stash still has the same OID after dropping the older entry outside Jit.
+        #expect(await ClosedTabDeallocatesTests.waitUntil { session.isWatching })
+        try await repo.git("stash", "drop", "stash@{1}")
+        #expect(
+            await ClosedTabDeallocatesTests.waitUntil {
+                graph.loadedCount == 2 && graph.history?.snapshot.row(for: oid) == nil
+            })
+    }
+
     @Test func hoverNamesDeletedBranchesOnTaggedCommitsAndSearchResults() async throws {
         _ = NSApplication.shared
         let sandbox = try GitSandbox()

@@ -140,6 +140,7 @@ public final class RepositorySession {
             startWatching()
             scheduleRefresh(InvalidationKind.allCases, reason: .activation)
             history?.activate()
+            loadStashes()
         }
     }
 
@@ -150,6 +151,8 @@ public final class RepositorySession {
             stopWatching()
             loadTask?.cancel()
             loadTask = nil
+            stashTask?.cancel()
+            stashTask = nil
             cancelRefresh()
             history?.deactivate()
             lifecycle = .inactive
@@ -169,6 +172,8 @@ public final class RepositorySession {
         stopWatching()
         loadTask?.cancel()
         loadTask = nil
+        stashTask?.cancel()
+        stashTask = nil
         cancelRefresh()
         history?.close()
         history = nil
@@ -189,6 +194,7 @@ public final class RepositorySession {
         } else {
             scheduleRefresh(InvalidationKind.allCases, reason: .user)
             history?.refsMayHaveChanged()
+            loadStashes()
         }
     }
 
@@ -314,7 +320,7 @@ public final class RepositorySession {
                 self.apply(status)
                 self.lifecycle = .active
                 // Requests made before the handle existed (stash list for the command bar) run now.
-                if self.stashes == nil { self.loadStashes() }
+                self.loadStashes()
                 self.loadTask = nil
             } catch .cancelled {
                 return
@@ -438,7 +444,7 @@ public final class RepositorySession {
         scheduleRefresh(batch.kinds, reason: .fileSystem)
         if !batch.kinds.isDisjoint(with: [.refs, .head]) { history?.refsMayHaveChanged() }
         if !batch.kinds.isDisjoint(with: [.operationState, .index, .head]) { refreshOperationState() }
-        if batch.kinds.contains(.refs) { refreshStashesIfLoaded() }
+        if batch.kinds.contains(.refs) { loadStashes() }
     }
 }
 

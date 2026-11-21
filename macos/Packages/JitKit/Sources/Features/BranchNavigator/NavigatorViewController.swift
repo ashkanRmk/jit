@@ -277,7 +277,7 @@ final class NavigatorViewController: NSViewController {
     func showInGraph(row: Int) {
         guard row >= 0, let node = outline.item(atRow: row) as? NavigatorNode else { return }
         if let stash = node.stash, let oid = ObjectID(hex: stash.oid) {
-            operations?.inspectCommit(oid)
+            if graph?.revealStash(oid) != true { operations?.inspectCommit(oid) }
             return
         }
         guard let commit = node.ref?.commit else { return }

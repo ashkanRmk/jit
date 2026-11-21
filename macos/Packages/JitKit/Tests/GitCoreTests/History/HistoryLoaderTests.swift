@@ -86,6 +86,54 @@ enum HistoryFixtures {
         await loader.close()
     }
 
+    @Test func stashesAttachToTheirBaseAcrossReaderRestarts() async throws {
+        let repo = try await GitSandbox().makeRepository()
+        try repo.write("a.txt", "base\n")
+        try await repo.commit("Root")
+        try await repo.git("switch", "-c", "retired")
+        try await repo.commit("Retired branch base")
+        let base = try #require(ObjectID(hex: try await repo.git("rev-parse", "HEAD")))
+        try repo.write("a.txt", "staged\n")
+        try await repo.git("add", "a.txt")
+        try repo.write("untracked.txt", "untracked\n")
+        try await repo.git("stash", "push", "-u", "-m", "Saved staged and untracked")
+        try repo.write("a.txt", "unstaged\n")
+        try await repo.git("stash", "push", "-m", "Saved unstaged")
+        try await repo.git("switch", "main")
+        try await repo.git("branch", "-D", "retired")
+
+        let handle = try await HistoryFixtures.open(repo)
+        let refs = try await handle.refs()
+        let stashes = try await handle.stashes()
+        let loader = HistoryLoader(repository: handle, query: HistoryQuery(), refs: refs, stashes: stashes)
+        await loader.setReadSizes([64])
+        let first = try await loader.ensureLoaded(1)
+        #expect(first.count == 3)
+        #expect(!first.complete)
+        await loader.suspendReader()
+        let snapshot = try await loader.ensureLoaded(.max)
+        #expect(await loader.readerStarts == 2)
+        #expect(snapshot.count == 4)
+        let baseIndex = try #require(snapshot.row(for: base))
+        #expect(baseIndex == 2)
+        for (index, stash) in stashes.enumerated() {
+            let row = snapshot.row(index)
+            #expect(row.oid.hex(snapshot.format) == stash.oid)
+            #expect(row.subject == stash.message)
+            #expect(Array(row.parents) == [base])
+            #expect(row.segments.contains { $0.half == .bottom && $0.isStash })
+        }
+        let baseRow = snapshot.row(baseIndex)
+        #expect(baseRow.segments.filter { $0.half == .top && $0.isStash }.count == 2)
+        #expect(baseRow.nodeLane == 0)
+
+        let fileHistory = HistoryLoader(
+            repository: handle, query: HistoryQuery(path: "a.txt"), refs: refs, stashes: stashes)
+        let fileSnapshot = try await fileHistory.ensureLoaded(.max)
+        #expect(fileSnapshot.stashes.isEmpty)
+        #expect(fileSnapshot.count == 1)
+    }
+
     @Test func historyCancelKillsProcess() async throws {
         let sandbox = try GitSandbox()
         let repo = try HistoryFixtures.synthetic(20_000, in: sandbox)
