@@ -148,12 +148,13 @@ import Testing
         #expect(await ClosedTabDeallocatesTests.waitUntil { controller.activeGraph?.selectedOID != nil })
         let window = try #require(controller.window)
         let workbench = try #require(controller.activeWorkbench)
+        try #require(await ClosedTabDeallocatesTests.waitUntil { !workbench.inspectorModel.files.isEmpty })
         let viewport = try #require(window.contentViewController?.view as? WorkspaceZoomView)
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             window.appearance = NSAppearance(named: appearance)
             for width: CGFloat in [960, 1180, 1600] {
                 window.setContentSize(NSSize(width: width, height: 720))
-                for level in [PreferencesStore.ZoomLevel.percent75, .percent100, .percent150] {
+                for level in PreferencesStore.ZoomLevel.allCases {
                     model.preferences.zoomLevel = level
                     #expect(
                         await ClosedTabDeallocatesTests.waitUntil { abs(viewport.zoomFactor - level.factor) < 0.001 }
@@ -184,6 +185,13 @@ import Testing
                     let inspectorView = try #require(
                         inspector.viewController.view.subviews.first { $0 is WorkspaceHostingView<CommitInspectorView> }
                     )
+                    let fileList = try #require(scrollView(in: inspectorView))
+                    let backingRect = window.convertToBacking(fileList.convert(fileList.bounds, to: nil))
+                    for edge in [backingRect.minX, backingRect.maxY] {
+                        #expect(
+                            abs(edge.rounded() - edge) < 0.01,
+                            "width=\(width), zoom=\(level.factor), file list backing rect=\(backingRect)")
+                    }
                     #expect(
                         inspectorView.convert(inspectorView.bounds, to: nil).maxY <= window.contentLayoutRect.maxY + 1)
                     let sidebar = try #require(workbench.splitViewItems.first?.viewController.view)
@@ -212,6 +220,10 @@ import Testing
                 }
             }
         }
+    }
+
+    private func scrollView(in view: NSView) -> NSScrollView? {
+        (view as? NSScrollView) ?? view.subviews.lazy.compactMap { scrollView(in: $0) }.first
     }
 
     @Test func bulkCleanupRequiresConfirmationAndCancelPreservesBranches() async throws {

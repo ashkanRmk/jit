@@ -152,6 +152,7 @@ final class WorkspaceHostingView<Content: View>: NSView, WorkspaceZoomAware {
 }
 
 private struct ScaledWorkspaceContent<Content: View>: View {
+    @Environment(\.displayScale) private var displayScale
     let content: Content
     var logicalSize: NSSize?
     var factor: CGFloat = 1
@@ -162,6 +163,9 @@ private struct ScaledWorkspaceContent<Content: View>: View {
     var body: some View {
         content
             .environment(\.workspaceZoomFactor, factor)
+            // SwiftUI lays this out in logical points, then zooms it below. Round layout to the
+            // displayed pixel grid so text and AppKit controls don't land between backing pixels.
+            .environment(\.displayScale, displayScale * factor)
             .frame(width: logicalSize?.width, height: naturalHeight ? nil : logicalSize?.height, alignment: .topLeading)
             .onGeometryChange(for: NSSize.self) {
                 $0.size
